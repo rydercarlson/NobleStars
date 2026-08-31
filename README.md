@@ -31,6 +31,7 @@ xcodebuild -project NobleStars.xcodeproj -scheme NobleStars \
 - `NobleStars/App` — SwiftUI shell hosting the SpriteKit scene
 - `NobleStars/Game` — all gameplay: arena, entities, input, systems
 - Arena maps are ASCII grids in `Game/Arena/ArenaMap.swift` (`#` wall, `b` bush, `~` water, `S` spawn, `X` loot box)
+- `Assets/3D` — source 3D models for the in-progress 3D direction (not bundled into the app)
 
 ## Development
 
