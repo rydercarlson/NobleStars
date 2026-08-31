@@ -8,6 +8,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         case ended
     }
 
+    /// Which character the player brought into the match.
+    var playerKit: FighterKit = .nova
+
     private let world = SKNode()
     private let hud = SKNode()
     private let cam = SKCameraNode()
@@ -19,7 +22,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var projectiles: [Projectile] = []
     private var gasRing: GasRing?
     private var phase: MatchPhase = .countdown(endsAt: 0)
-    private var matchStarted = false
 
     private let moveJoystick = VirtualJoystick()
     private let aimJoystick = VirtualJoystick()
@@ -66,28 +68,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard let keys = GCKeyboard.coalesced?.keyboardInput else { return }
         let space = keys.button(forKeyCode: .spacebar)?.isPressed == true
         if space && !spaceWasPressed {
-            fireMain(direction: autoAimDirection(range: player.weapon.range))
+            let aim = autoAimSolution(range: player.weapon.range)
+            fireMain(direction: aim.direction, distance: aim.distance)
         }
         spaceWasPressed = space
 
         let superKey = keys.button(forKeyCode: .keyE)?.isPressed == true
         if superKey && !superKeyWasPressed && player.isSuperReady {
-            fireSuper(direction: autoAimDirection(range: player.superWeapon.range))
+            let aim = autoAimSolution(range: player.superWeapon.range)
+            fireSuper(direction: aim.direction, distance: aim.distance)
         }
         superKeyWasPressed = superKey
     }
-
-    private static let botColors: [SKColor] = [
-        SKColor(red: 0.9, green: 0.35, blue: 0.3, alpha: 1),
-        SKColor(red: 0.95, green: 0.6, blue: 0.2, alpha: 1),
-        SKColor(red: 0.85, green: 0.8, blue: 0.25, alpha: 1),
-        SKColor(red: 0.4, green: 0.8, blue: 0.35, alpha: 1),
-        SKColor(red: 0.3, green: 0.6, blue: 0.5, alpha: 1),
-        SKColor(red: 0.5, green: 0.45, blue: 0.9, alpha: 1),
-        SKColor(red: 0.75, green: 0.4, blue: 0.9, alpha: 1),
-        SKColor(red: 0.95, green: 0.5, blue: 0.7, alpha: 1),
-        SKColor(red: 0.6, green: 0.55, blue: 0.45, alpha: 1),
-    ]
 
     // MARK: - Debug hooks (see CLAUDE.md)
 
@@ -156,6 +148,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         hud.addChild(killFeedLabel)
 
         if let debugLabel { hud.addChild(debugLabel) }
+
+        // Debug: NS_KIT=tony|henry|nova forces the player's character.
+        if let raw = ProcessInfo.processInfo.environment["NS_KIT"],
+           let kit = FighterKit.named(raw) {
+            playerKit = kit
+        }
+
         layoutHUD()
         startMatch()
     }
@@ -168,7 +167,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         projectiles.removeAll()
         resultsOverlay.removeFromParent()
         gasRing = nil
-        matchStarted = false
         lastUpdateTime = 0
         shotsFired = 0
 
@@ -181,20 +179,22 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             spawns = [CGPoint(x: map.pixelWidth / 2, y: map.pixelHeight / 2)]
         }
 
-        player = Fighter(color: SKColor(red: 0.25, green: 0.75, blue: 0.95, alpha: 1))
+        player = Fighter(kit: playerKit)
         player.displayName = "You"
         player.position = spawns.removeFirst()
         world.addChild(player)
         fighters.append(player)
 
-        for (index, color) in Self.botColors.enumerated() {
-            guard !spawns.isEmpty else { break }
-            let bot = Fighter(color: color)
-            bot.displayName = "Bot \(index + 1)"
+        var botIndex = 1
+        while !spawns.isEmpty && botIndex <= 9 {
+            let kit = FighterKit.all.randomElement() ?? .nova
+            let bot = Fighter(kit: kit)
+            bot.displayName = "\(kit.name) \(botIndex)"
             bot.position = spawns.removeFirst()
             world.addChild(bot)
             fighters.append(bot)
             brains.append(BotBrain(fighter: bot))
+            botIndex += 1
         }
 
         for point in map.lootBoxPoints {
@@ -205,7 +205,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
 
         aimLine.path = nil
-        aimLine.lineWidth = 3
         aimLine.zPosition = ZLayer.groundDecal + 1
         world.addChild(aimLine)
 
@@ -305,19 +304,61 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return !blocked
     }
 
-    // MARK: - Firing
+    // MARK: - Damage plumbing
 
-    private var isPlaying: Bool {
-        if case .playing = phase { return true }
-        return false
+    /// Central damage path: haptics, Super charge, knockback, elimination.
+    func dealDamage(_ amount: Int, to target: Fighter, from attacker: Fighter,
+                    knockbackDirection: CGVector? = nil, knockbackStrength: CGFloat = 0) {
+        guard !target.isDead else { return }
+        if godMode, target === player { return }
+        target.takeDamage(amount, at: lastUpdateTime)
+        if let direction = knockbackDirection, knockbackStrength > 0 {
+            target.receiveKnockback(direction: direction, strength: knockbackStrength)
+        }
+        if target === player {
+            tookDamageHaptic.impactOccurred()
+        } else if attacker === player {
+            dealtDamageHaptic.impactOccurred(intensity: 0.7)
+        }
+        attacker.chargeSuper(damageDealt: amount)
+        if target.isDead {
+            eliminate(target, by: attacker.displayName)
+        }
     }
 
-    private func fire(from fighter: Fighter, weapon: Weapon, direction: CGVector) {
+    private func damageLootBox(_ box: LootBox, amount: Int) {
+        if box.takeDamage(amount) {
+            let cube = PowerCube()
+            cube.position = box.position
+            cube.zPosition = box.zPosition
+            world.addChild(cube)
+            box.removeFromParent()
+        }
+    }
+
+    // MARK: - Attacks
+
+    /// Dispatch one attack of any style.
+    private func performAttack(from fighter: Fighter, weapon: Weapon,
+                               direction: CGVector, distance: CGFloat) {
         let magnitude = hypot(direction.dx, direction.dy)
         guard magnitude > 0.001 else { return }
         let unit = CGVector(dx: direction.dx / magnitude, dy: direction.dy / magnitude)
         fighter.face(unit)
 
+        switch weapon.style {
+        case .pellets:
+            spawnPellets(from: fighter, weapon: weapon, unit: unit)
+        case .lob:
+            spawnLob(from: fighter, weapon: weapon, unit: unit, distance: distance)
+        case .melee:
+            meleeSwipe(from: fighter, weapon: weapon, unit: unit)
+        case .dash:
+            fighter.beginDash(weapon: weapon, direction: unit)
+        }
+    }
+
+    private func spawnPellets(from fighter: Fighter, weapon: Weapon, unit: CGVector) {
         let damage = Int(CGFloat(weapon.pelletDamage) * fighter.damageMultiplier)
         let baseAngle = atan2(unit.dy, unit.dx)
         let spread = weapon.spreadDegrees * .pi / 180
@@ -342,34 +383,165 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    private func fireMain(direction: CGVector) {
-        guard isPlaying, !player.isDead, player.consumeAmmo() else { return }
-        shotsFired += 1
-        fire(from: player, weapon: player.weapon, direction: direction)
+    private func spawnLob(from fighter: Fighter, weapon: Weapon, unit: CGVector, distance: CGFloat) {
+        let damage = Int(CGFloat(weapon.pelletDamage) * fighter.damageMultiplier)
+        let throwDistance = min(max(distance, GameConstants.tileSize * 1.5), weapon.range)
+        let start = CGPoint(x: fighter.position.x, y: fighter.position.y + 4)
+        let target = CGPoint(x: fighter.position.x + unit.dx * throwDistance,
+                             y: fighter.position.y + unit.dy * throwDistance)
+        let ball = LobProjectile(
+            owner: fighter, from: start, to: target, weapon: weapon, damage: damage,
+            color: SKColor(red: 0.85, green: 0.95, blue: 0.3, alpha: 1)
+        ) { [weak self] lob in
+            self?.lobLanded(lob)
+        }
+        world.addChild(ball)
     }
 
-    private func fireSuper(direction: CGVector) {
-        guard isPlaying, !player.isDead, player.consumeSuper() else { return }
-        fire(from: player, weapon: player.superWeapon, direction: direction)
+    private func lobLanded(_ lob: LobProjectile) {
+        let radius = lob.weapon.aoeRadius
+        let center = lob.position
+
+        // Splash ring.
+        let ring = SKShapeNode(circleOfRadius: radius)
+        ring.fillColor = SKColor(red: 0.95, green: 0.9, blue: 0.3, alpha: 0.35)
+        ring.strokeColor = SKColor(red: 0.7, green: 0.65, blue: 0.1, alpha: 0.8)
+        ring.lineWidth = 3
+        ring.position = center
+        ring.zPosition = ZLayer.groundDecal + 2
+        world.addChild(ring)
+        ring.run(.sequence([.fadeOut(withDuration: 0.3), .removeFromParent()]))
+
+        for target in fighters where target !== lob.owner && !target.isDead {
+            let d = hypot(target.position.x - center.x, target.position.y - center.y)
+            if d <= radius + target.bodyRadius {
+                dealDamage(lob.damage, to: target, from: lob.owner)
+            }
+        }
+        for node in world.children {
+            guard let box = node as? LootBox else { continue }
+            let d = hypot(box.position.x - center.x, box.position.y - center.y)
+            if d <= radius + 24 {
+                damageLootBox(box, amount: lob.damage)
+            }
+        }
+    }
+
+    private func meleeSwipe(from fighter: Fighter, weapon: Weapon, unit: CGVector) {
+        let damage = Int(CGFloat(weapon.pelletDamage) * fighter.damageMultiplier)
+        let baseAngle = atan2(unit.dy, unit.dx)
+        let halfArc = weapon.spreadDegrees * .pi / 180 / 2
+
+        func inArc(_ point: CGPoint, reach: CGFloat) -> Bool {
+            let dx = point.x - fighter.position.x
+            let dy = point.y - fighter.position.y
+            let d = hypot(dx, dy)
+            guard d <= weapon.range + reach else { return false }
+            let delta = atan2(sin(atan2(dy, dx) - baseAngle), cos(atan2(dy, dx) - baseAngle))
+            return abs(delta) <= halfArc
+        }
+
+        for target in fighters where target !== fighter && !target.isDead {
+            guard inArc(target.position, reach: target.bodyRadius) else { continue }
+            guard hasLineOfSight(from: fighter.position, to: target.position) else { continue }
+            dealDamage(damage, to: target, from: fighter,
+                       knockbackDirection: unit, knockbackStrength: weapon.knockback)
+        }
+        for node in world.children {
+            guard let box = node as? LootBox, inArc(box.position, reach: 24) else { continue }
+            damageLootBox(box, amount: damage)
+        }
+
+        // Swipe visual: a wedge that flashes and fades.
+        let wedge = SKShapeNode()
+        let path = CGMutablePath()
+        path.move(to: .zero)
+        path.addArc(center: .zero, radius: weapon.range,
+                    startAngle: baseAngle - halfArc, endAngle: baseAngle + halfArc,
+                    clockwise: false)
+        path.closeSubpath()
+        wedge.path = path
+        wedge.fillColor = SKColor(white: 1, alpha: 0.35)
+        wedge.strokeColor = SKColor(white: 1, alpha: 0.7)
+        wedge.lineWidth = 2
+        wedge.position = CGPoint(x: fighter.position.x, y: fighter.position.y + 14)
+        wedge.zPosition = fighter.zPosition + 1
+        world.addChild(wedge)
+        wedge.run(.sequence([.fadeOut(withDuration: 0.22), .removeFromParent()]))
+    }
+
+    /// Per-frame dash progress: damage on contact, water crossing, ending.
+    private func updateDashes(dt: TimeInterval) {
+        for fighter in fighters {
+            guard var dash = fighter.dashState else { continue }
+            dash.remaining -= dash.weapon.projectileSpeed * CGFloat(dt)
+
+            let tile = arena.map.tile(at: fighter.position)
+            if tile == .water { dash.crossedWater = true }
+
+            for enemy in fighters where enemy !== fighter && !enemy.isDead {
+                let id = ObjectIdentifier(enemy)
+                guard !dash.alreadyHit.contains(id) else { continue }
+                let d = hypot(enemy.position.x - fighter.position.x,
+                              enemy.position.y - fighter.position.y)
+                if d < fighter.bodyRadius + enemy.bodyRadius + 8 {
+                    dash.alreadyHit.insert(id)
+                    let multiplier = dash.crossedWater ? dash.weapon.waterDamageMultiplier : 1
+                    let damage = Int(CGFloat(dash.weapon.pelletDamage) * multiplier * fighter.damageMultiplier)
+                    dealDamage(damage, to: enemy, from: fighter,
+                               knockbackDirection: dash.direction,
+                               knockbackStrength: dash.weapon.knockback)
+                }
+            }
+
+            // Keep dashing while over water (so Henry lands on solid ground),
+            // with a sanity cap so a long river can't extend it forever.
+            if dash.remaining <= 0 && tile != .water {
+                fighter.endDash()
+            } else if dash.remaining < -4 * GameConstants.tileSize {
+                fighter.endDash()
+            } else {
+                fighter.dashState = dash
+            }
+        }
+    }
+
+    // MARK: - Firing entry points
+
+    private var isPlaying: Bool {
+        if case .playing = phase { return true }
+        return false
+    }
+
+    private func fireMain(direction: CGVector, distance: CGFloat) {
+        guard isPlaying, !player.isDead, !player.isDashing, player.consumeAmmo() else { return }
+        shotsFired += 1
+        performAttack(from: player, weapon: player.weapon, direction: direction, distance: distance)
+    }
+
+    private func fireSuper(direction: CGVector, distance: CGFloat) {
+        guard isPlaying, !player.isDead, !player.isDashing, player.consumeSuper() else { return }
+        performAttack(from: player, weapon: player.superWeapon, direction: direction, distance: distance)
         superButton.update(charge: 0)
     }
 
-    /// Direction to the nearest visible enemy in range, else the player's facing.
-    private func autoAimDirection(range: CGFloat) -> CGVector {
+    /// Auto-aim: direction and distance to the nearest visible enemy,
+    /// falling back to the player's facing at full range.
+    private func autoAimSolution(range: CGFloat) -> (direction: CGVector, distance: CGFloat) {
         guard let enemy = nearestVisibleEnemy(of: player, within: range * 1.1) else {
-            return player.facing
+            return (player.facing, range)
         }
         let dx = enemy.position.x - player.position.x
         let dy = enemy.position.y - player.position.y
         let distance = hypot(dx, dy)
-        return CGVector(dx: dx / distance, dy: dy / distance)
+        return (CGVector(dx: dx / distance, dy: dy / distance), distance)
     }
 
     // MARK: - Input
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if case .ended = phase {
-            startMatch()
+            handleResultsTap(touches)
             return
         }
         for touch in touches {
@@ -389,6 +561,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 aimingSuper = false
                 aimJoystick.begin(at: hudPoint)
             }
+        }
+    }
+
+    private func handleResultsTap(_ touches: Set<UITouch>) {
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: hud)
+        let tapped = hud.nodes(at: location)
+        if tapped.contains(where: { $0.name == "menuButton" }) {
+            let menu = MenuScene(size: size)
+            menu.scaleMode = scaleMode
+            view?.presentScene(menu, transition: .fade(withDuration: 0.4))
+        } else {
+            startMatch()
         }
     }
 
@@ -424,11 +609,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
                 let weapon = wasSuper ? player.superWeapon : player.weapon
                 let magnitude = hypot(value.dx, value.dy)
-                let direction = magnitude >= tapThreshold ? value : autoAimDirection(range: weapon.range)
-                if wasSuper {
-                    fireSuper(direction: direction)
+                let direction: CGVector
+                let distance: CGFloat
+                if magnitude >= tapThreshold {
+                    direction = value
+                    distance = magnitude * weapon.range   // joystick throw controls lob distance
                 } else {
-                    fireMain(direction: direction)
+                    (direction, distance) = autoAimSolution(range: weapon.range)
+                }
+                if wasSuper {
+                    fireSuper(direction: direction, distance: distance)
+                } else {
+                    fireMain(direction: direction, distance: distance)
                 }
             }
         }
@@ -445,33 +637,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
             if let fighter = other as? Fighter {
                 guard fighter !== projectile.owner, !fighter.isDead else { return }
-                if godMode, fighter === player {
+                let id = ObjectIdentifier(fighter)
+                guard !projectile.alreadyHit.contains(id) else { return }
+                projectile.alreadyHit.insert(id)
+                dealDamage(projectile.damage, to: fighter, from: projectile.owner,
+                           knockbackDirection: projectile.travelDirection,
+                           knockbackStrength: projectile.weapon.knockback)
+                if !projectile.weapon.piercesFighters {
                     projectile.explode()
-                    return
                 }
-                fighter.takeDamage(projectile.damage, at: lastUpdateTime)
-                if projectile.weapon.knockback > 0 {
-                    fighter.receiveKnockback(direction: projectile.travelDirection,
-                                             strength: projectile.weapon.knockback)
-                }
-                if fighter === player {
-                    tookDamageHaptic.impactOccurred()
-                } else if projectile.owner === player {
-                    dealtDamageHaptic.impactOccurred(intensity: 0.7)
-                }
-                projectile.owner.chargeSuper(damageDealt: projectile.damage)
-                if fighter.isDead {
-                    eliminate(fighter, by: projectile.owner.displayName)
-                }
-                projectile.explode()
             } else if let box = other as? LootBox {
-                if box.takeDamage(projectile.damage) {
-                    let cube = PowerCube()
-                    cube.position = box.position
-                    cube.zPosition = box.zPosition
-                    world.addChild(cube)
-                    box.removeFromParent()
-                }
+                damageLootBox(box, amount: projectile.damage)
                 projectile.explode()
             } else if projectile.destroysWalls, let wall = other, wall.name == "wallBreakable" {
                 smashWall(wall)   // the shell plows on through
@@ -554,24 +730,32 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             ? SKColor(red: 1.0, green: 0.85, blue: 0.2, alpha: 1)
             : SKColor(red: 0.95, green: 0.4, blue: 0.35, alpha: 1)
         title.text = victory ? "VICTORY!" : "DEFEATED"
-        title.position = CGPoint(x: 0, y: 40)
+        title.position = CGPoint(x: 0, y: 50)
         resultsOverlay.addChild(title)
 
         let subtitle = SKLabelNode(fontNamed: "AvenirNext-Bold")
         subtitle.fontSize = 28
         subtitle.fontColor = .white
         subtitle.text = "You placed #\(rank) of 10"
-        subtitle.position = CGPoint(x: 0, y: -10)
+        subtitle.position = CGPoint(x: 0, y: 0)
         resultsOverlay.addChild(subtitle)
 
         let hint = SKLabelNode(fontNamed: "AvenirNext-Medium")
         hint.fontSize = 20
         hint.fontColor = SKColor(white: 1, alpha: 0.8)
         hint.text = "Tap anywhere to play again"
-        hint.position = CGPoint(x: 0, y: -60)
+        hint.position = CGPoint(x: 0, y: -50)
         hint.run(.repeatForever(.sequence([.fadeAlpha(to: 0.4, duration: 0.7),
                                            .fadeAlpha(to: 0.9, duration: 0.7)])))
         resultsOverlay.addChild(hint)
+
+        let menuButton = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        menuButton.fontSize = 22
+        menuButton.fontColor = SKColor(red: 0.5, green: 0.85, blue: 1.0, alpha: 1)
+        menuButton.text = "CHARACTER SELECT"
+        menuButton.name = "menuButton"
+        menuButton.position = CGPoint(x: 0, y: -100)
+        resultsOverlay.addChild(menuButton)
 
         hud.addChild(resultsOverlay)
     }
@@ -662,14 +846,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         for brain in brains {
             let decision = brain.decide(now: currentTime, scene: self)
             brain.fighter.applyMovement(decision.move)
-            if let direction = decision.fireDirection {
+            if let direction = decision.fireDirection, !brain.fighter.isDashing {
                 if decision.useSuper, brain.fighter.consumeSuper() {
-                    fire(from: brain.fighter, weapon: brain.fighter.superWeapon, direction: direction)
-                } else if brain.fighter.consumeAmmo() {
-                    fire(from: brain.fighter, weapon: brain.fighter.weapon, direction: direction)
+                    performAttack(from: brain.fighter, weapon: brain.fighter.superWeapon,
+                                  direction: direction, distance: decision.fireDistance)
+                } else if !decision.useSuper, brain.fighter.consumeAmmo() {
+                    performAttack(from: brain.fighter, weapon: brain.fighter.weapon,
+                                  direction: direction, distance: decision.fireDistance)
                 }
             }
         }
+
+        updateDashes(dt: dt)
 
         for fighter in fighters {
             fighter.tick(dt: dt, currentTime: currentTime)
@@ -702,8 +890,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         runAutoFireIfNeeded(currentTime)
     }
 
-    /// Aim indicator: a filled cone matching the shotgun's spread, ending
-    /// exactly where the shells expire.
+    /// Aim indicator: a filled cone matching the weapon's spread (or reach),
+    /// ending exactly where the attack expires.
     private func updateAimLine() {
         guard aimTouch != nil, !player.isDead,
               hypot(aimJoystick.value.dx, aimJoystick.value.dy) >= tapThreshold else {
@@ -713,15 +901,26 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let weapon = aimingSuper ? player.superWeapon : player.weapon
         let start = CGPoint(x: player.position.x, y: player.position.y + 18)
         let facingAngle = atan2(player.facing.dy, player.facing.dx)
-        let halfSpread = weapon.spreadDegrees * .pi / 180 / 2
+        let spreadDegrees = max(weapon.spreadDegrees, 10)
+        let halfSpread = spreadDegrees * .pi / 180 / 2
 
         let path = CGMutablePath()
-        path.move(to: start)
-        path.addArc(center: start, radius: weapon.range,
-                    startAngle: facingAngle - halfSpread,
-                    endAngle: facingAngle + halfSpread,
-                    clockwise: false)
-        path.closeSubpath()
+        if weapon.style == .lob {
+            // Show the landing zone instead of a cone.
+            let magnitude = hypot(aimJoystick.value.dx, aimJoystick.value.dy)
+            let throwDistance = min(max(magnitude * weapon.range, GameConstants.tileSize * 1.5), weapon.range)
+            let center = CGPoint(x: start.x + player.facing.dx * throwDistance,
+                                 y: start.y + player.facing.dy * throwDistance)
+            path.addEllipse(in: CGRect(x: center.x - weapon.aoeRadius, y: center.y - weapon.aoeRadius,
+                                       width: weapon.aoeRadius * 2, height: weapon.aoeRadius * 2))
+        } else {
+            path.move(to: start)
+            path.addArc(center: start, radius: weapon.range,
+                        startAngle: facingAngle - halfSpread,
+                        endAngle: facingAngle + halfSpread,
+                        clockwise: false)
+            path.closeSubpath()
+        }
         aimLine.path = path
         aimLine.lineWidth = 1.5
         if aimingSuper {
@@ -738,9 +937,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
               currentTime - lastAutoFire >= interval, !player.isDead else { return }
         lastAutoFire = currentTime
         if player.isSuperReady {
-            fireSuper(direction: autoAimDirection(range: player.superWeapon.range))
+            let aim = autoAimSolution(range: player.superWeapon.range)
+            fireSuper(direction: aim.direction, distance: aim.distance)
         } else {
-            fireMain(direction: autoAimDirection(range: player.weapon.range))
+            let aim = autoAimSolution(range: player.weapon.range)
+            fireMain(direction: aim.direction, distance: aim.distance)
         }
     }
 

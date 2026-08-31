@@ -8,6 +8,7 @@ final class BotBrain {
     struct Decision {
         var move = CGVector.zero
         var fireDirection: CGVector?
+        var fireDistance: CGFloat = 0
         var useSuper = false
     }
 
@@ -52,7 +53,9 @@ final class BotBrain {
             if let enemy = visibleEnemy {
                 let distance = hypot(enemy.position.x - fighter.position.x,
                                      enemy.position.y - fighter.position.y)
-                let ideal = GameConstants.tileSize * 3.5
+                // Fight at a range suited to the kit: melee closes all the
+                // way in, ranged kits keep their distance.
+                let ideal = max(GameConstants.tileSize * 0.9, fighter.weapon.range * 0.7)
                 let toward = direction(to: enemy.position)
                 // Approach if far, back off if too close, strafe a bit in between.
                 if distance > ideal * 1.2 {
@@ -79,13 +82,21 @@ final class BotBrain {
         }
 
         // Shooting: independent of movement mode, on a personal cooldown.
+        // Only swing/fire when the enemy is actually within the weapon's
+        // reach (matters most for melee kits).
         if let enemy = visibleEnemy, now >= nextFireAt {
-            nextFireAt = now + fireInterval
-            let error = CGFloat.random(in: -aimErrorDegrees...aimErrorDegrees) * .pi / 180
-            let base = direction(to: enemy.position)
-            let angle = atan2(base.dy, base.dx) + error
-            decision.fireDirection = CGVector(dx: cos(angle), dy: sin(angle))
-            decision.useSuper = fighter.isSuperReady
+            let enemyDistance = distanceTo(enemy.position)
+            let useSuper = fighter.isSuperReady
+            let reach = (useSuper ? fighter.superWeapon : fighter.weapon).range
+            if enemyDistance < reach + GameConstants.tileSize * 0.5 {
+                nextFireAt = now + fireInterval
+                let error = CGFloat.random(in: -aimErrorDegrees...aimErrorDegrees) * .pi / 180
+                let base = direction(to: enemy.position)
+                let angle = atan2(base.dy, base.dx) + error
+                decision.fireDirection = CGVector(dx: cos(angle), dy: sin(angle))
+                decision.fireDistance = enemyDistance
+                decision.useSuper = useSuper
+            }
         }
 
         applyUnstick(now: now, to: &decision)

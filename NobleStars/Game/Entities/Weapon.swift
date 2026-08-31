@@ -1,41 +1,33 @@
 import CoreGraphics
 import Foundation
 
+/// How an attack is delivered.
+enum AttackStyle {
+    case pellets   // linear projectiles
+    case lob       // arcing ball that flies over walls, splash on landing
+    case melee     // instant swipe in an arc in front of the fighter
+    case dash      // charge forward, damaging everyone touched
+}
+
 /// Stats for one attack. Fighters carry a main weapon and a Super.
 struct Weapon {
-    var pelletCount: Int
-    var spreadDegrees: CGFloat
+    var style: AttackStyle = .pellets
+    var pelletCount = 1
+    var spreadDegrees: CGFloat = 0
     var pelletDamage: Int
     var range: CGFloat
-    var projectileSpeed: CGFloat
-    var pelletRadius: CGFloat
-    /// Super shells plow through breakable walls instead of stopping.
+    var projectileSpeed: CGFloat = 800
+    var pelletRadius: CGFloat = 5
+    /// Shells plow through breakable walls instead of stopping.
     var destroysWalls = false
-    /// Impulse applied to fighters hit by a pellet (points/sec, decays fast).
+    /// Impulse applied to fighters hit (points/sec, decays fast).
     var knockback: CGFloat = 0
-
-    /// The starter fighter's main attack: a short-range shotgun fan.
-    static let shotgun = Weapon(
-        pelletCount: 5,
-        spreadDegrees: 22,
-        pelletDamage: 300,
-        range: 5.0 * GameConstants.tileSize,
-        projectileSpeed: 800,
-        pelletRadius: 5
-    )
-
-    /// The starter fighter's Super: a wall-smashing blast that sends
-    /// enemies flying.
-    static let shotgunSuper = Weapon(
-        pelletCount: 9,
-        spreadDegrees: 34,
-        pelletDamage: 450,
-        range: 7.0 * GameConstants.tileSize,
-        projectileSpeed: 880,
-        pelletRadius: 10,
-        destroysWalls: true,
-        knockback: 520
-    )
+    /// Projectile keeps flying after hitting a fighter.
+    var piercesFighters = false
+    /// Splash radius on landing (lob style).
+    var aoeRadius: CGFloat = 0
+    /// Damage multiplier when a dash has crossed water (dash style).
+    var waterDamageMultiplier: CGFloat = 1
 }
 
 enum CombatTuning {

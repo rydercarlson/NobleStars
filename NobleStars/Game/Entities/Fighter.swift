@@ -5,8 +5,9 @@ import SpriteKit
 final class Fighter: SKNode {
     let bodyRadius: CGFloat = 20
     var moveSpeed: CGFloat = 250
-    let weapon = Weapon.shotgun
-    let superWeapon = Weapon.shotgunSuper
+    let kit: FighterKit
+    var weapon: Weapon { kit.weapon }
+    var superWeapon: Weapon { kit.superWeapon }
     let bodyColor: SKColor
     var displayName = "Fighter"
 
@@ -30,7 +31,9 @@ final class Fighter: SKNode {
     private(set) var facing = CGVector(dx: 0, dy: -1)
     private let facingDot: SKShapeNode
 
-    init(color: SKColor) {
+    init(kit: FighterKit) {
+        self.kit = kit
+        let color = kit.color
         bodyColor = color
 
         shadowNode = SKShapeNode(ellipseOf: CGSize(width: 40, height: 18))
@@ -80,9 +83,39 @@ final class Fighter: SKNode {
     /// Residual shove from knockback hits; decays every tick.
     private var knockbackVelocity = CGVector.zero
 
+    // MARK: - Dash Super
+
+    struct DashState {
+        let weapon: Weapon
+        let direction: CGVector
+        var remaining: CGFloat
+        var alreadyHit: Set<ObjectIdentifier> = []
+        var crossedWater = false
+    }
+    var dashState: DashState?
+    var isDashing: Bool { dashState != nil }
+
+    func beginDash(weapon: Weapon, direction: CGVector) {
+        dashState = DashState(weapon: weapon, direction: direction, remaining: weapon.range)
+        face(direction)
+        // Dash can cross water.
+        physicsBody?.collisionBitMask = PhysicsCategory.wall
+    }
+
+    func endDash() {
+        dashState = nil
+        physicsBody?.collisionBitMask =
+            PhysicsCategory.wall | PhysicsCategory.water | PhysicsCategory.fighter | PhysicsCategory.lootBox
+    }
+
     /// Drive movement from a joystick vector (magnitude 0...1).
     func applyMovement(_ input: CGVector) {
         guard let body = physicsBody else { return }
+        if let dash = dashState {
+            body.velocity = CGVector(dx: dash.direction.dx * dash.weapon.projectileSpeed,
+                                     dy: dash.direction.dy * dash.weapon.projectileSpeed)
+            return
+        }
         body.velocity = CGVector(dx: input.dx * moveSpeed + knockbackVelocity.dx,
                                  dy: input.dy * moveSpeed + knockbackVelocity.dy)
         let magnitude = hypot(input.dx, input.dy)

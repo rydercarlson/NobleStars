@@ -11,6 +11,9 @@ final class Projectile: SKNode {
 
     var destroysWalls: Bool { weapon.destroysWalls }
 
+    /// Fighters already struck, so a piercing shot can't hit twice.
+    var alreadyHit: Set<ObjectIdentifier> = []
+
     /// Unit direction of travel (for knockback).
     var travelDirection: CGVector {
         guard let v = physicsBody?.velocity else { return .zero }
