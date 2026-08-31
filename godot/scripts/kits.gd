@@ -14,10 +14,10 @@ const HEALTH_PER_CUBE := 400
 const DAMAGE_BONUS_PER_CUBE := 0.10
 const MOVE_SPEED := 7.0   # ~250 pt/s in the 2D game
 
-enum Style { PELLETS, LOB, MELEE, DASH }
+enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG }
 
 static func all() -> Array:
-	return [nova(), tony(), henry()]
+	return [nova(), tony(), henry(), sanjit()]
 
 static func named(kit_name: String) -> Dictionary:
 	for k in all():
@@ -58,6 +58,30 @@ static func tony() -> Dictionary:
 			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1300,
 			"range": 9.0 * TILE, "speed": 42.0, "radius": 0.32,
 			"destroys_walls": true, "knockback": 10.0, "pierces": true,
+			"aoe": 0.0, "water_mult": 1.0,
+		},
+	}
+
+static func sanjit() -> Dictionary:
+	# Fast brawler: MELEE with pellets=2 is a one-two punch (second hit lands
+	# a beat later); the Super staff flies out over walls and boomerangs back,
+	# hitting on both passes.
+	return {
+		"name": "Sanjit", "color": Color(0.95, 0.5, 0.2),
+		"model": "res://assets/sanjit.glb",
+		"clips": {"idle": "Idle", "run": "Running", "attack": "Double_Combo_Attack",
+				  "attack_speed": 4.5},
+		"move_speed": MOVE_SPEED * 1.2,
+		"weapon": {
+			"style": Style.MELEE, "pellets": 2, "spread_deg": 70.0, "damage": 500,
+			"range": 1.5 * TILE, "speed": 0.0, "radius": 0.0,
+			"destroys_walls": false, "knockback": 0.0, "pierces": false,
+			"aoe": 0.0, "water_mult": 1.0,
+		},
+		"super": {
+			"style": Style.BOOMERANG, "pellets": 1, "spread_deg": 0.0, "damage": 1100,
+			"range": 7.0 * TILE, "speed": 16.0, "radius": 0.45,
+			"destroys_walls": false, "knockback": 4.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
 	}

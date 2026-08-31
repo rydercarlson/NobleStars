@@ -17,7 +17,7 @@ Run it: `/Applications/Godot.app/Contents/MacOS/Godot --path godot` (add `--head
 - Sound effects, and voicelines recorded by the people the characters are based on.
 - New characters are Ryder's designs — ideas live in `plans.md`; ask before building one.
 
-**Debug env hooks** (mirror the v1 ones): `NS3_KIT=nova|tony|henry`, `NS3_AUTOFIRE=<sec>`, `NS3_AUTOWALK="x,z"`, `NS3_GODMODE=1`, `NS3_SHOTS="prefix:t1,t2,..."` (match-time screenshots, then quits), `NS3_MENU_SHOT=<path.png>` (menu screenshot, then quits). NS3_KIT/NS3_AUTOFIRE skip the menu. These are the testing strategy — there are no unit tests.
+**Debug env hooks** (mirror the v1 ones): `NS3_KIT=nova|tony|henry|sanjit`, `NS3_AUTOFIRE=<sec>`, `NS3_AUTOWALK="x,z"`, `NS3_GODMODE=1`, `NS3_SUPER=1` (start with Super charged), `NS3_SHOTS="prefix:t1,t2,..."` (match-time screenshots, then quits), `NS3_MENU_SHOT=<path.png>` (menu screenshot, then quits). NS3_KIT/NS3_AUTOFIRE skip the menu. These are the testing strategy — there are no unit tests.
 
 **GDScript gotchas:** `:=` cannot infer types from ternaries or cross-script members — annotate; never `class_name` anything Godot ships natively (a native `VirtualJoystick` silently shadowed ours — members vanish with only runtime "invalid access" errors; ours is `TouchStick`).
 

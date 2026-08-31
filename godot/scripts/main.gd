@@ -23,16 +23,19 @@ var feed_label: Label
 var status_label: Label
 var move_stick: TouchStick
 var aim_stick: TouchStick
+var super_stick: TouchStick   # dedicated Super joystick, anchored at the button
 var super_btn: SuperButton
+var fighter_bars: FighterBars
 var results: Control
 var results_title: Label
-var aiming_super := false
 var aim_mesh: MeshInstance3D
 
-# Narrow FOV + long distance ≈ Brawl Stars' near-orthographic look; shows
-# ~12 tiles across at 16:9, close to Brawl's framing.
-const CAMERA_OFFSET := Vector3(0, 18.0, 5.7)
-const CAMERA_FOV := 40.0
+# Orthographic, like Brawl Stars: wall verticals project straight up-down
+# everywhere on screen and nothing shears as the camera pans. ORTHO_SIZE is
+# the vertical view extent in meters (~12 tiles across at 16:9).
+# Pitch ~60° — oblique enough to read as 2.5D rather than straight top-down.
+const CAMERA_OFFSET := Vector3(0, 16.0, 9.2)
+const CAMERA_ORTHO_SIZE := 12.9
 const TAP_THRESHOLD := 0.3
 
 # Debug hooks
@@ -58,7 +61,8 @@ func _ready() -> void:
 	add_child(env)
 
 	cam = Camera3D.new()
-	cam.fov = CAMERA_FOV
+	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+	cam.size = CAMERA_ORTHO_SIZE
 	add_child(cam)
 
 	# Ground-projected aim indicator (cone / lob landing circle).
@@ -86,12 +90,17 @@ func _ready() -> void:
 func _build_hud() -> void:
 	hud = CanvasLayer.new()
 	add_child(hud)
+	fighter_bars = FighterBars.new()
+	fighter_bars.game = self
+	hud.add_child(fighter_bars)   # under the sticks and labels
 	move_stick = TouchStick.new()
 	aim_stick = TouchStick.new()
+	super_stick = TouchStick.new()
 	super_btn = SuperButton.new()
 	hud.add_child(move_stick)
 	hud.add_child(aim_stick)
 	hud.add_child(super_btn)
+	hud.add_child(super_stick)
 	super_btn.layout(get_viewport().get_visible_rect().size)
 	get_viewport().size_changed.connect(func() -> void:
 		super_btn.layout(get_viewport().get_visible_rect().size))
@@ -152,7 +161,7 @@ func _label(pos: Vector2, size: int, align: int) -> Label:
 
 func start_match() -> void:
 	for c in get_children():
-		if c is Arena or c is GasRing or c is Fighter or c is Projectile or c is Lob:
+		if c is Arena or c is GasRing or c is Fighter or c is Projectile or c is Lob or c is Boomerang:
 			c.queue_free()
 	for c in get_tree().get_nodes_in_group("lootbox") + get_tree().get_nodes_in_group("cube"):
 		c.queue_free()
@@ -171,6 +180,8 @@ func start_match() -> void:
 	var player_kit: Dictionary = Session.kit if not Session.kit.is_empty() else Kits.nova()
 	player = _spawn_fighter(player_kit, spawns.pop_front(), true)
 	player.display_name = "You"
+	if OS.get_environment("NS3_SUPER") != "":   # debug: start with Super charged
+		player.super_charge = 1.0
 
 	var i := 1
 	while not spawns.is_empty() and i <= 9:
@@ -191,6 +202,10 @@ func start_match() -> void:
 	_update_players_label()
 	cam.position = player.position + CAMERA_OFFSET
 	cam.look_at(player.position, Vector3.UP)
+	# Fighters were teleported to spawns; don't interpolate from old spots.
+	for f in fighters:
+		f.reset_physics_interpolation()
+	cam.reset_physics_interpolation()
 
 func _spawn_fighter(kit: Dictionary, pos: Vector3, is_player: bool) -> Fighter:
 	var f := Fighter.new()
@@ -297,8 +312,25 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			add_child(lob)
 		Kits.Style.MELEE:
 			_melee(f, weapon, unit)
+			# pellets > 1 = a combo: repeat strikes a beat apart (Sanjit's
+			# one-two punch), each following the fighter's current facing.
+			# No anim re-trigger: the attack clip covers the whole combo.
+			for i in range(1, int(weapon.pellets)):
+				get_tree().create_timer(0.22 * i).timeout.connect(func() -> void:
+					if phase == Phase.PLAYING and is_instance_valid(f) and not f.is_dead():
+						_melee(f, weapon, f.facing))
 		Kits.Style.DASH:
 			f.begin_dash(weapon, unit)
+		Kits.Style.BOOMERANG:
+			var boom := Boomerang.new()
+			boom.weapon = weapon
+			boom.damage = int(weapon.damage * f.damage_multiplier())
+			boom.owner_fighter = f
+			boom.direction = unit
+			boom.position = f.global_position + unit * 0.8 + Vector3(0, 1.2, 0)
+			boom.origin = boom.position
+			boom.body_entered.connect(_on_boomerang_hit.bind(boom))
+			add_child(boom)
 
 func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 	if not is_instance_valid(proj):
@@ -318,6 +350,18 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 	elif not body.is_in_group("water"):
 		proj.queue_free()
 
+func _on_boomerang_hit(body: Node3D, boom: Boomerang) -> void:
+	if not is_instance_valid(boom):
+		return
+	if body is Fighter:
+		if body == boom.owner_fighter or body.is_dead() or boom.already_hit.has(body):
+			return
+		boom.already_hit.append(body)
+		deal_damage(boom.damage, body, boom.owner_fighter, boom.travel_dir(), boom.weapon.knockback)
+	elif body.is_in_group("lootbox") and not boom.already_hit.has(body):
+		boom.already_hit.append(body)
+		_damage_lootbox(body, boom.damage)
+
 func _on_lob_land(lob: Lob) -> void:
 	var center: Vector3 = lob.target_pos
 	for f in fighters:
@@ -329,7 +373,40 @@ func _on_lob_land(lob: Lob) -> void:
 		if box.global_position.distance_to(center) <= lob.weapon.aoe + 0.7:
 			_damage_lootbox(box, lob.damage)
 
+## Fading ground wedge so melee swings are visible (they hit instantly and
+## otherwise show nothing but the attack animation).
+func _spawn_melee_arc(f: Fighter, weapon: Dictionary, unit: Vector3) -> void:
+	var arc := MeshInstance3D.new()
+	var mesh := ImmediateMesh.new()
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	arc.material_override = mat
+	var base := atan2(unit.x, unit.z)
+	var half := deg_to_rad(weapon.spread_deg) / 2.0
+	var tint: Color = f.kit.color.lightened(0.5)
+	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var steps := 10
+	for i in steps:
+		var a0 := base - half + half * 2.0 * float(i) / steps
+		var a1 := base - half + half * 2.0 * float(i + 1) / steps
+		mesh.surface_set_color(Color(tint, 0.55))
+		mesh.surface_add_vertex(Vector3.ZERO)
+		mesh.surface_set_color(Color(tint, 0.1))
+		mesh.surface_add_vertex(Vector3(sin(a0), 0, cos(a0)) * weapon.range)
+		mesh.surface_add_vertex(Vector3(sin(a1), 0, cos(a1)) * weapon.range)
+	mesh.surface_end()
+	arc.mesh = mesh
+	arc.position = f.global_position + Vector3(0, 0.15, 0)
+	add_child(arc)
+	var tw := create_tween()
+	tw.tween_property(arc, "transparency", 1.0, 0.22).from(0.0)
+	tw.tween_callback(arc.queue_free)
+
 func _melee(f: Fighter, weapon: Dictionary, unit: Vector3) -> void:
+	_spawn_melee_arc(f, weapon, unit)
 	var dmg := int(weapon.damage * f.damage_multiplier())
 	var half := deg_to_rad(weapon.spread_deg) / 2.0
 	for target in fighters:
@@ -457,6 +534,7 @@ func _end_match(rank: int, victory: bool) -> void:
 	center_label.text = ""
 	move_stick.release()
 	aim_stick.release()
+	super_stick.release()
 	results_title.text = ("VICTORY!" if victory else "DEFEATED") + "\nYou placed #%d of 10" % rank
 	results_title.add_theme_color_override("font_color",
 		Color(1.0, 0.85, 0.2) if victory else Color(0.95, 0.4, 0.35))
@@ -502,19 +580,23 @@ func _update_aim_indicator() -> void:
 	var im: ImmediateMesh = aim_mesh.mesh
 	im.clear_surfaces()
 	if phase != Phase.PLAYING or player == null or not is_instance_valid(player) \
-			or player.is_dead() or not aim_stick.active \
-			or aim_stick.value.length() < TAP_THRESHOLD:
+			or player.is_dead():
 		return
-	var weapon: Dictionary = player.kit["super"] if aiming_super else player.kit.weapon
-	var color := Color(1.0, 0.7, 0.2, 0.4) if aiming_super else Color(1, 1, 1, 0.3)
+	# The dedicated Super stick takes priority over the aim stick.
+	var use_super := super_stick.active
+	var stick: TouchStick = super_stick if use_super else aim_stick
+	if not stick.active or stick.value.length() < TAP_THRESHOLD:
+		return
+	var weapon: Dictionary = player.kit["super"] if use_super else player.kit.weapon
+	var color := Color(1.0, 0.7, 0.2, 0.4) if use_super else Color(1, 1, 1, 0.3)
 	var origin := player.global_position + Vector3(0, 0.08, 0)
-	var dir := Vector3(aim_stick.value.x, 0, aim_stick.value.y).normalized()
+	var dir := Vector3(stick.value.x, 0, stick.value.y).normalized()
 
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	im.surface_set_color(color)
 	if int(weapon.style) == Kits.Style.LOB:
 		# Landing-zone circle at the throw distance.
-		var dist: float = clamp(aim_stick.value.length() * weapon.range,
+		var dist: float = clamp(stick.value.length() * weapon.range,
 								Kits.TILE * 1.5, weapon.range)
 		var center := origin + dir * dist
 		for i in 24:
@@ -535,6 +617,22 @@ func _update_aim_indicator() -> void:
 			im.surface_add_vertex(origin + Vector3(sin(a0), 0, cos(a0)) * weapon.range)
 			im.surface_add_vertex(origin + Vector3(sin(a1), 0, cos(a1)) * weapon.range)
 	im.surface_end()
+
+	if int(weapon.style) == Kits.Style.LOB:
+		# Flight-path arc from the racket to the landing zone.
+		var dist2: float = clamp(stick.value.length() * weapon.range,
+								 Kits.TILE * 1.5, weapon.range)
+		var start := player.global_position + Vector3(0, 0.5, 0)
+		var target := player.global_position + dir * dist2
+		im.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+		im.surface_set_color(Color(color.r, color.g, color.b, 0.85))
+		var arc_steps := 20
+		for i in arc_steps + 1:
+			var t := float(i) / arc_steps
+			var flat := start.lerp(target, t)
+			var height := 4.0 * 3.0 * t * (1.0 - t)   # same parabola as Lob
+			im.surface_add_vertex(flat + Vector3(0, height + 0.3, 0))
+		im.surface_end()
 
 func _run_playing(delta: float) -> void:
 	if not player.is_dead():
@@ -601,26 +699,33 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.pressed:
 			if phase != Phase.PLAYING:
 				return
-			if super_btn.hit(event.position) and player.is_super_ready() and not aim_stick.active:
-				aiming_super = true
-				aim_stick.begin(event.position, event.index)
+			if super_btn.hit(event.position) and not super_stick.active:
+				# The Super has its own joystick, anchored at the button.
+				if player.is_super_ready():
+					super_stick.begin(super_btn.center, event.index)
+					super_stick.update_drag(event.position)
 			elif event.position.x < half and not move_stick.active:
 				move_stick.begin(event.position, event.index)
 			elif event.position.x >= half and not aim_stick.active:
-				aiming_super = false
 				aim_stick.begin(event.position, event.index)
 		else:
 			if move_stick.active and event.index == move_stick.touch_index:
 				move_stick.release()
+			elif super_stick.active and event.index == super_stick.touch_index:
+				var sv: Vector2 = super_stick.value
+				super_stick.release()
+				_release_fire(sv, true)
 			elif aim_stick.active and event.index == aim_stick.touch_index:
 				var v: Vector2 = aim_stick.value
-				var was_super := aiming_super
 				aim_stick.release()
-				aiming_super = false
-				_release_fire(v, was_super)
+				_release_fire(v, false)
 	elif event is InputEventScreenDrag:
 		if move_stick.active and event.index == move_stick.touch_index:
 			move_stick.update_drag(event.position)
+		elif super_stick.active and event.index == super_stick.touch_index:
+			super_stick.update_drag(event.position)
+			if super_stick.value.length() > 0.15:
+				player.face_direction(Vector3(super_stick.value.x, 0, super_stick.value.y))
 		elif aim_stick.active and event.index == aim_stick.touch_index:
 			aim_stick.update_drag(event.position)
 			if aim_stick.value.length() > 0.15:

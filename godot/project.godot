@@ -28,6 +28,10 @@ window/handheld/orientation=4
 
 pointing/emulate_touch_from_mouse=true
 
+[physics]
+
+common/physics_interpolation=true
+
 [layer_names]
 
 3d_physics/layer_1="walls"
