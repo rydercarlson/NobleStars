@@ -27,8 +27,12 @@ var super_btn: SuperButton
 var results: Control
 var results_title: Label
 var aiming_super := false
+var aim_mesh: MeshInstance3D
 
-const CAMERA_OFFSET := Vector3(0, 19, 6.0)   # steeper, more top-down
+# Narrow FOV + long distance ≈ Brawl Stars' near-orthographic look; shows
+# ~12 tiles across at 16:9, close to Brawl's framing.
+const CAMERA_OFFSET := Vector3(0, 18.0, 5.7)
+const CAMERA_FOV := 40.0
 const TAP_THRESHOLD := 0.3
 
 # Debug hooks
@@ -54,7 +58,20 @@ func _ready() -> void:
 	add_child(env)
 
 	cam = Camera3D.new()
+	cam.fov = CAMERA_FOV
 	add_child(cam)
+
+	# Ground-projected aim indicator (cone / lob landing circle).
+	aim_mesh = MeshInstance3D.new()
+	aim_mesh.mesh = ImmediateMesh.new()
+	var aim_mat := StandardMaterial3D.new()
+	aim_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	aim_mat.vertex_color_use_as_albedo = true
+	aim_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	aim_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	aim_mesh.material_override = aim_mat
+	add_child(aim_mesh)
+
 	_build_hud()
 
 	var shots := OS.get_environment("NS3_SHOTS")
@@ -476,9 +493,48 @@ func _physics_process(delta: float) -> void:
 
 	for f in fighters:
 		f.update_animation(now)
+	_update_aim_indicator()
 	_update_concealment()
 	_update_status()
 	_shot_check()
+
+func _update_aim_indicator() -> void:
+	var im: ImmediateMesh = aim_mesh.mesh
+	im.clear_surfaces()
+	if phase != Phase.PLAYING or player == null or not is_instance_valid(player) \
+			or player.is_dead() or not aim_stick.active \
+			or aim_stick.value.length() < TAP_THRESHOLD:
+		return
+	var weapon: Dictionary = player.kit["super"] if aiming_super else player.kit.weapon
+	var color := Color(1.0, 0.7, 0.2, 0.4) if aiming_super else Color(1, 1, 1, 0.3)
+	var origin := player.global_position + Vector3(0, 0.08, 0)
+	var dir := Vector3(aim_stick.value.x, 0, aim_stick.value.y).normalized()
+
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	im.surface_set_color(color)
+	if int(weapon.style) == Kits.Style.LOB:
+		# Landing-zone circle at the throw distance.
+		var dist: float = clamp(aim_stick.value.length() * weapon.range,
+								Kits.TILE * 1.5, weapon.range)
+		var center := origin + dir * dist
+		for i in 24:
+			var a0 := TAU * i / 24.0
+			var a1 := TAU * (i + 1) / 24.0
+			im.surface_add_vertex(center)
+			im.surface_add_vertex(center + Vector3(cos(a0), 0, sin(a0)) * weapon.aoe)
+			im.surface_add_vertex(center + Vector3(cos(a1), 0, sin(a1)) * weapon.aoe)
+	else:
+		# Cone matching the attack's spread and range.
+		var half := deg_to_rad(maxf(weapon.spread_deg, 8.0)) / 2.0
+		var base := atan2(dir.x, dir.z)
+		var steps := 12
+		for i in steps:
+			var a0 := base - half + 2.0 * half * i / steps
+			var a1 := base - half + 2.0 * half * (i + 1) / steps
+			im.surface_add_vertex(origin)
+			im.surface_add_vertex(origin + Vector3(sin(a0), 0, cos(a0)) * weapon.range)
+			im.surface_add_vertex(origin + Vector3(sin(a1), 0, cos(a1)) * weapon.range)
+	im.surface_end()
 
 func _run_playing(delta: float) -> void:
 	if not player.is_dead():
@@ -586,13 +642,15 @@ func _release_fire(stick_value: Vector2, use_super: bool) -> void:
 	else:
 		_auto_aim_fire(weapon, use_super)
 
-func _auto_aim_fire(weapon: Dictionary, _use_super: bool) -> void:
+func _auto_aim_fire(weapon: Dictionary, use_super: bool) -> void:
 	var enemy := nearest_visible_enemy(player, weapon.range * 1.1)
 	if enemy:
 		var v := enemy.global_position - player.global_position
 		_fire_player(weapon, v, v.length())
-	else:
+	elif not use_super:
 		_fire_player(weapon, player.facing, weapon.range)
+	# A tapped Super with no target keeps its charge instead of firing blind;
+	# drag from the button to aim it manually.
 
 func _update_concealment() -> void:
 	if player == null:
@@ -608,9 +666,11 @@ func _update_concealment() -> void:
 func _process(_delta: float) -> void:
 	if player == null or not is_instance_valid(player):
 		return
+	# Translate only — rotation is fixed at match start. Re-aiming at the
+	# player every frame yaws/rolls the world whenever the camera lags a
+	# strafing player.
 	var target := player.global_position + CAMERA_OFFSET
-	cam.global_position = cam.global_position.lerp(target, 0.08)
-	cam.look_at(player.global_position, Vector3.UP)
+	cam.global_position = cam.global_position.lerp(target, 0.15)
 
 func _update_status() -> void:
 	if player == null:

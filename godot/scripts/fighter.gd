@@ -25,7 +25,14 @@ var _anim: AnimationPlayer
 var _attack_anim_until := 0.0
 var _bar_fill: Sprite3D
 var _bar_bg: Sprite3D
+var _ammo_backs: Array[Sprite3D] = []
+var _ammo_fills: Array[Sprite3D] = []
+var _last_ammo_shown := -1.0
 var _pending_popup := 0
+
+const BAR_WIDTH := 1.06   # _bar_fill scale.x at full health
+const PIP_WIDTH := 0.30
+const PIP_GAP := 0.08
 
 func is_dead() -> bool:
 	return health <= 0
@@ -63,6 +70,9 @@ func _ready() -> void:
 
 	_bar_bg = _bar(Color(0.1, 0.1, 0.1, 0.8), 2.25)
 	_bar_fill = _bar(kit.color, 2.28)
+	for i in 3:
+		_ammo_backs.append(_pip(i, Color(0.1, 0.1, 0.1, 0.7), 2.06))
+		_ammo_fills.append(_pip(i, Color(1.0, 0.65, 0.1, 0.95), 2.08))
 	_refresh_bar()
 
 ## Rigged Meshy character: model stands on y=0 facing -Z, clips per kit.
@@ -146,10 +156,35 @@ func _bar(color: Color, y: float) -> Sprite3D:
 	add_child(s)
 	return s
 
+func _pip(index: int, color: Color, y: float) -> Sprite3D:
+	var s := Sprite3D.new()
+	s.texture = white_tex()
+	s.modulate = color
+	s.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	s.no_depth_test = true
+	s.pixel_size = 0.3
+	s.scale = Vector3(PIP_WIDTH, 0.07, 1)
+	s.position = Vector3(1.2 * (-0.38 + (PIP_WIDTH + PIP_GAP) * index), y, 0)
+	add_child(s)
+	return s
+
 func _refresh_bar() -> void:
+	# Health drains from the right; the left edge stays fixed.
 	var frac: float = clamp(float(health) / float(max_health), 0.0, 1.0)
-	_bar_fill.scale.x = 1.06 * frac
-	_bar_fill.position.x = -0.53 * (1.0 - frac) * 1.1 * 0.0  # centered is fine at this size
+	_bar_fill.scale.x = BAR_WIDTH * frac
+	_bar_fill.position.x = -(BAR_WIDTH * 1.2 / 2.0) * (1.0 - frac)
+
+func _refresh_ammo() -> void:
+	if abs(ammo - _last_ammo_shown) < 0.02:
+		return
+	_last_ammo_shown = ammo
+	for i in 3:
+		var f: float = clamp(ammo - i, 0.0, 1.0)
+		_ammo_fills[i].scale.x = max(PIP_WIDTH * f, 0.001)
+		# Anchor each pip's fill to its own left edge.
+		var pip_left := -0.53 + (PIP_WIDTH + PIP_GAP) * i
+		_ammo_fills[i].position.x = 1.2 * (pip_left + PIP_WIDTH * f / 2.0)
+		_ammo_fills[i].visible = f > 0.02
 
 func apply_movement(input_dir: Vector3) -> void:
 	if is_dashing():
@@ -223,6 +258,7 @@ func collect_cube() -> void:
 func tick(delta: float, now: float) -> void:
 	if ammo < Kits.MAX_AMMO:
 		ammo = min(Kits.MAX_AMMO, ammo + delta / Kits.AMMO_RECHARGE_SECONDS)
+	_refresh_ammo()
 	if not is_dead() and health < max_health and now - last_damage_at > Kits.REGEN_DELAY:
 		health = min(max_health, health + int(ceil(max_health * Kits.REGEN_RATE_PER_SECOND * delta)))
 		_refresh_bar()

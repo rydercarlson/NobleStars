@@ -14,6 +14,7 @@ Run it: `/Applications/Godot.app/Contents/MacOS/Godot --path godot` (add `--head
 - Replace the placeholder capsule fighters with rigged Meshy GLB characters. Tony is wired first (`kits.gd` `model`/`clips` keys → `fighter.gd` loads the GLB and drives idle/run/attack clips); Henry and the rest follow the same pattern. A kit without a `model` key falls back to the capsule.
 - Arena visual pass — the floor is currently a single flat plane, walls are boxes.
 - Ship to a real iPhone via the iOS export (see below).
+- Sound effects, and voicelines recorded by the people the characters are based on.
 - New characters are Ryder's designs — ideas live in `plans.md`; ask before building one.
 
 **Debug env hooks** (mirror the v1 ones): `NS3_KIT=nova|tony|henry`, `NS3_AUTOFIRE=<sec>`, `NS3_AUTOWALK="x,z"`, `NS3_GODMODE=1`, `NS3_SHOTS="prefix:t1,t2,..."` (match-time screenshots, then quits), `NS3_MENU_SHOT=<path.png>` (menu screenshot, then quits). NS3_KIT/NS3_AUTOFIRE skip the menu. These are the testing strategy — there are no unit tests.
