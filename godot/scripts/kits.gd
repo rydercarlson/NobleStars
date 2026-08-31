@@ -65,6 +65,9 @@ static func tony() -> Dictionary:
 static func henry() -> Dictionary:
 	return {
 		"name": "Henry", "color": Color(0.45, 0.55, 0.95),
+		"model": "res://assets/henry.glb",
+		"clips": {"idle": "Idle", "run": "Running", "attack": "Attack_Sweep",
+				  "attack_speed": 1.0},
 		"weapon": {
 			"style": Style.MELEE, "pellets": 1, "spread_deg": 110.0, "damage": 750,
 			"range": 1.9 * TILE, "speed": 0.0, "radius": 0.0,

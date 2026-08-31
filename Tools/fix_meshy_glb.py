@@ -9,14 +9,22 @@ does not produce:
   2. base colour atlas wired into emissiveTexture at full strength -> the
      character self-illuminates and ignores scene lighting
   3. KHR_materials_specular specularColorFactor pushed past the valid 0-1 range
-  4. the same 2048x2048 atlas embedded twice (base colour + emissive)
-  5. a metallic-roughness texture that is uniform -- megabytes encoding two
+  4. metallicFactor left at the glTF default of 1.0 -- full metal renders
+     black in a scene without reflection probes
+  5. the same atlas embedded twice (base colour + emissive)
+  6. a metallic-roughness texture that is uniform -- megabytes encoding two
      numbers, replaced with metallicFactor/roughnessFactor scalars
-  6. model faces +Z, but Godot forward -- and fighter.gd's facing nose -- is -Z
-  7. no idle animation, so a standing fighter has nothing to play (skipped
-     automatically for unrigged models)
+  7. auto-rig weight bleed: gear slung on the torso (a back-mounted paddle,
+     a strap) picks up upper-arm weights and swings out when the arm moves --
+     re-anchored to the nearest spine bone. Hand weights are never touched,
+     so held weapons keep following the hand.
+  8. model faces +Z, but Godot forward -- and fighter.gd's facing nose -- is -Z
+  9. no idle animation, so a standing fighter has nothing to play; and no
+     attack clip, so kits.gd has nothing to wire. Both are synthesized from
+     the rest pose for rigged models that lack them.
 
 Usage:  python3 Tools/fix_meshy_glb.py <in.glb> [-o <out.glb>] [--no-idle]
+        [--no-attack]
 
 No third-party dependencies beyond numpy.
 """
@@ -111,6 +119,11 @@ def fix_material(j, log):
         ext = m.get('extensions', {})
         if ext.pop('KHR_materials_specular', None) is not None:
             log("removed KHR_materials_specular (specular pushed past 0-1)")
+        pbr = m.setdefault('pbrMetallicRoughness', {})
+        if 'metallicRoughnessTexture' not in pbr and pbr.get('metallicFactor', 1) > 0:
+            pbr['metallicFactor'] = 0
+            log("metallicFactor -> 0 (glTF defaults to 1.0 = full metal, "
+                "which renders black without reflection probes)")
         if not ext:
             m.pop('extensions', None)
     still = {e for m in j.get('materials', []) for e in m.get('extensions', {})}
@@ -209,6 +222,83 @@ def drop_unused_textures(j, log):
         log(f"dropped {dropped} orphaned image(s) — the duplicated atlas")
 
 
+def fix_stray_limb_weights(j, blob, log):
+    """Re-anchor auto-rig weight bleed on the upper-arm bones.
+
+    Meshy's auto-rig gives torso-mounted gear (a paddle slung on the back, a
+    strap over the shoulder) weights on Arm/ForeArm bones, so it swings out
+    sideways the moment the arm leaves the T-pose. Any vertex weighted to an
+    upper-arm bone but further from that bone than a sleeve can reach (9.2%
+    of model height -- calibrated so a clean mirrored sleeve stays untouched)
+    has its arm-bone weight slots re-pointed at the nearest spine bone. Only
+    vertices DOMINATED by the arm bone are touched: held weapons are
+    hand-dominant (with intentional forearm blending) and hang far from the
+    wrist on purpose, so they are left alone.
+    """
+    if not j.get('skins'):
+        return
+    names = [n.get('name') for n in j['nodes']]
+    skin = j['skins'][0]
+    jn = {names[x]: k for k, x in enumerate(skin['joints'])}
+    need = ('LeftArm', 'LeftForeArm', 'LeftHand', 'RightArm', 'RightForeArm',
+            'RightHand', 'Spine', 'Spine01', 'Spine02')
+    if not all(b in jn for b in need):
+        return
+
+    def acc_array(ai):
+        a = j['accessors'][ai]; bv = j['bufferViews'][a['bufferView']]
+        off = bv.get('byteOffset', 0) + a.get('byteOffset', 0)
+        dt = np.dtype('<' + CT[a['componentType']])
+        n = NC[a['type']]
+        arr = np.frombuffer(blob, dt, a['count'] * n, off).reshape(a['count'], n)
+        return arr, off, dt
+
+    ibm, _, _ = acc_array(skin['inverseBindMatrices'])
+    ibm = np.asarray(ibm, np.float64).reshape(-1, 4, 4).transpose(0, 2, 1)
+    bind = {k: np.linalg.inv(ibm[k])[:3, 3] for k in range(len(skin['joints']))}
+
+    prim = j['meshes'][0]['primitives'][0]
+    v, _, _ = acc_array(prim['attributes']['POSITION'])
+    v = np.asarray(v, np.float64)
+    jj, joff, jdt = acc_array(prim['attributes']['JOINTS_0'])
+    jj = np.array(jj)                                   # writable copy
+    ww, _, _ = acc_array(prim['attributes']['WEIGHTS_0'])
+    height = v[:, 1].max() - v[:, 1].min()
+    cut = 0.092 * height
+
+    def seg_dist(p, a, b):
+        ab = b - a
+        t = np.clip(((p - a) @ ab) / (ab @ ab), 0, 1)
+        return np.linalg.norm(p - (a + t[:, None] * ab), axis=1)
+
+    spines = [jn[b] for b in ('Spine', 'Spine01', 'Spine02')]
+    wwa = np.asarray(ww)
+    dominant = jj[np.arange(len(jj)), wwa.argmax(1)]
+    arm_bones = {jn[side + b] for side in ('Left', 'Right')
+                 for b in ('Arm', 'ForeArm')}
+    moved = 0
+    for side in ('Left', 'Right'):
+        for bone, nxt in ((side + 'Arm', side + 'ForeArm'),
+                          (side + 'ForeArm', side + 'Hand')):
+            k = jn[bone]
+            d = seg_dist(v, bind[k], bind[jn[nxt]])
+            stray = (dominant == k) & (d > cut)
+            if not stray.any():
+                continue
+            for slot in range(jj.shape[1]):
+                hit = stray & np.isin(jj[:, slot], list(arm_bones)) & (wwa[:, slot] > 0)
+                if not hit.any():
+                    continue
+                sp = np.stack([np.linalg.norm(v[hit] - bind[si], axis=1)
+                               for si in spines])
+                jj[hit, slot] = np.array(spines, dtype=jj.dtype)[sp.argmin(0)]
+                moved += int(hit.sum())
+    if moved:
+        blob[joff:joff + jj.nbytes] = np.ascontiguousarray(jj, jdt).tobytes()
+        log(f"re-anchored {moved} stray limb weight slots to the spine "
+            "(torso-mounted gear was riding the arm bones)")
+
+
 def face_forward(j, log):
     """Meshy models face +Z; Godot forward is -Z. Yaw the armature 180."""
     names = [n.get('name') for n in j['nodes']]
@@ -236,127 +326,115 @@ def face_forward(j, log):
     log("yawed armature 180 so the model faces -Z (Godot forward)")
 
 
-def add_idle(j, blob, log, duration=4.0, keys=17):
-    """Build a looping standing idle from the rest pose.
+class Rig:
+    """Skeleton helpers shared by the clip synthesizers."""
 
-    The rest pose is the only genuinely standing pose in a Meshy export -- feet
-    level, legs straight, most upright -- but it is a stiff A-pose, so the arms
-    are relaxed toward the body first. Then a slow breath cycle is layered on.
-    Every bone the other clips drive gets a track here too: a clip with missing
-    tracks leaves those bones frozen wherever the previous animation stopped.
-    """
-    if any(a.get('name') == 'Idle' for a in j.get('animations', [])):
-        log("Idle already present, skipping"); return
-    names = [n.get('name') for n in j['nodes']]
-    idx = {n: i for i, n in enumerate(names)}
-    parent = {c: i for i, n in enumerate(j['nodes']) for c in n.get('children', [])}
-    roots = [i for i in range(len(j['nodes'])) if i not in parent]
-    root = roots[0]
+    def __init__(self, j, blob):
+        self.j = j
+        self.names = [n.get('name') for n in j['nodes']]
+        self.idx = {n: i for i, n in enumerate(self.names)}
+        self.parent = {c: i for i, n in enumerate(j['nodes'])
+                       for c in n.get('children', [])}
+        self.root = [i for i in range(len(self.names)) if i not in self.parent][0]
+        self.driven = sorted({ch['target']['node']
+                              for a in j.get('animations', [])
+                              for ch in a['channels']})
+        self.rest = {i: [np.array(v) for v in node_trs(j['nodes'][i])]
+                     for i in self.driven}
+        self._relaxed = None
 
-    driven = sorted({ch['target']['node'] for a in j.get('animations', [])
-                     for ch in a['channels']})
-    if not driven:
-        log("no existing animation tracks to mirror, skipping idle"); return
-
-    base = {i: list(node_trs(j['nodes'][i])) for i in driven}
-
-    def world(over):
+    def world(self, pose):
         W = {}
         def walk(i, M):
-            t, r, s = node_trs(j['nodes'][i])
-            if i in over: t, r, s = over[i]
+            t, r, s = node_trs(self.j['nodes'][i])
+            if i in pose: t, r, s = pose[i]
             W[i] = M @ trs_mat(t, r, s)
-            for c in j['nodes'][i].get('children', []): walk(c, W[i])
-        walk(root, np.eye(4)); return W
+            for c in self.j['nodes'][i].get('children', []): walk(c, W[i])
+        walk(self.root, np.eye(4))
+        return W
 
-    # --- relax the A-pose arms so the hands hang just outside the thighs ---
-    # Bones run along local +Y, so a bone's world direction is its Y column.
-    # Meshy rigs are noticeably asymmetric (here the two shoulders sit 6 cm
-    # different distances from the centreline), so aiming both arms along one
-    # fixed world direction buries the shorter side in the thigh. Solve each
-    # arm separately for a real clearance instead.
-    CLEARANCE = 0.04
-    if all(b in idx for b in ('LeftUpLeg', 'RightUpLeg')):
-        W = world(base)
-        centre = (W[idx['LeftUpLeg']][0, 3] + W[idx['RightUpLeg']][0, 3]) / 2
+    def aim(self, pose, bone, direction):
+        """Rotate `bone` so its +Y axis (the bone direction) points along
+        world `direction`, preserving roll."""
+        i = self.idx[bone]
+        Rp = self.world(pose)[self.parent[i]][:3, :3]
+        Rp = Rp / np.linalg.norm(Rp[:, 0])              # strip uniform scale
+        cur = qmat(pose[i][1]) @ np.array([0., 1., 0.])
+        tgt = np.linalg.inv(Rp) @ (np.asarray(direction, float)
+                                   / np.linalg.norm(direction))
+        pose[i][1] = qmul(between(cur, tgt), pose[i][1])
 
-        def aim(bone, direction, pose):
-            """Point `bone` along world `direction`, preserving roll."""
-            i = idx[bone]
-            Rp = world(pose)[parent[i]][:3, :3]
-            Rp = Rp / np.linalg.norm(Rp[:, 0])          # strip uniform scale
-            cur = qmat(pose[i][1]) @ np.array([0., 1., 0.])
-            tgt = np.linalg.inv(Rp) @ (direction / np.linalg.norm(direction))
-            pose[i][1] = qmul(between(cur, tgt), pose[i][1])
+    def spin(self, pose, bone, axis, deg):
+        """Post-multiply a bone-local rotation (e.g. a spine yaw)."""
+        i = self.idx[bone]
+        pose[i][1] = qmul(pose[i][1], axis_angle(axis, np.radians(deg)))
 
-        for side in ('Left', 'Right'):
-            arm, fore = side + 'Arm', side + 'ForeArm'
-            hand, leg = side + 'Hand', side + 'UpLeg'
-            if not all(b in idx for b in (arm, fore, hand, leg)):
-                continue
-            sign = np.sign(world(base)[idx[arm]][0, 3] - centre) or 1.0
-            goal = world(base)[idx[leg]][0, 3] + sign * CLEARANCE
+    def copy(self, pose):
+        return {k: [np.array(x) for x in v] for k, v in pose.items()}
 
-            def place(c):
-                pose = {k: list(v) for k, v in base.items()}
-                aim(arm,  np.array([sign * c,        -1.0, 0.05]), pose)
-                aim(fore, np.array([sign * c * 0.65, -1.0, 0.24]), pose)
-                return pose, world(pose)[idx[hand]][0, 3]
+    def relaxed(self):
+        """Rest pose with the T/A-pose arms relaxed so each hand hangs just
+        outside its thigh. Solved per arm: Meshy rigs are noticeably
+        asymmetric (shoulders can sit several cm different distances from the
+        centreline), so one shared arm angle buries a hand in the leg."""
+        if self._relaxed is not None:
+            return self.copy(self._relaxed)
+        CLEARANCE = 0.04
+        base = self.copy(self.rest)
+        if all(b in self.idx for b in ('LeftUpLeg', 'RightUpLeg')):
+            W = self.world(base)
+            centre = (W[self.idx['LeftUpLeg']][0, 3]
+                      + W[self.idx['RightUpLeg']][0, 3]) / 2
+            for side in ('Left', 'Right'):
+                arm, fore = side + 'Arm', side + 'ForeArm'
+                hand, leg = side + 'Hand', side + 'UpLeg'
+                if not all(b in self.idx for b in (arm, fore, hand, leg)):
+                    continue
+                sign = np.sign(self.world(base)[self.idx[arm]][0, 3] - centre) or 1.0
+                goal = self.world(base)[self.idx[leg]][0, 3] + sign * CLEARANCE
 
-            lo, hi = 0.0, 1.5
-            for _ in range(40):                          # bisect on lateral lean
-                mid = (lo + hi) / 2
-                if (place(mid)[1] - goal) * sign < 0: lo = mid
-                else: hi = mid
-            solved = place((lo + hi) / 2)[0]
-            for b in (arm, fore):
-                base[idx[b]] = solved[idx[b]]
-        log(f"relaxed A-pose arms, hands solved to {CLEARANCE*100:.0f} cm "
-            "outside each thigh")
+                def place(c):
+                    pose = self.copy(base)
+                    self.aim(pose, arm,  [sign * c,        -1.0, 0.05])
+                    self.aim(pose, fore, [sign * c * 0.65, -1.0, 0.24])
+                    return pose, self.world(pose)[self.idx[hand]][0, 3]
 
-    # --- breath cycle layered on the relaxed pose ---
-    # +X on the spine chain pitches forward/back; amplitudes in degrees.
-    breath = {'Spine02': -0.5, 'Spine01': -1.3, 'Spine': -0.9, 'neck': 0.5, 'Head': 0.4}
-    sway = {'LeftArm': 0.8, 'RightArm': -0.8, 'LeftShoulder': 0.5, 'RightShoulder': -0.5}
-    times = np.linspace(0.0, duration, keys)
-    phase = np.sin(2 * np.pi * times / duration)          # 0 at both ends -> loops
+                lo, hi = 0.0, 1.5
+                for _ in range(40):                     # bisect on lateral lean
+                    mid = (lo + hi) / 2
+                    if (place(mid)[1] - goal) * sign < 0: lo = mid
+                    else: hi = mid
+                solved = place((lo + hi) / 2)[0]
+                for b in (arm, fore):
+                    base[self.idx[b]] = solved[self.idx[b]]
+        self._relaxed = base
+        return self.copy(base)
 
-    tracks = {}
-    for i in driven:
-        t0, r0, s0 = base[i]
-        T = np.tile(t0, (keys, 1)); R = np.tile(r0, (keys, 1)); S = np.tile(s0, (keys, 1))
-        nm = names[i]
-        if nm in breath:
-            for k in range(keys):
-                R[k] = qmul(r0, axis_angle([1, 0, 0], np.radians(breath[nm]) * phase[k]))
-        if nm in sway:
-            for k in range(keys):
-                R[k] = qmul(R[k], axis_angle([0, 0, 1], np.radians(sway[nm]) * phase[k]))
-        if nm == 'Hips':
-            # subtle vertical settle, in the rig's centimetre units
-            T[:, 1] = t0[1] + 0.45 * phase
-        tracks[i] = (T, R, S)
 
-    # --- serialise ---
-    def add_view(arr):
+def write_clip(j, blob, name, times, poses, driven):
+    """Serialise a list of poses (one per time) as a new animation."""
+    keys = len(times)
+    def add_acc(arr, typ):
         arr = np.ascontiguousarray(arr, dtype='<f4')
         while len(blob) % 4: blob.append(0)
         off = len(blob); blob.extend(arr.tobytes())
-        j['bufferViews'].append({'buffer': 0, 'byteOffset': off, 'byteLength': arr.nbytes})
-        return len(j['bufferViews']) - 1
-
-    def add_acc(arr, typ):
-        arr = np.asarray(arr, dtype='<f4')
-        acc = {'bufferView': add_view(arr), 'componentType': 5126,
-               'count': int(arr.shape[0]), 'type': typ}
+        j['bufferViews'].append({'buffer': 0, 'byteOffset': off,
+                                 'byteLength': arr.nbytes})
+        acc = {'bufferView': len(j['bufferViews']) - 1, 'componentType': 5126,
+               'count': keys, 'type': typ}
         if typ == 'SCALAR':
             acc['min'] = [float(arr.min())]; acc['max'] = [float(arr.max())]
         j['accessors'].append(acc)
         return len(j['accessors']) - 1
 
-    tin = add_acc(times.reshape(-1, 1), 'SCALAR')
+    tin = add_acc(np.asarray(times).reshape(-1, 1), 'SCALAR')
     samplers, channels = [], []
-    for i, (T, R, S) in tracks.items():
+    for i in driven:
+        T = np.stack([p[i][0] for p in poses])
+        R = np.stack([p[i][1] for p in poses])
+        S = np.stack([p[i][2] for p in poses])
+        for k in range(1, keys):                # keep quaternions on one cover
+            if np.dot(R[k - 1], R[k]) < 0: R[k] = -R[k]
         for path, data, typ in (('translation', T, 'VEC3'),
                                 ('rotation', R, 'VEC4'),
                                 ('scale', S, 'VEC3')):
@@ -365,9 +443,122 @@ def add_idle(j, blob, log, duration=4.0, keys=17):
             channels.append({'sampler': len(samplers) - 1,
                              'target': {'node': i, 'path': path}})
     j.setdefault('animations', []).append(
-        {'name': 'Idle', 'samplers': samplers, 'channels': channels})
-    log(f"added looping 'Idle' clip — {duration:g}s, {len(channels)} channels "
-        f"over {len(tracks)} bones")
+        {'name': name, 'samplers': samplers, 'channels': channels})
+
+
+def add_idle(j, blob, log, duration=4.0, keys=17):
+    """Looping standing idle: the relaxed rest pose plus a slow breath cycle.
+
+    Every bone the other clips drive gets a track here too -- a clip with
+    missing tracks leaves those bones frozen wherever the previous animation
+    stopped.
+    """
+    if any(a.get('name') == 'Idle' for a in j.get('animations', [])):
+        log("Idle already present, skipping"); return
+    rig = Rig(j, blob)
+    if not rig.driven:
+        log("no existing animation tracks to mirror, skipping idle"); return
+    base = rig.relaxed()
+    log("relaxed A/T-pose arms, hands solved to 4 cm outside each thigh")
+
+    # +X on the spine chain pitches forward/back; amplitudes in degrees.
+    breath = {'Spine02': -0.5, 'Spine01': -1.3, 'Spine': -0.9,
+              'neck': 0.5, 'Head': 0.4}
+    sway = {'LeftArm': 0.8, 'RightArm': -0.8,
+            'LeftShoulder': 0.5, 'RightShoulder': -0.5}
+    times = np.linspace(0.0, duration, keys)
+    poses = []
+    for ph in np.sin(2 * np.pi * times / duration):     # 0 at both ends: loops
+        p = rig.copy(base)
+        for nm, amp in breath.items():
+            if nm in rig.idx and rig.idx[nm] in p:
+                rig.spin(p, nm, [1, 0, 0], amp * ph)
+        for nm, amp in sway.items():
+            if nm in rig.idx and rig.idx[nm] in p:
+                rig.spin(p, nm, [0, 0, 1], amp * ph)
+        if 'Hips' in rig.idx and rig.idx['Hips'] in p:
+            p[rig.idx['Hips']][0] = p[rig.idx['Hips']][0] + [0, 0.45 * ph, 0]
+        poses.append(p)
+    write_clip(j, blob, 'Idle', times, poses, rig.driven)
+    log(f"added looping 'Idle' clip — {duration:g}s over {len(rig.driven)} bones")
+
+
+ATTACKISH = ('attack', 'slash', 'thrust', 'punch', 'swing', 'smash', 'sweep',
+             'hit', 'kick', 'shoot', 'cast')
+
+
+def dirlerp(d0, d1, u):
+    """Spherical interpolation between two directions."""
+    d0 = d0 / np.linalg.norm(d0); d1 = d1 / np.linalg.norm(d1)
+    dot = float(np.clip(np.dot(d0, d1), -1, 1))
+    ang = np.arccos(dot)
+    if ang < 1e-6:
+        return d0
+    return (np.sin((1 - u) * ang) * d0 + np.sin(u * ang) * d1) / np.sin(ang)
+
+
+def add_attack(j, blob, log, fps=30):
+    """Synthesize a right-handed horizontal melee sweep ('Attack_Sweep') for
+    rigged exports that ship with no attack clip at all: windup pulling the
+    weapon arm back, an accelerating sweep across the front, follow-through,
+    and a settle back onto the exact relaxed pose Idle starts from.
+
+    Assumes the model already faces -Z (run after face_forward), where the
+    character's right hand is on +X.
+    """
+    have = [a.get('name', '').lower() for a in j.get('animations', [])]
+    if any(k in nm for nm in have for k in ATTACKISH):
+        return                                          # a real attack exists
+    rig = Rig(j, blob)
+    if not rig.driven or 'RightArm' not in rig.idx:
+        return
+    base = rig.relaxed()
+    Wb = rig.world(base)
+    ybone = lambda b: (qmat(base[rig.idx[b]][1]) @ [0, 1, 0])
+    arm0 = Wb[rig.idx['RightArm']][:3, :3] @ [0, 1, 0]  # relaxed arm dir
+    arm0 = arm0 / np.linalg.norm(arm0)
+
+    #        time   torso yaw   upper-arm dir            forearm dir      ease
+    KEYS = [(0.00,   0.0,  arm0,                    arm0,                None),
+            (0.14, -26.0,  [0.85, -0.30, +0.45],    [0.75, -0.05, +0.60], 'io'),
+            (0.26, +14.0,  [0.05, -0.15, -0.95],    [0.00, +0.05, -1.00], 'in'),
+            (0.40, +26.0,  [-0.65, -0.35, -0.55],   [-0.60, -0.20, -0.65], 'out'),
+            (0.55,   0.0,  arm0,                    arm0,                'io')]
+    EASE = {'in': lambda u: u * u * u,
+            'out': lambda u: 1 - (1 - u) ** 3,
+            'io': lambda u: u * u * (3 - 2 * u)}
+
+    def at(t):
+        for k in range(1, len(KEYS)):
+            t0, t1 = KEYS[k - 1][0], KEYS[k][0]
+            if t <= t1 or k == len(KEYS) - 1:
+                u = EASE[KEYS[k][4]](np.clip((t - t0) / (t1 - t0), 0, 1))
+                yaw = KEYS[k - 1][1] + u * (KEYS[k][1] - KEYS[k - 1][1])
+                da = dirlerp(np.asarray(KEYS[k - 1][2], float),
+                             np.asarray(KEYS[k][2], float), u)
+                df = dirlerp(np.asarray(KEYS[k - 1][3], float),
+                             np.asarray(KEYS[k][3], float), u)
+                return yaw, da, df
+
+    dur = KEYS[-1][0]
+    times = np.linspace(0.0, dur, int(round(dur * fps)) + 1)
+    poses = []
+    for t in times:
+        yaw, da, df = at(t)
+        p = rig.copy(base)
+        for bone, share in (('Hips', 0.35), ('Spine01', 0.40), ('Spine02', 0.25)):
+            if bone in rig.idx and rig.idx[bone] in p:
+                rig.spin(p, bone, [0, 1, 0], yaw * share)
+        rig.aim(p, 'RightArm', da)
+        if 'RightForeArm' in rig.idx:
+            rig.aim(p, 'RightForeArm', df)
+        if 'Hips' in rig.idx and rig.idx['Hips'] in p:      # settle into the hit
+            dip = 1.5 * np.sin(np.pi * np.clip((t - 0.14) / (dur - 0.14), 0, 1))
+            p[rig.idx['Hips']][0] = p[rig.idx['Hips']][0] - [0, dip, 0]
+        poses.append(p)
+    write_clip(j, blob, 'Attack_Sweep', times, poses, rig.driven)
+    log(f"added 'Attack_Sweep' clip — {dur:g}s melee sweep (no attack clip "
+        "shipped in the export)")
 
 
 def repack(j, blob, log):
@@ -407,6 +598,7 @@ def main():
     ap.add_argument('input')
     ap.add_argument('-o', '--output')
     ap.add_argument('--no-idle', action='store_true')
+    ap.add_argument('--no-attack', action='store_true')
     args = ap.parse_args()
     out = args.output or args.input
 
@@ -419,9 +611,12 @@ def main():
     fix_material(j, log)
     flatten_uniform_mr(j, blob, log)
     drop_unused_textures(j, log)
+    fix_stray_limb_weights(j, blob, log)
     face_forward(j, log)
     if not args.no_idle and j.get('skins'):
         add_idle(j, blob, log)
+    if not args.no_attack and j.get('skins'):
+        add_attack(j, blob, log)
     blob = repack(j, blob, log)
     save(out, j, blob)
     after = os.path.getsize(out)

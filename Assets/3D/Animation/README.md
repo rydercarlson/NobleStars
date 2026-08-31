@@ -12,9 +12,13 @@ produce. The raw Meshy export of the tennis brawler is preserved in git history
 
 ## Inventory
 
-| File | Source | Rig | Clips | Tris | Size |
-|---|---|---|---|---|---|
-| `tennis_brawler_animated.glb` | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 5 | ~21,000 | 7.0 MB |
+| File | Character | Source | Rig | Clips | Tris | Size |
+|---|---|---|---|---|---|---|
+| `tennis_brawler_animated.glb` | Tony | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 5 | ~21,000 | 7.0 MB |
+| `paddle_brawler_animated.glb` | Henry | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.5 MB |
+
+Both are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
+`godot/scripts/kits.gd` (`model` + `clips`).
 
 ## `tennis_brawler_animated.glb`
 
@@ -49,6 +53,26 @@ like the other clips, loops seamlessly (zero first/last-frame delta), and was ve
 free of mesh interpenetration — the racket hangs beside the leg with 13 cm of ground
 clearance.
 
+## `paddle_brawler_animated.glb` (Henry)
+
+Chibi kid with an afro who carries his paddle **slung on his back** — hands are empty
+(hand vertex counts are symmetric; unlike Tony there is no held weapon). ~8.3k tris,
+one 4096×4096 atlas. Shipped as a strict T-pose with only run/walk cycles
+(`Running`, `Walking`, `run_fast_3` — the latter two are unused by the game wiring),
+**no idle and no attack**, so the tool synthesized both:
+
+- `Idle` (4 s loop) — same recipe as Tony's, solved from this rig's own geometry
+- `Attack_Sweep` (0.55 s) — a right-handed horizontal melee sweep: windup pulling the
+  arm back with a torso counter-twist, an accelerating strike across the front,
+  follow-through, and a settle onto the exact pose Idle starts from. Sweeps bare-handed,
+  matching the model's back-mounted-paddle design. Wired as Henry's attack at 1× speed.
+
+This model also exposed a new Meshy auto-rig defect the tool now fixes: the back-slung
+paddle had picked up `LeftArm` skin weights, so it swung out horizontally the moment the
+arm left the T-pose. The tool re-anchors arm-dominated vertices that sit further from the
+arm bone than a sleeve can reach (9.2% of model height) onto the nearest spine bone —
+121 weight slots here. Hand bones are exempt, so Tony's racket keeps following his hand.
+
 ### What the cleanup fixed (all Meshy export defects)
 
 Recorded so the next model's diff makes sense — `Tools/fix_meshy_glb.py` does all of this:
@@ -58,24 +82,31 @@ Recorded so the next model's diff makes sense — `Tools/fix_meshy_glb.py` does 
 2. Base-colour atlas duplicated into `emissiveTexture` at factor [1,1,1] — the character
    self-illuminated and ignored scene lighting → emissive cleared
 3. `KHR_materials_specular` at 2.0, past the valid 0–1 range → extension removed
-4. The same 2048×2048 atlas embedded twice (base colour + emissive copy) → duplicate
-   dropped, buffer repacked: **12.6 MB → 7.0 MB**
-5. Faced +Z → armature yawed 180° to face −Z
-6. No idle clip → synthesized as above
+4. `metallicFactor` left at the glTF default of 1.0 — full metal renders black in a scene
+   without reflection probes → forced to 0 (the runtime clamp in `fighter.gd` remains as
+   belt-and-braces)
+5. The same atlas embedded twice (base colour + emissive copy) → duplicate dropped,
+   buffer repacked: **12.6 → 7.0 MB** (Tony), **34.0 → 17.5 MB** (Henry)
+6. Torso-mounted gear weighted to arm bones → re-anchored to the spine (see above)
+7. Faced +Z → armature yawed 180° to face −Z
+8. No idle clip → synthesized; no attack clip → synthesized
 
-### Using it in `godot/`
+### Adding the next character
 
-`godot/scripts/fighter.gd` builds each fighter from a `CapsuleMesh` (radius 0.45, height
-1.6) at `position.y = 0.8`, plus a sphere "nose" marking facing. To use this model:
+`godot/scripts/fighter.gd` already instantiates a kit's GLB when `kits.gd` declares
+`model` + `clips` (Tony and Henry are wired; Nova still uses the capsule). For a new
+Meshy export:
 
-- Copy into `godot/assets/` and let the import scan run (`--headless --import`). Import as
-  **Scene**; it arrives with an `AnimationPlayer` holding all five clips.
-- Add the scene at **`position.y = 0`** (feet already at origin). Scale **0.947** matches
-  the capsule's 1.6 height exactly; 1.0 gives a slightly taller fighter.
-- No extra rotation: the model already faces −Z, matching the nose the capsule uses.
-- Play `Idle` when stationary, `Walking`/`Running` by speed, `Thrust_Slash` on attack.
-- **Leave the `CollisionShape3D` alone** — the capsule collider is the physics body; only
-  the visual mesh is being replaced. Drop the nose sphere.
-- **Kit colour needs rethinking.** `_material.albedo_color = kit.color` tints a plain
-  capsule. This model carries a baked atlas, so per-kit identity needs an overlay/modulate
-  pass or one retextured model per kit.
+1. `python3 Tools/fix_meshy_glb.py <export.glb> -o Assets/3D/Animation/<name>_animated.glb`
+2. Read the tool's log — it says what it repaired and which clips it synthesized.
+3. Copy to `godot/assets/<kit>.glb`, run the import scan (`--headless --import`).
+4. Declare in `kits.gd`: `"model": "res://assets/<kit>.glb"` and
+   `"clips": {"idle": ..., "run": ..., "attack": ..., "attack_speed": ...}`.
+
+Cleaned models stand on y = 0 facing −Z at ~1.65–1.69 units tall, so they drop into the
+fighter scene with no offset, rotation, or rescale. The capsule `CollisionShape3D` stays —
+only the visual is replaced.
+
+**Kit colour still needs rethinking.** `_material.albedo_color = kit.color` tints the
+placeholder capsule. Models carry baked atlases, so per-kit identity needs an
+overlay/modulate pass or one retextured model per kit.

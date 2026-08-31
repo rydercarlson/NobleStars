@@ -18,7 +18,12 @@ assets**, not shipped app resources.
 | File | Source | Tris | Verts | Rigged | Size |
 |---|---|---|---|---|---|
 | `tennis_brawler.glb` | Meshy AI (image-to-3D + texture), 2026-08-31 | 21,003 | 19,419 | No | 13.8 MB |
+| `paddle_brawler.glb` | Meshy AI (remeshed + texture), 2026-08-31 | 6,796 | 10,091 | No | 28.3 MB |
 | `Animation/tennis_brawler_animated.glb` | Meshy AI (merged animations), 2026-08-31, cleaned | ~21,000 | 19,628 | Yes, 24 joints | 7.0 MB |
+| `Animation/paddle_brawler_animated.glb` | Meshy AI (merged animations), 2026-08-31, cleaned | ~8,300 | 11,417 | Yes, 24 joints | 17.5 MB |
+
+The static files are kept as generator-output archives (the paddle one carries two
+4096×4096 maps — hence the size); the `Animation/` versions are what the game uses.
 
 ## `tennis_brawler.glb`
 
@@ -80,7 +85,7 @@ model in its place:
 
 ## A note on repository size
 
-These files are committed directly, not through Git LFS. The largest is 14.5 MB,
+These files are committed directly, not through Git LFS. The largest is 28.3 MB,
 comfortably under GitHub's 100 MB per-file limit, but binaries are stored whole per
 revision — re-committing a changed model keeps every previous copy in history forever. If
 this folder grows to many models or models start getting revised in place, move it to Git
