@@ -20,6 +20,9 @@ var dash: Dictionary = {}   # empty = not dashing
 
 var _body_mesh: MeshInstance3D
 var _material: StandardMaterial3D
+var _model: Node3D
+var _anim: AnimationPlayer
+var _attack_anim_until := 0.0
 var _bar_fill: Sprite3D
 var _bar_bg: Sprite3D
 var _pending_popup := 0
@@ -53,6 +56,39 @@ func _ready() -> void:
 	col.position.y = 0.8
 	add_child(col)
 
+	if kit.has("model"):
+		_setup_model()
+	else:
+		_setup_capsule()
+
+	_bar_bg = _bar(Color(0.1, 0.1, 0.1, 0.8), 2.25)
+	_bar_fill = _bar(kit.color, 2.28)
+	_refresh_bar()
+
+## Rigged Meshy character: model stands on y=0 facing -Z, clips per kit.
+func _setup_model() -> void:
+	var scene: PackedScene = load(kit.model)
+	_model = scene.instantiate()
+	add_child(_model)
+	# Meshy exports metallicFactor=1.0; full metal renders black without
+	# reflection probes, so clamp it on every imported surface.
+	for mi in _model.find_children("*", "MeshInstance3D", true, false):
+		var mesh: Mesh = mi.mesh
+		for s in mesh.get_surface_count():
+			var mat = mesh.surface_get_material(s)
+			if mat is BaseMaterial3D:
+				mat.metallic = 0.0
+	_anim = _model.find_child("AnimationPlayer", true, false)
+	if _anim:
+		var clips: Dictionary = kit.clips
+		for clip_name in [clips.idle, clips.run]:
+			var a: Animation = _anim.get_animation(clip_name)
+			if a:
+				a.loop_mode = Animation.LOOP_LINEAR
+		_anim.play(clips.idle)
+
+## Placeholder capsule for kits without a model yet.
+func _setup_capsule() -> void:
 	_body_mesh = MeshInstance3D.new()
 	var mesh := CapsuleMesh.new()
 	mesh.radius = 0.45
@@ -76,9 +112,27 @@ func _ready() -> void:
 	nose.position = Vector3(0, 1.15, -0.42)
 	add_child(nose)
 
-	_bar_bg = _bar(Color(0.1, 0.1, 0.1, 0.8), 2.25)
-	_bar_fill = _bar(kit.color, 2.28)
-	_refresh_bar()
+## Drives idle/run/attack clips; called by the scene each frame with game time.
+func update_animation(game_now: float) -> void:
+	if _anim == null or is_dead():
+		return
+	if game_now < _attack_anim_until:
+		return
+	var clips: Dictionary = kit.clips
+	var moving := velocity.length() > 0.5
+	var want: String = clips.run if moving else clips.idle
+	if _anim.current_animation != want:
+		_anim.play(want, 0.15)
+
+func play_attack_animation(game_now: float) -> void:
+	if _anim == null:
+		return
+	var clips: Dictionary = kit.clips
+	var speed: float = clips.get("attack_speed", 1.0)
+	_anim.play(clips.attack, 0.05, speed)
+	var a: Animation = _anim.get_animation(clips.attack)
+	if a:
+		_attack_anim_until = game_now + a.length / speed
 
 func _bar(color: Color, y: float) -> Sprite3D:
 	var s := Sprite3D.new()
@@ -150,10 +204,11 @@ func take_damage(amount: int, now: float) -> void:
 	last_damage_at = now
 	_pending_popup += amount
 	_refresh_bar()
-	# Hit flash
-	_material.albedo_color = Color.WHITE
-	get_tree().create_timer(0.07).timeout.connect(
-		func() -> void: _material.albedo_color = kit.color)
+	# Hit flash (capsule placeholder only; models keep their own material)
+	if _material:
+		_material.albedo_color = Color.WHITE
+		get_tree().create_timer(0.07).timeout.connect(
+			func() -> void: _material.albedo_color = kit.color)
 
 func receive_knockback(direction: Vector3, strength: float) -> void:
 	knockback_vel += direction.normalized() * strength
@@ -183,8 +238,10 @@ func die() -> void:
 
 func set_concealed(hidden: bool, self_view: bool) -> void:
 	if self_view:
-		_material.albedo_color.a = 0.55 if hidden else 1.0
-		_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if hidden else BaseMaterial3D.TRANSPARENCY_DISABLED
+		if _material:
+			_material.albedo_color.a = 0.55 if hidden else 1.0
+			_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if hidden else BaseMaterial3D.TRANSPARENCY_DISABLED
+		# Model fighters stay visible to themselves in bushes.
 	else:
 		visible = not hidden
 

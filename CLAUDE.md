@@ -1,14 +1,34 @@
 # Noble Stars
 
-Brawl Stars–inspired top-down 2.5D arena battler for iOS. SpriteKit + SwiftUI shell, Swift, no external dependencies. Landscape-only, iPhone-only (iPadOS 26 has orientation-lock regressions). Plan and milestones: `~/.claude/plans/hello-i-would-like-stateless-kurzweil.md`.
+Brawl Stars–inspired top-down arena battler (Showdown mode: last fighter standing, shrinking gas ring, loot-box power cubes). **Active development is the 3D Godot 4 game in `godot/`.** The original SpriteKit iOS game (`NobleStars/`) is v1 — complete, kept working, but not being extended.
 
-## Godot 3D port (`godot/`)
+## Godot 3D game (`godot/`) — main development
 
-The long-term direction is a 3D rebuild in Godot 4 using Meshy-generated GLB characters; the SpriteKit game above is v1 and stays working. Run the 3D game: `/Applications/Godot.app/Contents/MacOS/Godot --path godot` (add `--headless --import` after adding files). Debug env hooks mirror the 2D ones: `NS3_KIT=nova|tony|henry`, `NS3_AUTOFIRE=<sec>`, `NS3_AUTOWALK="x,z"`, `NS3_GODMODE=1`, and `NS3_SHOTS="prefix:t1,t2,..."` (saves screenshots at those match times, then quits — the verification loop). Desktop controls: WASD move, left-click aimed fire, Space auto-aim, E Super, R restart. All scenes are built in code; `.tscn` files stay minimal. GDScript gotcha: `:=` cannot infer types from ternary expressions — annotate (`var t: float = ...`). Character models come from Meshy as GLB — always run `python3 Tools/fix_meshy_glb.py <file.glb>` on a fresh export before committing (fixes broken material export, +Z facing, and adds the missing Idle clip); cleaned models live in `Assets/3D/` (see its README).
+Godot 4.7, everything built in code (the `.tscn` files are near-empty shells). Entry scene is `menu.tscn` (title + character select); `game.tscn` is the match. Scripts live in `godot/scripts/`: `main.gd` is the match hub (mirrors v1's GameScene), plus `fighter.gd`, `arena.gd`, `bot_brain.gd`, `gas_ring.gd`, `kits.gd` (character data), `projectile.gd`/`lob.gd`, `virtual_joystick.gd`, `super_button.gd`, `menu.gd`, `session.gd`.
 
-## Build & run
+Run it: `/Applications/Godot.app/Contents/MacOS/Godot --path godot` (add `--headless --import` after adding files — REQUIRED after new scripts too, or class members silently vanish at runtime).
 
-Full Xcode lives at /Applications/Xcode.app but `xcode-select` points at CommandLineTools — always prefix builds with `DEVELOPER_DIR`:
+**Current state:** full Showdown match playable — three kits (Nova shotgun, Tony lob, Henry melee/dash), bots, gas ring, loot, twin floating touch sticks (move left half, aim right half — release fires, tap auto-aims), drawn Super button, menu, results overlay. Desktop fallbacks: WASD, Space auto-aim, E Super.
+
+**Where it's going:**
+- Replace the placeholder capsule fighters with rigged Meshy GLB characters. Tony is wired first (`kits.gd` `model`/`clips` keys → `fighter.gd` loads the GLB and drives idle/run/attack clips); Henry and the rest follow the same pattern. A kit without a `model` key falls back to the capsule.
+- Arena visual pass — the floor is currently a single flat plane, walls are boxes.
+- Ship to a real iPhone via the iOS export (see below).
+- New characters are Ryder's designs — ideas live in `plans.md`; ask before building one.
+
+**Debug env hooks** (mirror the v1 ones): `NS3_KIT=nova|tony|henry`, `NS3_AUTOFIRE=<sec>`, `NS3_AUTOWALK="x,z"`, `NS3_GODMODE=1`, `NS3_SHOTS="prefix:t1,t2,..."` (match-time screenshots, then quits), `NS3_MENU_SHOT=<path.png>` (menu screenshot, then quits). NS3_KIT/NS3_AUTOFIRE skip the menu. These are the testing strategy — there are no unit tests.
+
+**GDScript gotchas:** `:=` cannot infer types from ternaries or cross-script members — annotate; never `class_name` anything Godot ships natively (a native `VirtualJoystick` silently shadowed ours — members vanish with only runtime "invalid access" errors; ours is `TouchStick`).
+
+**Character model pipeline:** Meshy exports GLB — always run `python3 Tools/fix_meshy_glb.py <file.glb>` on a fresh export before committing (fixes broken material export, +Z facing, and adds the missing Idle clip); cleaned models live in `Assets/3D/` (see its README) and get copied into `godot/assets/` when wired into a kit.
+
+**iOS export** (`godot/export_presets.cfg`, templates installed at `~/Library/Application Support/Godot/export_templates/4.7.2.stable/`): `--export-debug "iOS" build/ios/noblestars3d.ipa` writes an Xcode project (export_project_only). Gotchas learned the hard way: iOS export REQUIRES `rendering/textures/vram_compression/import_etc2_astc=true` in project.godot — without it validation fails with an EMPTY error message; Godot's `targeted_device_family` enum is 0=iPhone 1=iPad 2=both (not Apple's); the generated pbxproj contains six unreplaced `$additional_pbx_*`/`$pbx_embeded_frameworks` placeholder lines that must be deleted before xcodebuild will parse it. **Simulator builds are blocked upstream**: godotengine/godot#118161 — 4.6.2+ templates ship simulator libgodot.a as x86_64-only and Xcode 26 has no Rosetta simulators; test on a real device (arm64 device slice is fine) until fixed templates ship.
+
+## v1 SpriteKit game (`NobleStars/`) — complete, maintenance only
+
+SpriteKit + SwiftUI shell, Swift, no external dependencies. Landscape-only, iPhone-only (iPadOS 26 has orientation-lock regressions). All 2D art is generated by `Tools/generate_sprites.swift`. Arena maps are ASCII grids in `ArenaMap.swift` (`#` wall, `b` bush, `~` water, `S` spawn, `X` loot box); 2.5D depth comes from y-sorted `zPosition` (`ZLayer` in `Constants.swift`, which also holds the `PhysicsCategory` bitmasks).
+
+Build & run — full Xcode lives at /Applications/Xcode.app but `xcode-select` points at CommandLineTools, so always prefix builds with `DEVELOPER_DIR`:
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
@@ -19,17 +39,10 @@ APP=$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 5 -name "NobleStars.a
 xcrun simctl install <UDID> "$APP" && xcrun simctl launch <UDID> com.ryder.noblestars
 ```
 
-The Xcode project is generated — never edit `NobleStars.xcodeproj` by hand; edit `project.yml` and re-run `xcodegen generate`. New source files under `NobleStars/` are picked up automatically on regen.
+The Xcode project is generated — never edit `NobleStars.xcodeproj` by hand; edit `project.yml` and re-run `xcodegen generate`.
 
-## Gotchas
-
-- **Simulator screenshots are captured in portrait framebuffer orientation.** The app runs landscape, so `xcrun simctl io <UDID> screenshot x.png` needs `sips --rotate 270 x.png --out x_r.png` before viewing. Don't mistake the raw portrait capture for a broken orientation lock (top-down game art looks plausible at any rotation — check that wall front-faces are BELOW their top faces).
-- **Automated play-testing without touch input** (env vars via `SIMCTL_CHILD_` prefix on `simctl launch`): `NS_AUTOWALK="dx,dy"` drives the player at a constant joystick vector; `NS_AUTOFIRE="seconds"` auto-aim fires on that interval (fires the Super when charged); `NS_GODMODE=1` makes the player invulnerable; `NS_DEBUG_HUD=1` shows a live stats readout; `NS_KIT=nova|tony|henry` picks the player's character. Any of NS_KIT/NS_AUTOFIRE/NS_AUTOWALK skips the main menu and jumps straight into a match. All in GameScene.swift / GameView.swift.
+Gotchas:
+- **Simulator screenshots are captured in portrait framebuffer orientation.** The app runs landscape, so `xcrun simctl io <UDID> screenshot x.png` needs `sips --rotate 270 x.png --out x_r.png` before viewing. Don't mistake the raw portrait capture for a broken orientation lock.
+- **Debug env hooks** (via `SIMCTL_CHILD_` prefix on `simctl launch`): `NS_KIT=nova|tony|henry`, `NS_AUTOFIRE=<sec>`, `NS_AUTOWALK="dx,dy"`, `NS_GODMODE=1`, `NS_DEBUG_HUD=1`. Any of NS_KIT/NS_AUTOFIRE/NS_AUTOWALK skips the menu. All in GameScene.swift / GameView.swift.
 - The simulator can shut down between Bash invocations when Simulator.app isn't open — `open -a Simulator` keeps it alive, or re-boot with `xcrun simctl boot <UDID>`.
 - zsh does not glob-expand unquoted variables — resolve the DerivedData app path with `find`, not a wildcard in a variable.
-
-## Architecture notes
-
-- Arena maps are ASCII grids in `ArenaMap.swift` (`#` wall, `b` bush, `~` water, `S` spawn, `X` loot box). Row 0 is the top of the map; world coords are SpriteKit y-up.
-- 2.5D depth: y-sorted `zPosition` via `ZLayer.ySorted(baselineY:mapPixelHeight:)`; a node's position is its feet/baseline.
-- Physics category bitmasks live in `Constants.swift` (`PhysicsCategory`).

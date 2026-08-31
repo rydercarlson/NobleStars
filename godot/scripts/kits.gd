@@ -45,6 +45,9 @@ static func nova() -> Dictionary:
 static func tony() -> Dictionary:
 	return {
 		"name": "Tony", "color": Color(0.98, 0.85, 0.25),
+		"model": "res://assets/tony.glb",
+		"clips": {"idle": "Idle", "run": "Running", "attack": "Thrust_Slash",
+				  "attack_speed": 3.0},
 		"weapon": {
 			"style": Style.LOB, "pellets": 1, "spread_deg": 0.0, "damage": 900,
 			"range": 6.5 * TILE, "speed": 19.0, "radius": 0.22,

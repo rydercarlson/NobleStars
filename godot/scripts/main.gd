@@ -250,6 +250,7 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	var unit := Vector3(dir.x, 0, dir.z).normalized()
 	f.face_direction(unit)
+	f.play_attack_animation(now)
 	match int(weapon.style):
 		Kits.Style.PELLETS:
 			var base := atan2(unit.x, unit.z)
@@ -473,6 +474,8 @@ func _physics_process(delta: float) -> void:
 			if Input.is_physical_key_pressed(KEY_R):
 				start_match()
 
+	for f in fighters:
+		f.update_animation(now)
 	_update_concealment()
 	_update_status()
 	_shot_check()
