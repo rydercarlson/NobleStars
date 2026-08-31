@@ -1,0 +1,15 @@
+78098b89c88a74ebe8c20117b8754620
+::res://::1788204133
+main.tscn::PackedScene::-1::1788204131::0::1::::<><><>0<>0<><>::res://scripts/main.gd
+::res://assets/::1788202774
+Fox.glb::PackedScene::9082106559418263760::1788202731::1788202770::1::::<><><>0<>0<>7d5bebff58760a814f72ee52b84eb5e5<>res://.godot/imported/Fox.glb-45a4a2091f6d7e9e3dc9901ec8e861e4.scn::uid://cr7tcs4sy72um::::res://assets/Fox_0.png
+Fox_0.png::CompressedTexture2D::6033269982883868064::1788202770::1788202770::1::::<><><>0<>0<>adce55ec12695804da3ab7bc3d23484e<>res://.godot/imported/Fox_0.png-0512f4f985f81d5bea8c9d412790dcc7.ctex::
+::res://scripts/::1788204114
+arena.gd::GDScript::5796842804228897668::1788203831::0::1::::Arena<>Node3D<><>0<>0<><>::
+bot_brain.gd::GDScript::5835627334907204845::1788203906::0::1::::BotBrain<>RefCounted<><>0<>0<><>::
+fighter.gd::GDScript::9187305877331982748::1788203881::0::1::::Fighter<>CharacterBody3D<><>0<>0<><>::
+gas_ring.gd::GDScript::459958513667246024::1788203973::0::1::::GasRing<>Node3D<><>0<>0<><>::
+kits.gd::GDScript::8386405415646323369::1788203789::0::1::::Kits<>RefCounted<><>0<>0<><>::
+lob.gd::GDScript::5956710461963254839::1788204016::0::1::::Lob<>Node3D<><>0<>0<><>::
+main.gd::GDScript::3855056778688404335::1788204111::0::1::::<>Node3D<><>0<>0<><>::
+projectile.gd::GDScript::2014130361224361847::1788203932::0::1::::Projectile<>Area3D<><>0<>0<><>::

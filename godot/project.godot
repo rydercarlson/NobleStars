@@ -1,0 +1,26 @@
+; NobleStars 3D — Godot 4 port of the SpriteKit game
+config_version=5
+
+[application]
+
+config/name="NobleStars 3D"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.3")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
+[layer_names]
+
+3d_physics/layer_1="walls"
+3d_physics/layer_2="water"
+3d_physics/layer_3="fighters"
+3d_physics/layer_4="projectiles"
+3d_physics/layer_5="pickups"
+3d_physics/layer_6="lootboxes"
+
+[rendering]
+
+renderer/rendering_method="mobile"

@@ -2,6 +2,10 @@
 
 Brawl Stars–inspired top-down 2.5D arena battler for iOS. SpriteKit + SwiftUI shell, Swift, no external dependencies. Landscape-only, iPhone-only (iPadOS 26 has orientation-lock regressions). Plan and milestones: `~/.claude/plans/hello-i-would-like-stateless-kurzweil.md`.
 
+## Godot 3D port (`godot/`)
+
+The long-term direction is a 3D rebuild in Godot 4 using Meshy-generated GLB characters; the SpriteKit game above is v1 and stays working. Run the 3D game: `/Applications/Godot.app/Contents/MacOS/Godot --path godot` (add `--headless --import` after adding files). Debug env hooks mirror the 2D ones: `NS3_KIT=nova|tony|henry`, `NS3_AUTOFIRE=<sec>`, `NS3_AUTOWALK="x,z"`, `NS3_GODMODE=1`, and `NS3_SHOTS="prefix:t1,t2,..."` (saves screenshots at those match times, then quits — the verification loop). Desktop controls: WASD move, left-click aimed fire, Space auto-aim, E Super, R restart. All scenes are built in code; `.tscn` files stay minimal. GDScript gotcha: `:=` cannot infer types from ternary expressions — annotate (`var t: float = ...`).
+
 ## Build & run
 
 Full Xcode lives at /Applications/Xcode.app but `xcode-select` points at CommandLineTools — always prefix builds with `DEVELOPER_DIR`:
