@@ -452,28 +452,40 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             damageLootBox(box, amount: damage)
         }
 
-        // Swipe visual: a wedge that flashes and fades.
-        let wedge = SKShapeNode()
+        // Swipe visual: a narrow paddle slice that sweeps across the arc.
+        let sliceHalf: CGFloat = 16 * .pi / 180
+        let slice = SKShapeNode()
         let path = CGMutablePath()
         path.move(to: .zero)
         path.addArc(center: .zero, radius: weapon.range,
-                    startAngle: baseAngle - halfArc, endAngle: baseAngle + halfArc,
+                    startAngle: -sliceHalf, endAngle: sliceHalf,
                     clockwise: false)
         path.closeSubpath()
-        wedge.path = path
-        wedge.fillColor = SKColor(white: 1, alpha: 0.35)
-        wedge.strokeColor = SKColor(white: 1, alpha: 0.7)
-        wedge.lineWidth = 2
-        wedge.position = CGPoint(x: fighter.position.x, y: fighter.position.y + 14)
-        wedge.zPosition = fighter.zPosition + 1
-        world.addChild(wedge)
-        wedge.run(.sequence([.fadeOut(withDuration: 0.22), .removeFromParent()]))
+        slice.path = path
+        slice.fillColor = SKColor(white: 1, alpha: 0.5)
+        slice.strokeColor = SKColor(white: 1, alpha: 0.8)
+        slice.lineWidth = 2
+        slice.position = CGPoint(x: fighter.position.x, y: fighter.position.y + 14)
+        slice.zPosition = fighter.zPosition + 1
+        slice.zRotation = baseAngle - halfArc + sliceHalf
+        world.addChild(slice)
+        let sweepAngle = (baseAngle + halfArc - sliceHalf) - slice.zRotation
+        slice.run(.sequence([
+            .group([.rotate(byAngle: sweepAngle, duration: 0.16),
+                    .sequence([.wait(forDuration: 0.08), .fadeOut(withDuration: 0.12)])]),
+            .removeFromParent(),
+        ]))
     }
 
     /// Per-frame dash progress: damage on contact, water crossing, ending.
     private func updateDashes(dt: TimeInterval) {
         for fighter in fighters {
             guard var dash = fighter.dashState else { continue }
+            if dash.windup > 0 {
+                dash.windup -= dt
+                fighter.dashState = dash
+                continue
+            }
             dash.remaining -= dash.weapon.projectileSpeed * CGFloat(dt)
 
             let tile = arena.map.tile(at: fighter.position)

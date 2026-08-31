@@ -89,6 +89,8 @@ final class Fighter: SKNode {
         let weapon: Weapon
         let direction: CGVector
         var remaining: CGFloat
+        /// Windup pause before launching — telegraphs the dash so it can be dodged.
+        var windup: TimeInterval = 0.35
         var alreadyHit: Set<ObjectIdentifier> = []
         var crossedWater = false
     }
@@ -96,10 +98,18 @@ final class Fighter: SKNode {
     var isDashing: Bool { dashState != nil }
 
     func beginDash(weapon: Weapon, direction: CGVector) {
-        dashState = DashState(weapon: weapon, direction: direction, remaining: weapon.range)
+        let state = DashState(weapon: weapon, direction: direction, remaining: weapon.range)
+        dashState = state
         face(direction)
         // Dash can cross water.
         physicsBody?.collisionBitMask = PhysicsCategory.wall
+        // Crouch telegraph during the windup.
+        bodyNode.run(.sequence([
+            .group([.scaleX(to: 1.18, duration: state.windup * 0.7),
+                    .scaleY(to: 0.8, duration: state.windup * 0.7)]),
+            .group([.scaleX(to: 1.0, duration: 0.12),
+                    .scaleY(to: 1.0, duration: 0.12)]),
+        ]))
     }
 
     func endDash() {
@@ -112,8 +122,12 @@ final class Fighter: SKNode {
     func applyMovement(_ input: CGVector) {
         guard let body = physicsBody else { return }
         if let dash = dashState {
-            body.velocity = CGVector(dx: dash.direction.dx * dash.weapon.projectileSpeed,
-                                     dy: dash.direction.dy * dash.weapon.projectileSpeed)
+            if dash.windup > 0 {
+                body.velocity = .zero
+            } else {
+                body.velocity = CGVector(dx: dash.direction.dx * dash.weapon.projectileSpeed,
+                                         dy: dash.direction.dy * dash.weapon.projectileSpeed)
+            }
             return
         }
         body.velocity = CGVector(dx: input.dx * moveSpeed + knockbackVelocity.dx,
