@@ -1,4 +1,5 @@
 import SpriteKit
+import GameController
 
 final class GameScene: SKScene, SKPhysicsContactDelegate {
     private enum MatchPhase {
@@ -42,6 +43,39 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // Haptics (real device only; the simulator ignores them).
     private let dealtDamageHaptic = UIImpactFeedbackGenerator(style: .light)
     private let tookDamageHaptic = UIImpactFeedbackGenerator(style: .heavy)
+
+    // Hardware keyboard (playtesting in the simulator / iPad keyboards):
+    // WASD to move, Space to fire (auto-aim), E for Super.
+    private var spaceWasPressed = false
+    private var superKeyWasPressed = false
+
+    private var keyboardMovement: CGVector {
+        guard let keys = GCKeyboard.coalesced?.keyboardInput else { return .zero }
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
+        if keys.button(forKeyCode: .keyW)?.isPressed == true { dy += 1 }
+        if keys.button(forKeyCode: .keyS)?.isPressed == true { dy -= 1 }
+        if keys.button(forKeyCode: .keyA)?.isPressed == true { dx -= 1 }
+        if keys.button(forKeyCode: .keyD)?.isPressed == true { dx += 1 }
+        let magnitude = hypot(dx, dy)
+        guard magnitude > 0 else { return .zero }
+        return CGVector(dx: dx / magnitude, dy: dy / magnitude)
+    }
+
+    private func pollKeyboardActions() {
+        guard let keys = GCKeyboard.coalesced?.keyboardInput else { return }
+        let space = keys.button(forKeyCode: .spacebar)?.isPressed == true
+        if space && !spaceWasPressed {
+            fireMain(direction: autoAimDirection(range: player.weapon.range))
+        }
+        spaceWasPressed = space
+
+        let superKey = keys.button(forKeyCode: .keyE)?.isPressed == true
+        if superKey && !superKeyWasPressed && player.isSuperReady {
+            fireSuper(direction: autoAimDirection(range: player.superWeapon.range))
+        }
+        superKeyWasPressed = superKey
+    }
 
     private static let botColors: [SKColor] = [
         SKColor(red: 0.9, green: 0.35, blue: 0.3, alpha: 1),
@@ -614,10 +648,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private func runPlaying(dt: TimeInterval, currentTime: TimeInterval) {
         if !player.isDead {
-            player.applyMovement(autoWalkInput ?? moveJoystick.value)
+            let keyboard = keyboardMovement
+            let movement = autoWalkInput
+                ?? (hypot(keyboard.dx, keyboard.dy) > 0 ? keyboard : moveJoystick.value)
+            player.applyMovement(movement)
             if aimTouch != nil, hypot(aimJoystick.value.dx, aimJoystick.value.dy) > 0.15 {
                 player.face(aimJoystick.value)
             }
+            pollKeyboardActions()
         }
 
         // Bots think and act.
