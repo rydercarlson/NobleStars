@@ -131,10 +131,15 @@ final class Fighter: SKNode {
         superCharge = min(1, superCharge + CGFloat(damageDealt) / CombatTuning.superChargeDamage)
     }
 
+    /// Damage accumulated toward the next popup so one shotgun volley shows
+    /// a single satisfying number instead of five overlapping ones.
+    private var pendingDamagePopup = 0
+
     func takeDamage(_ amount: Int, at time: TimeInterval) {
         guard !isDead else { return }
         health = max(0, health - amount)
         lastDamageTime = time
+        pendingDamagePopup += amount
         refreshStatusBar()
         // Hit flash.
         bodyNode.run(.sequence([
@@ -144,12 +149,46 @@ final class Fighter: SKNode {
         ]))
     }
 
+    private func emitDamageNumber(_ amount: Int) {
+        let label = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+        label.text = "\(amount)"
+        label.fontSize = 24
+        label.fontColor = SKColor(red: 1.0, green: 0.25, blue: 0.2, alpha: 1)
+        label.position = CGPoint(x: CGFloat.random(in: -10...10), y: 44)
+        label.zPosition = 6
+        label.setScale(0.5)
+        addChild(label)
+        label.run(.sequence([
+            .group([
+                .scale(to: 1.0, duration: 0.12),
+                .moveBy(x: 0, y: 30, duration: 0.7),
+                .sequence([.wait(forDuration: 0.35), .fadeOut(withDuration: 0.35)]),
+            ]),
+            .removeFromParent(),
+        ]))
+    }
+
     func collectPowerCube() {
         powerCubes += 1
         maxHealth += CombatTuning.healthPerPowerCube
         health += CombatTuning.healthPerPowerCube
         refreshStatusBar()
         run(.sequence([.scale(to: 1.2, duration: 0.1), .scale(to: 1.0, duration: 0.1)]))
+
+        // Spell out exactly what the cube just did.
+        let bonus = Int(CombatTuning.damageBonusPerPowerCube * 100)
+        let label = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        label.text = "+\(CombatTuning.healthPerPowerCube) HP  +\(bonus)% DMG"
+        label.fontSize = 15
+        label.fontColor = SKColor(red: 0.85, green: 0.45, blue: 1.0, alpha: 1)
+        label.position = CGPoint(x: 0, y: 62)
+        label.zPosition = 6
+        addChild(label)
+        label.run(.sequence([
+            .group([.moveBy(x: 0, y: 26, duration: 1.0),
+                    .sequence([.wait(forDuration: 0.6), .fadeOut(withDuration: 0.4)])]),
+            .removeFromParent(),
+        ]))
     }
 
     private var lastHealEffectAt: TimeInterval = 0
@@ -170,6 +209,11 @@ final class Fighter: SKNode {
                 lastHealEffectAt = currentTime
                 emitHealEffect()
             }
+        }
+        // Flush the batched damage popup once the volley stops landing.
+        if pendingDamagePopup > 0, currentTime - lastDamageTime > 0.12 {
+            emitDamageNumber(pendingDamagePopup)
+            pendingDamagePopup = 0
         }
         if hypot(knockbackVelocity.dx, knockbackVelocity.dy) > 1 {
             let decay = CGFloat(pow(0.0001, dt))   // ~gone in half a second
@@ -205,7 +249,7 @@ final class Fighter: SKNode {
     }
 
     private func refreshStatusBar() {
-        statusBar.update(health: health, maxHealth: maxHealth, ammo: ammo)
+        statusBar.update(health: health, maxHealth: maxHealth, ammo: ammo, cubes: powerCubes)
     }
 
     private func updateFacingDot() {

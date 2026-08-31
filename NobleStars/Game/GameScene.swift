@@ -39,6 +39,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Displacement below which an aim-joystick release counts as a tap (auto-aim).
     private let tapThreshold: CGFloat = 0.3
 
+    // Haptics (real device only; the simulator ignores them).
+    private let dealtDamageHaptic = UIImpactFeedbackGenerator(style: .light)
+    private let tookDamageHaptic = UIImpactFeedbackGenerator(style: .heavy)
+
     private static let botColors: [SKColor] = [
         SKColor(red: 0.9, green: 0.35, blue: 0.3, alpha: 1),
         SKColor(red: 0.95, green: 0.6, blue: 0.2, alpha: 1),
@@ -416,6 +420,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     fighter.receiveKnockback(direction: projectile.travelDirection,
                                              strength: projectile.weapon.knockback)
                 }
+                if fighter === player {
+                    tookDamageHaptic.impactOccurred()
+                } else if projectile.owner === player {
+                    dealtDamageHaptic.impactOccurred(intensity: 0.7)
+                }
                 projectile.owner.chargeSuper(damageDealt: projectile.damage)
                 if fighter.isDead {
                     eliminate(fighter, by: projectile.owner.displayName)
@@ -632,6 +641,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         if let gasRing {
             let vulnerable = godMode ? fighters.filter { $0 !== player } : fighters
             let damaged = gasRing.tick(now: currentTime, fighters: vulnerable)
+            if damaged.contains(where: { $0 === player }) {
+                tookDamageHaptic.impactOccurred()
+            }
             for fighter in damaged where fighter.isDead {
                 eliminate(fighter, by: nil)
             }

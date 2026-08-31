@@ -20,7 +20,7 @@ struct Weapon {
         spreadDegrees: 22,
         pelletDamage: 300,
         range: 5.0 * GameConstants.tileSize,
-        projectileSpeed: 950,
+        projectileSpeed: 800,
         pelletRadius: 5
     )
 
@@ -31,7 +31,7 @@ struct Weapon {
         spreadDegrees: 34,
         pelletDamage: 450,
         range: 7.0 * GameConstants.tileSize,
-        projectileSpeed: 1050,
+        projectileSpeed: 880,
         pelletRadius: 10,
         destroysWalls: true,
         knockback: 520
