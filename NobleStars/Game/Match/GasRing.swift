@@ -71,15 +71,22 @@ final class GasRing {
             fighter.takeDamage(Self.damagePerTick, at: now)
             damaged.append(fighter)
         }
-        NSLog("NOBLESTARS gas tick inset=%d candidates=%d damaged=%d",
-              inset, fighters.count, damaged.count)
         return damaged
     }
 
     private func rebuildOverlay() {
         overlay.removeAllChildren()
-        let gasColor = SKColor(red: 0.55, green: 0.75, blue: 0.2, alpha: 0.4)
+        let gasColor = SKColor(red: 0.5, green: 0.2, blue: 0.65, alpha: 0.5)
         let rect = safeRect
+
+        // Bright edge so the safe boundary reads at a glance.
+        if !isFullyClosed {
+            let border = SKShapeNode(rect: rect)
+            border.strokeColor = SKColor(red: 1.0, green: 0.9, blue: 0.3, alpha: 0.9)
+            border.lineWidth = 4
+            border.fillColor = .clear
+            overlay.addChild(border)
+        }
         let w = map.pixelWidth
         let h = map.pixelHeight
 

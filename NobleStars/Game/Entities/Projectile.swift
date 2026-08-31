@@ -4,12 +4,24 @@ import SpriteKit
 /// it on contact or when it exceeds its range.
 final class Projectile: SKNode {
     let owner: Fighter
+    let weapon: Weapon
     let damage: Int
-    private let maxDistanceSquared: CGFloat
     private let origin: CGPoint
+    private let maxDistanceSquared: CGFloat
+
+    var destroysWalls: Bool { weapon.destroysWalls }
+
+    /// Unit direction of travel (for knockback).
+    var travelDirection: CGVector {
+        guard let v = physicsBody?.velocity else { return .zero }
+        let m = hypot(v.dx, v.dy)
+        guard m > 0.001 else { return .zero }
+        return CGVector(dx: v.dx / m, dy: v.dy / m)
+    }
 
     init(owner: Fighter, position: CGPoint, direction: CGVector, weapon: Weapon, damage: Int, color: SKColor) {
         self.owner = owner
+        self.weapon = weapon
         self.damage = damage
         self.origin = position
         self.maxDistanceSquared = weapon.range * weapon.range
@@ -51,7 +63,7 @@ final class Projectile: SKNode {
         physicsBody = nil
         // Leave a brief impact puff where the pellet died.
         if let parent {
-            let puff = SKShapeNode(circleOfRadius: 8)
+            let puff = SKShapeNode(circleOfRadius: weapon.pelletRadius + 3)
             puff.fillColor = SKColor(white: 1, alpha: 0.7)
             puff.strokeColor = .clear
             puff.position = position

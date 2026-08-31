@@ -287,14 +287,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let muzzle = CGPoint(x: fighter.position.x + unit.dx * (fighter.bodyRadius + 10),
                              y: fighter.position.y + unit.dy * (fighter.bodyRadius + 10) + 18)
 
+        // Super shells look the part: big and red-hot.
+        let color = weapon.destroysWalls
+            ? SKColor(red: 1.0, green: 0.45, blue: 0.15, alpha: 1)
+            : SKColor(red: 1.0, green: 0.85, blue: 0.3, alpha: 1)
+
         for i in 0..<count {
             let t = count > 1 ? CGFloat(i) / CGFloat(count - 1) - 0.5 : 0
             let angle = baseAngle + t * spread
             let pelletDirection = CGVector(dx: cos(angle), dy: sin(angle))
             let pellet = Projectile(owner: fighter, position: muzzle,
                                     direction: pelletDirection, weapon: weapon,
-                                    damage: damage,
-                                    color: SKColor(red: 1.0, green: 0.85, blue: 0.3, alpha: 1))
+                                    damage: damage, color: color)
             world.addChild(pellet)
             projectiles.append(pellet)
         }
@@ -408,6 +412,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     return
                 }
                 fighter.takeDamage(projectile.damage, at: lastUpdateTime)
+                if projectile.weapon.knockback > 0 {
+                    fighter.receiveKnockback(direction: projectile.travelDirection,
+                                             strength: projectile.weapon.knockback)
+                }
                 projectile.owner.chargeSuper(damageDealt: projectile.damage)
                 if fighter.isDead {
                     eliminate(fighter, by: projectile.owner.displayName)
@@ -422,8 +430,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     box.removeFromParent()
                 }
                 projectile.explode()
+            } else if projectile.destroysWalls, let wall = other, wall.name == "wallBreakable" {
+                smashWall(wall)   // the shell plows on through
             } else {
-                // Wall or anything else solid.
+                // Border wall or anything else solid.
                 projectile.explode()
             }
             return
@@ -436,6 +446,31 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             fighter.collectPowerCube()
             cube.removeFromParent()
         }
+    }
+
+    /// A Super shell blows an interior wall apart.
+    private func smashWall(_ wall: SKNode) {
+        guard wall.parent != nil else { return }
+        for _ in 0..<6 {
+            let debris = SKShapeNode(rectOf: CGSize(width: .random(in: 6...14),
+                                                    height: .random(in: 6...14)),
+                                     cornerRadius: 2)
+            debris.fillColor = SKColor(red: 0.55, green: 0.4, blue: 0.27, alpha: 1)
+            debris.strokeColor = .clear
+            debris.position = CGPoint(x: wall.position.x + .random(in: -20...20),
+                                      y: wall.position.y + .random(in: 10...50))
+            debris.zPosition = wall.zPosition + 1
+            world.addChild(debris)
+            debris.run(.sequence([
+                .group([
+                    .moveBy(x: .random(in: -40...40), y: .random(in: -30...30), duration: 0.35),
+                    .fadeOut(withDuration: 0.35),
+                    .rotate(byAngle: .random(in: -2...2), duration: 0.35),
+                ]),
+                .removeFromParent(),
+            ]))
+        }
+        wall.removeFromParent()
     }
 
     // MARK: - Match flow
@@ -546,14 +581,26 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         for fighter in fighters {
             fighter.zPosition = ZLayer.ySorted(baselineY: fighter.position.y,
                                                mapPixelHeight: arena.map.pixelHeight)
-            fighter.setHidden(inBush: arena.map.tile(at: fighter.position) == .bush)
+            fighter.setConcealment(alpha: concealmentAlpha(for: fighter))
         }
+        arena.updateBushReveal(around: player.position,
+                               isInBush: arena.map.tile(at: player.position) == .bush)
 
         debugLabel?.text = String(
             format: "shots:%d ammo:%.2f super:%.2f alive:%d projectiles:%d gasInset:%d",
             shotsFired, player.ammo, player.superCharge,
             fighters.count, projectiles.count, gasRing?.inset ?? 0
         )
+    }
+
+    /// You always see yourself faintly in a bush; hidden enemies are fully
+    /// invisible until you're right on top of them.
+    private func concealmentAlpha(for fighter: Fighter) -> CGFloat {
+        guard arena.map.tile(at: fighter.position) == .bush else { return 1.0 }
+        if fighter === player { return 0.55 }
+        let distance = hypot(fighter.position.x - player.position.x,
+                             fighter.position.y - player.position.y)
+        return distance < GameConstants.tileSize * 2 ? 0.5 : 0.0
     }
 
     private func runPlaying(dt: TimeInterval, currentTime: TimeInterval) {
@@ -605,6 +652,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         runAutoFireIfNeeded(currentTime)
     }
 
+    /// Aim indicator: a filled cone matching the shotgun's spread, ending
+    /// exactly where the shells expire.
     private func updateAimLine() {
         guard aimTouch != nil, !player.isDead,
               hypot(aimJoystick.value.dx, aimJoystick.value.dy) >= tapThreshold else {
@@ -612,15 +661,26 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             return
         }
         let weapon = aimingSuper ? player.superWeapon : player.weapon
-        let path = CGMutablePath()
         let start = CGPoint(x: player.position.x, y: player.position.y + 18)
+        let facingAngle = atan2(player.facing.dy, player.facing.dx)
+        let halfSpread = weapon.spreadDegrees * .pi / 180 / 2
+
+        let path = CGMutablePath()
         path.move(to: start)
-        path.addLine(to: CGPoint(x: start.x + player.facing.dx * weapon.range,
-                                 y: start.y + player.facing.dy * weapon.range))
+        path.addArc(center: start, radius: weapon.range,
+                    startAngle: facingAngle - halfSpread,
+                    endAngle: facingAngle + halfSpread,
+                    clockwise: false)
+        path.closeSubpath()
         aimLine.path = path
-        aimLine.strokeColor = aimingSuper
-            ? SKColor(red: 1.0, green: 0.8, blue: 0.2, alpha: 0.55)
-            : SKColor(white: 1, alpha: 0.35)
+        aimLine.lineWidth = 1.5
+        if aimingSuper {
+            aimLine.fillColor = SKColor(red: 1.0, green: 0.6, blue: 0.15, alpha: 0.22)
+            aimLine.strokeColor = SKColor(red: 1.0, green: 0.7, blue: 0.2, alpha: 0.6)
+        } else {
+            aimLine.fillColor = SKColor(white: 1, alpha: 0.16)
+            aimLine.strokeColor = SKColor(white: 1, alpha: 0.45)
+        }
     }
 
     private func runAutoFireIfNeeded(_ currentTime: TimeInterval) {

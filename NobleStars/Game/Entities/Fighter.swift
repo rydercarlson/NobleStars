@@ -4,7 +4,7 @@ import SpriteKit
 /// shapes until the M4 art pass; the node's position is the fighter's feet.
 final class Fighter: SKNode {
     let bodyRadius: CGFloat = 20
-    var moveSpeed: CGFloat = 340
+    var moveSpeed: CGFloat = 250
     let weapon = Weapon.shotgun
     let superWeapon = Weapon.shotgunSuper
     let bodyColor: SKColor
@@ -77,14 +77,23 @@ final class Fighter: SKNode {
 
     // MARK: - Movement & facing
 
+    /// Residual shove from knockback hits; decays every tick.
+    private var knockbackVelocity = CGVector.zero
+
     /// Drive movement from a joystick vector (magnitude 0...1).
     func applyMovement(_ input: CGVector) {
         guard let body = physicsBody else { return }
-        body.velocity = CGVector(dx: input.dx * moveSpeed, dy: input.dy * moveSpeed)
+        body.velocity = CGVector(dx: input.dx * moveSpeed + knockbackVelocity.dx,
+                                 dy: input.dy * moveSpeed + knockbackVelocity.dy)
         let magnitude = hypot(input.dx, input.dy)
         if magnitude > 0.1 {
             face(CGVector(dx: input.dx / magnitude, dy: input.dy / magnitude))
         }
+    }
+
+    func receiveKnockback(direction: CGVector, strength: CGFloat) {
+        knockbackVelocity = CGVector(dx: knockbackVelocity.dx + direction.dx * strength,
+                                     dy: knockbackVelocity.dy + direction.dy * strength)
     }
 
     func face(_ direction: CGVector) {
@@ -94,9 +103,9 @@ final class Fighter: SKNode {
         updateFacingDot()
     }
 
-    /// Fade when standing in a bush.
-    func setHidden(inBush: Bool) {
-        let target: CGFloat = inBush ? 0.45 : 1.0
+    /// Bush concealment. You always see yourself faintly; enemies deep in a
+    /// bush disappear completely unless they're right next to the viewer.
+    func setConcealment(alpha target: CGFloat) {
         if abs(alpha - target) > 0.01 {
             run(.fadeAlpha(to: target, duration: 0.15))
         }
@@ -143,7 +152,10 @@ final class Fighter: SKNode {
         run(.sequence([.scale(to: 1.2, duration: 0.1), .scale(to: 1.0, duration: 0.1)]))
     }
 
-    /// Per-frame upkeep: ammo recharge and self-heal. `dt` is seconds since last frame.
+    private var lastHealEffectAt: TimeInterval = 0
+
+    /// Per-frame upkeep: ammo recharge, self-heal, knockback decay.
+    /// `dt` is seconds since last frame.
     func tick(dt: TimeInterval, currentTime: TimeInterval) {
         var dirty = false
         if ammo < CombatTuning.maxAmmo {
@@ -154,8 +166,34 @@ final class Fighter: SKNode {
             let healed = CGFloat(maxHealth) * CombatTuning.regenRatePerSecond * CGFloat(dt)
             health = min(maxHealth, health + Int(healed.rounded(.up)))
             dirty = true
+            if currentTime - lastHealEffectAt > 0.45 {
+                lastHealEffectAt = currentTime
+                emitHealEffect()
+            }
+        }
+        if hypot(knockbackVelocity.dx, knockbackVelocity.dy) > 1 {
+            let decay = CGFloat(pow(0.0001, dt))   // ~gone in half a second
+            knockbackVelocity = CGVector(dx: knockbackVelocity.dx * decay,
+                                         dy: knockbackVelocity.dy * decay)
+        } else {
+            knockbackVelocity = .zero
         }
         if dirty { refreshStatusBar() }
+    }
+
+    /// Floating green "+" so healing is readable at a glance.
+    private func emitHealEffect() {
+        let plus = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        plus.text = "+"
+        plus.fontSize = 22
+        plus.fontColor = SKColor(red: 0.3, green: 0.95, blue: 0.35, alpha: 1)
+        plus.position = CGPoint(x: CGFloat.random(in: -14...14), y: 34)
+        plus.zPosition = 5
+        addChild(plus)
+        plus.run(.sequence([
+            .group([.moveBy(x: 0, y: 26, duration: 0.7), .fadeOut(withDuration: 0.7)]),
+            .removeFromParent(),
+        ]))
     }
 
     func die() {

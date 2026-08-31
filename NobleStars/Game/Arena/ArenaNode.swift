@@ -3,6 +3,7 @@ import SpriteKit
 /// Builds the visual + physical arena from an ArenaMap.
 final class ArenaNode: SKNode {
     let map: ArenaMap
+    private var bushNodes: [SKShapeNode] = []
 
     private static let groundLight = SKColor(red: 0.55, green: 0.75, blue: 0.35, alpha: 1)
     private static let groundDark = SKColor(red: 0.51, green: 0.71, blue: 0.32, alpha: 1)
@@ -38,8 +39,9 @@ final class ArenaNode: SKNode {
         for row in 0..<map.rows {
             for col in 0..<map.columns {
                 let center = map.worldCenter(col: col, row: row)
+                let isBorder = row == 0 || col == 0 || row == map.rows - 1 || col == map.columns - 1
                 switch map.tiles[row][col] {
-                case .wall: addWall(at: center)
+                case .wall: addWall(at: center, isBorder: isBorder)
                 case .bush: addBush(at: center)
                 case .water: addWater(at: center)
                 default: break
@@ -48,12 +50,14 @@ final class ArenaNode: SKNode {
         }
     }
 
-    private func addWall(at center: CGPoint) {
+    private func addWall(at center: CGPoint, isBorder: Bool) {
         let ts = GameConstants.tileSize
         let face = GameConstants.wallFaceHeight
         let baselineY = center.y - ts / 2
 
         let container = SKNode()
+        // Interior walls can be smashed by Supers; the border ring cannot.
+        container.name = isBorder ? "wallBorder" : "wallBreakable"
         container.position = CGPoint(x: center.x, y: baselineY)
         container.zPosition = ZLayer.ySorted(baselineY: baselineY, mapPixelHeight: map.pixelHeight)
 
@@ -89,6 +93,20 @@ final class ArenaNode: SKNode {
         bush.zPosition = ZLayer.bushCanopy
         bush.alpha = 0.92
         addChild(bush)
+        bushNodes.append(bush)
+    }
+
+    /// Bushes near a fighter standing inside them go translucent so the
+    /// player can still see their own character.
+    func updateBushReveal(around point: CGPoint, isInBush: Bool) {
+        let revealRadius = GameConstants.tileSize * 1.6
+        for bush in bushNodes {
+            let distance = hypot(bush.position.x - point.x, bush.position.y - point.y)
+            let target: CGFloat = (isInBush && distance < revealRadius) ? 0.4 : 0.92
+            if abs(bush.alpha - target) > 0.01 {
+                bush.alpha = target
+            }
+        }
     }
 
     private func addWater(at center: CGPoint) {
