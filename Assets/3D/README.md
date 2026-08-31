@@ -8,11 +8,17 @@ assets**, not shipped app resources.
 > bundle. Keeping raw models here means multi-megabyte works-in-progress don't inflate the
 > build until a model is actually wired into the game.
 
+## Layout
+
+- `./` — static source meshes, as the generator produced them
+- `Animation/` — rigged models with skeletons and animation clips ([README](Animation/README.md))
+
 ## Inventory
 
 | File | Source | Tris | Verts | Rigged | Size |
 |---|---|---|---|---|---|
 | `tennis_brawler.glb` | Meshy AI (image-to-3D + texture), 2026-08-31 | 21,003 | 19,419 | No | 13.8 MB |
+| `Animation/tennis_brawler_animated.glb` | Meshy AI (merged animations), 2026-08-31 | ~21,000 | 19,628 | Yes, 24 joints | 12.0 MB |
 
 ## `tennis_brawler.glb`
 
@@ -29,9 +35,9 @@ tennis kit in `NobleStars/Resources/Sprites/` (`weapon_racket.png`, `ball_tennis
 ### Known issues before this is game-ready
 
 - **Not rigged.** There is no armature, no skin, and no animations — this is a static mesh
-  in a T/A-pose. `godot/assets/Fox.glb` is the rigged reference; this model needs an
-  armature and skin weights before a fighter can walk or attack with it. Dropped in as-is
-  it renders, but slides around rigidly.
+  in a T/A-pose. **A rigged version of this same character now exists** at
+  `Animation/tennis_brawler_animated.glb` — use that one to drive a fighter. This file is
+  kept as the unmodified original generator output.
 - **The metallic-roughness map is ~8 MB of nearly nothing.** It is essentially uniform —
   metallic 0, roughness high across the whole atlas. Dropping the texture and setting
   `metallicFactor` / `roughnessFactor` scalars on the material instead cuts the file by
@@ -40,6 +46,9 @@ tennis kit in `NobleStars/Resources/Sprites/` (`weapon_racket.png`, `ball_tennis
   leaves seam bleed along UV island edges. Expect to touch up or re-bake for a clean look.
 
 ### Swapping it in for a fighter capsule
+
+> Prefer `Animation/tennis_brawler_animated.glb` for this — it is rigged, and its origin
+> sits at the feet rather than the centre, so the numbers below do **not** carry over.
 
 `godot/scripts/fighter.gd` currently builds each fighter from a `CapsuleMesh` (radius 0.45,
 height 1.6) parented at `position.y = 0.8`, with a sphere "nose" showing facing. To try this
@@ -60,12 +69,12 @@ model in its place:
 
 - Lowercase `snake_case` filenames, matching `NobleStars/Resources/Sprites/`
 - Keep the original generator output committed unmodified; derived or optimized versions
-  get a suffix (e.g. `tennis_brawler_rigged.glb`, `tennis_brawler_lod0.glb`)
+  get a suffix (e.g. `tennis_brawler_animated.glb`, `tennis_brawler_lod0.glb`)
 - Record provenance and generation date in the inventory table above
 
 ## A note on repository size
 
-These files are committed directly, not through Git LFS. `tennis_brawler.glb` is 13.8 MB,
+These files are committed directly, not through Git LFS. The largest is 13.8 MB,
 comfortably under GitHub's 100 MB per-file limit, but binaries are stored whole per
 revision — re-committing a changed model keeps every previous copy in history forever. If
 this folder grows to many models or models start getting revised in place, move it to Git
