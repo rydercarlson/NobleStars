@@ -8,6 +8,7 @@ final class Fighter: SKNode {
     let weapon = Weapon.shotgun
     let superWeapon = Weapon.shotgunSuper
     let bodyColor: SKColor
+    var displayName = "Fighter"
 
     private(set) var maxHealth = CombatTuning.baseMaxHealth
     private(set) var health = CombatTuning.baseMaxHealth

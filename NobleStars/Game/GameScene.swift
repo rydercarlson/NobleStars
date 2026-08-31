@@ -1,6 +1,12 @@
 import SpriteKit
 
 final class GameScene: SKScene, SKPhysicsContactDelegate {
+    private enum MatchPhase {
+        case countdown(endsAt: TimeInterval)
+        case playing
+        case ended
+    }
+
     private let world = SKNode()
     private let hud = SKNode()
     private let cam = SKCameraNode()
@@ -8,7 +14,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var arena: ArenaNode!
     private var player: Fighter!
     private var fighters: [Fighter] = []
+    private var brains: [BotBrain] = []
     private var projectiles: [Projectile] = []
+    private var gasRing: GasRing?
+    private var phase: MatchPhase = .countdown(endsAt: 0)
+    private var matchStarted = false
 
     private let moveJoystick = VirtualJoystick()
     private let aimJoystick = VirtualJoystick()
@@ -20,8 +30,26 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private let aimLine = SKShapeNode()
     private var lastUpdateTime: TimeInterval = 0
 
+    // HUD
+    private let countdownLabel = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+    private let playersLeftLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let killFeedLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
+    private let resultsOverlay = SKNode()
+
     /// Displacement below which an aim-joystick release counts as a tap (auto-aim).
     private let tapThreshold: CGFloat = 0.3
+
+    private static let botColors: [SKColor] = [
+        SKColor(red: 0.9, green: 0.35, blue: 0.3, alpha: 1),
+        SKColor(red: 0.95, green: 0.6, blue: 0.2, alpha: 1),
+        SKColor(red: 0.85, green: 0.8, blue: 0.25, alpha: 1),
+        SKColor(red: 0.4, green: 0.8, blue: 0.35, alpha: 1),
+        SKColor(red: 0.3, green: 0.6, blue: 0.5, alpha: 1),
+        SKColor(red: 0.5, green: 0.45, blue: 0.9, alpha: 1),
+        SKColor(red: 0.75, green: 0.4, blue: 0.9, alpha: 1),
+        SKColor(red: 0.95, green: 0.5, blue: 0.7, alpha: 1),
+        SKColor(red: 0.6, green: 0.55, blue: 0.45, alpha: 1),
+    ]
 
     // MARK: - Debug hooks (see CLAUDE.md)
 
@@ -39,6 +67,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }()
     private var lastAutoFire: TimeInterval = 0
     private var shotsFired = 0
+
+    /// NS_GODMODE=1 makes the player invulnerable, to observe full matches.
+    private let godMode = ProcessInfo.processInfo.environment["NS_GODMODE"] != nil
 
     /// NS_DEBUG_HUD=1 shows a live stats readout.
     private let debugLabel: SKLabelNode? = {
@@ -60,30 +91,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         addChild(world)
 
-        let map = ArenaMaps.skullCreek
-        arena = ArenaNode(map: map)
-        world.addChild(arena)
-
-        player = Fighter(color: SKColor(red: 0.25, green: 0.75, blue: 0.95, alpha: 1))
-        player.position = map.spawnPoints.first ?? CGPoint(x: map.pixelWidth / 2, y: map.pixelHeight / 2)
-        world.addChild(player)
-        fighters.append(player)
-
-        spawnDummies(near: player.position)
-        for point in map.lootBoxPoints {
-            let box = LootBox(mapPixelHeight: map.pixelHeight)
-            box.position = point
-            box.zPosition = ZLayer.ySorted(baselineY: point.y - 20, mapPixelHeight: map.pixelHeight)
-            world.addChild(box)
-        }
-
-        aimLine.strokeColor = SKColor(white: 1, alpha: 0.35)
-        aimLine.lineWidth = 3
-        aimLine.zPosition = ZLayer.groundDecal + 1
-        world.addChild(aimLine)
-
         camera = cam
-        cam.position = player.position
         addChild(cam)
 
         hud.zPosition = ZLayer.hud
@@ -91,8 +99,84 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         hud.addChild(moveJoystick)
         hud.addChild(aimJoystick)
         hud.addChild(superButton)
+
+        countdownLabel.fontSize = 90
+        countdownLabel.fontColor = .white
+        countdownLabel.verticalAlignmentMode = .center
+        hud.addChild(countdownLabel)
+
+        playersLeftLabel.fontSize = 22
+        playersLeftLabel.fontColor = .white
+        playersLeftLabel.horizontalAlignmentMode = .right
+        playersLeftLabel.verticalAlignmentMode = .top
+        hud.addChild(playersLeftLabel)
+
+        killFeedLabel.fontSize = 16
+        killFeedLabel.fontColor = SKColor(white: 1, alpha: 0.9)
+        killFeedLabel.horizontalAlignmentMode = .right
+        killFeedLabel.verticalAlignmentMode = .top
+        hud.addChild(killFeedLabel)
+
         if let debugLabel { hud.addChild(debugLabel) }
         layoutHUD()
+        startMatch()
+    }
+
+    /// Builds (or rebuilds) the whole match. Also used for play-again.
+    private func startMatch() {
+        world.removeAllChildren()
+        fighters.removeAll()
+        brains.removeAll()
+        projectiles.removeAll()
+        resultsOverlay.removeFromParent()
+        gasRing = nil
+        matchStarted = false
+        lastUpdateTime = 0
+        shotsFired = 0
+
+        let map = ArenaMaps.skullCreek
+        arena = ArenaNode(map: map)
+        world.addChild(arena)
+
+        var spawns = map.spawnPoints.shuffled()
+        if spawns.isEmpty {
+            spawns = [CGPoint(x: map.pixelWidth / 2, y: map.pixelHeight / 2)]
+        }
+
+        player = Fighter(color: SKColor(red: 0.25, green: 0.75, blue: 0.95, alpha: 1))
+        player.displayName = "You"
+        player.position = spawns.removeFirst()
+        world.addChild(player)
+        fighters.append(player)
+
+        for (index, color) in Self.botColors.enumerated() {
+            guard !spawns.isEmpty else { break }
+            let bot = Fighter(color: color)
+            bot.displayName = "Bot \(index + 1)"
+            bot.position = spawns.removeFirst()
+            world.addChild(bot)
+            fighters.append(bot)
+            brains.append(BotBrain(fighter: bot))
+        }
+
+        for point in map.lootBoxPoints {
+            let box = LootBox(mapPixelHeight: map.pixelHeight)
+            box.position = point
+            box.zPosition = ZLayer.ySorted(baselineY: point.y - 20, mapPixelHeight: map.pixelHeight)
+            world.addChild(box)
+        }
+
+        aimLine.path = nil
+        aimLine.lineWidth = 3
+        aimLine.zPosition = ZLayer.groundDecal + 1
+        world.addChild(aimLine)
+
+        cam.position = player.position
+        phase = .countdown(endsAt: 0)   // real end time set on first update
+        countdownLabel.isHidden = false
+        updatePlayersLeftLabel()
+        killFeedLabel.text = ""
+        superButton.update(charge: 0)
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -101,26 +185,94 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private func layoutHUD() {
         superButton.position = CGPoint(x: size.width / 2 - 150, y: -size.height / 2 + 78)
+        countdownLabel.position = CGPoint(x: 0, y: 40)
+        playersLeftLabel.position = CGPoint(x: size.width / 2 - 24, y: size.height / 2 - 16)
+        killFeedLabel.position = CGPoint(x: size.width / 2 - 24, y: size.height / 2 - 48)
         debugLabel?.position = CGPoint(x: -size.width / 2 + 70, y: size.height / 2 - 14)
     }
 
-    /// Practice targets until real bots arrive in M3.
-    private func spawnDummies(near origin: CGPoint) {
-        let ts = GameConstants.tileSize
-        let offsets: [CGVector] = [
-            CGVector(dx: 5 * ts, dy: -1 * ts),
-            CGVector(dx: 7 * ts, dy: -4 * ts),
-            CGVector(dx: 3 * ts, dy: -6 * ts),
-        ]
-        for offset in offsets {
-            let dummy = Fighter(color: SKColor(red: 0.9, green: 0.35, blue: 0.3, alpha: 1))
-            dummy.position = CGPoint(x: origin.x + offset.dx, y: origin.y + offset.dy)
-            world.addChild(dummy)
-            fighters.append(dummy)
+    // MARK: - Bot senses (used by BotBrain)
+
+    var gasSafeCenter: CGPoint {
+        gasRing?.safeCenter ?? CGPoint(x: arena.map.pixelWidth / 2, y: arena.map.pixelHeight / 2)
+    }
+
+    func gasContains(_ point: CGPoint) -> Bool {
+        gasRing?.contains(point) ?? true
+    }
+
+    /// Visibility rule shared by player auto-aim and bots: line of sight,
+    /// and fighters deep in a bush are invisible beyond point-blank range.
+    func canSee(from viewer: Fighter, target: Fighter) -> Bool {
+        let dx = target.position.x - viewer.position.x
+        let dy = target.position.y - viewer.position.y
+        let distance = hypot(dx, dy)
+        if arena.map.tile(at: target.position) == .bush,
+           distance > GameConstants.tileSize * 2 {
+            return false
         }
+        return hasLineOfSight(from: viewer.position, to: target.position)
+    }
+
+    func nearestVisibleEnemy(of viewer: Fighter, within range: CGFloat) -> Fighter? {
+        var best: (distance: CGFloat, fighter: Fighter)?
+        for enemy in fighters where enemy !== viewer && !enemy.isDead {
+            let distance = hypot(enemy.position.x - viewer.position.x,
+                                 enemy.position.y - viewer.position.y)
+            guard distance < range, distance > 1 else { continue }
+            guard canSee(from: viewer, target: enemy) else { continue }
+            if best == nil || distance < best!.distance {
+                best = (distance, enemy)
+            }
+        }
+        return best?.fighter
+    }
+
+    /// Nearest loot box or power cube within a scavenging radius.
+    func nearestLoot(to point: CGPoint) -> CGPoint? {
+        var best: (distance: CGFloat, point: CGPoint)?
+        let radius = GameConstants.tileSize * 9
+        for node in world.children where node is LootBox || node is PowerCube {
+            let distance = hypot(node.position.x - point.x, node.position.y - point.y)
+            guard distance < radius, gasContains(node.position) else { continue }
+            if best == nil || distance < best!.distance {
+                best = (distance, node.position)
+            }
+        }
+        return best?.point
+    }
+
+    func randomWanderPoint(near origin: CGPoint) -> CGPoint {
+        let ts = GameConstants.tileSize
+        for _ in 0..<8 {
+            let angle = CGFloat.random(in: 0..<(2 * .pi))
+            let radius = CGFloat.random(in: 3...6) * ts
+            let candidate = CGPoint(x: origin.x + cos(angle) * radius,
+                                    y: origin.y + sin(angle) * radius)
+            if !arena.map.tile(at: candidate).blocksMovement, gasContains(candidate) {
+                return candidate
+            }
+        }
+        return gasSafeCenter
+    }
+
+    private func hasLineOfSight(from start: CGPoint, to end: CGPoint) -> Bool {
+        var blocked = false
+        physicsWorld.enumerateBodies(alongRayStart: start, end: end) { body, _, _, stop in
+            if body.categoryBitMask & PhysicsCategory.wall != 0 {
+                blocked = true
+                stop.pointee = true
+            }
+        }
+        return !blocked
     }
 
     // MARK: - Firing
+
+    private var isPlaying: Bool {
+        if case .playing = phase { return true }
+        return false
+    }
 
     private func fire(from fighter: Fighter, weapon: Weapon, direction: CGVector) {
         let magnitude = hypot(direction.dx, direction.dy)
@@ -149,48 +301,35 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func fireMain(direction: CGVector) {
-        guard !player.isDead, player.consumeAmmo() else { return }
+        guard isPlaying, !player.isDead, player.consumeAmmo() else { return }
         shotsFired += 1
         fire(from: player, weapon: player.weapon, direction: direction)
     }
 
     private func fireSuper(direction: CGVector) {
-        guard !player.isDead, player.consumeSuper() else { return }
+        guard isPlaying, !player.isDead, player.consumeSuper() else { return }
         fire(from: player, weapon: player.superWeapon, direction: direction)
         superButton.update(charge: 0)
     }
 
-    /// Direction to the nearest living enemy in range with line of sight,
-    /// else the player's facing.
+    /// Direction to the nearest visible enemy in range, else the player's facing.
     private func autoAimDirection(range: CGFloat) -> CGVector {
-        var best: (distance: CGFloat, direction: CGVector)?
-        for enemy in fighters where enemy !== player && !enemy.isDead {
-            let dx = enemy.position.x - player.position.x
-            let dy = enemy.position.y - player.position.y
-            let distance = hypot(dx, dy)
-            guard distance < range * 1.1, distance > 1 else { continue }
-            guard hasLineOfSight(from: player.position, to: enemy.position) else { continue }
-            if best == nil || distance < best!.distance {
-                best = (distance, CGVector(dx: dx / distance, dy: dy / distance))
-            }
+        guard let enemy = nearestVisibleEnemy(of: player, within: range * 1.1) else {
+            return player.facing
         }
-        return best?.direction ?? player.facing
-    }
-
-    private func hasLineOfSight(from start: CGPoint, to end: CGPoint) -> Bool {
-        var blocked = false
-        physicsWorld.enumerateBodies(alongRayStart: start, end: end) { body, _, _, stop in
-            if body.categoryBitMask & PhysicsCategory.wall != 0 {
-                blocked = true
-                stop.pointee = true
-            }
-        }
-        return !blocked
+        let dx = enemy.position.x - player.position.x
+        let dy = enemy.position.y - player.position.y
+        let distance = hypot(dx, dy)
+        return CGVector(dx: dx / distance, dy: dy / distance)
     }
 
     // MARK: - Input
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if case .ended = phase {
+            startMatch()
+            return
+        }
         for touch in touches {
             let hudPoint = touch.location(in: hud)
             let inSuper = superButton.contains(localPoint: CGPoint(x: hudPoint.x - superButton.position.x,
@@ -264,11 +403,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
             if let fighter = other as? Fighter {
                 guard fighter !== projectile.owner, !fighter.isDead else { return }
+                if godMode, fighter === player {
+                    projectile.explode()
+                    return
+                }
                 fighter.takeDamage(projectile.damage, at: lastUpdateTime)
                 projectile.owner.chargeSuper(damageDealt: projectile.damage)
                 if fighter.isDead {
-                    fighters.removeAll { $0 === fighter }
-                    fighter.die()
+                    eliminate(fighter, by: projectile.owner.displayName)
                 }
                 projectile.explode()
             } else if let box = other as? LootBox {
@@ -296,12 +438,125 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
+    // MARK: - Match flow
+
+    private func eliminate(_ fighter: Fighter, by killerName: String?) {
+        NSLog("NOBLESTARS eliminated %@ (by %@), %d remain",
+              fighter.displayName, killerName ?? "gas", fighters.count - 1)
+        let rankAtDeath = fighters.count
+        fighters.removeAll { $0 === fighter }
+        brains.removeAll { $0.fighter === fighter }
+        fighter.die()
+        updatePlayersLeftLabel()
+        showKillFeed(victim: fighter.displayName, killer: killerName)
+
+        if fighter === player {
+            endMatch(rank: rankAtDeath, victory: false)
+        } else if fighters.count == 1, fighters.first === player {
+            endMatch(rank: 1, victory: true)
+        }
+    }
+
+    private func endMatch(rank: Int, victory: Bool) {
+        phase = .ended
+        moveTouch = nil
+        aimTouch = nil
+        moveJoystick.end()
+        aimJoystick.end()
+        aimLine.path = nil
+
+        resultsOverlay.removeAllChildren()
+        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.55),
+                               size: CGSize(width: 4000, height: 4000))
+        resultsOverlay.addChild(dim)
+
+        let title = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+        title.fontSize = 54
+        title.fontColor = victory
+            ? SKColor(red: 1.0, green: 0.85, blue: 0.2, alpha: 1)
+            : SKColor(red: 0.95, green: 0.4, blue: 0.35, alpha: 1)
+        title.text = victory ? "VICTORY!" : "DEFEATED"
+        title.position = CGPoint(x: 0, y: 40)
+        resultsOverlay.addChild(title)
+
+        let subtitle = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        subtitle.fontSize = 28
+        subtitle.fontColor = .white
+        subtitle.text = "You placed #\(rank) of 10"
+        subtitle.position = CGPoint(x: 0, y: -10)
+        resultsOverlay.addChild(subtitle)
+
+        let hint = SKLabelNode(fontNamed: "AvenirNext-Medium")
+        hint.fontSize = 20
+        hint.fontColor = SKColor(white: 1, alpha: 0.8)
+        hint.text = "Tap anywhere to play again"
+        hint.position = CGPoint(x: 0, y: -60)
+        hint.run(.repeatForever(.sequence([.fadeAlpha(to: 0.4, duration: 0.7),
+                                           .fadeAlpha(to: 0.9, duration: 0.7)])))
+        resultsOverlay.addChild(hint)
+
+        hud.addChild(resultsOverlay)
+    }
+
+    private func updatePlayersLeftLabel() {
+        playersLeftLabel.text = "\(fighters.count) LEFT"
+    }
+
+    private func showKillFeed(victim: String, killer: String?) {
+        killFeedLabel.removeAllActions()
+        killFeedLabel.alpha = 1
+        killFeedLabel.text = killer.map { "\($0) eliminated \(victim)" } ?? "\(victim) died in the gas"
+        killFeedLabel.run(.sequence([.wait(forDuration: 3), .fadeOut(withDuration: 0.6)]))
+    }
+
     // MARK: - Game loop
 
     override func update(_ currentTime: TimeInterval) {
         let dt = lastUpdateTime > 0 ? min(currentTime - lastUpdateTime, 1.0 / 20.0) : 0
         lastUpdateTime = currentTime
 
+        switch phase {
+        case .countdown(let endsAt):
+            if endsAt == 0 {
+                phase = .countdown(endsAt: currentTime + 3.5)
+            } else if currentTime >= endsAt {
+                phase = .playing
+                countdownLabel.run(.sequence([.wait(forDuration: 0.5), .fadeOut(withDuration: 0.3),
+                                              .run { [countdownLabel] in
+                                                  countdownLabel.isHidden = true
+                                                  countdownLabel.alpha = 1
+                                              }]))
+                countdownLabel.text = "FIGHT!"
+                gasRing = GasRing(map: arena.map, startTime: currentTime, parent: world)
+            } else {
+                let remaining = Int(ceil(endsAt - currentTime))
+                countdownLabel.text = "\(remaining)"
+            }
+            // Fighters hold still during the countdown.
+            for fighter in fighters {
+                fighter.applyMovement(.zero)
+            }
+        case .playing:
+            runPlaying(dt: dt, currentTime: currentTime)
+        case .ended:
+            break
+        }
+
+        // Always keep depth-sort and cosmetics fresh.
+        for fighter in fighters {
+            fighter.zPosition = ZLayer.ySorted(baselineY: fighter.position.y,
+                                               mapPixelHeight: arena.map.pixelHeight)
+            fighter.setHidden(inBush: arena.map.tile(at: fighter.position) == .bush)
+        }
+
+        debugLabel?.text = String(
+            format: "shots:%d ammo:%.2f super:%.2f alive:%d projectiles:%d gasInset:%d",
+            shotsFired, player.ammo, player.superCharge,
+            fighters.count, projectiles.count, gasRing?.inset ?? 0
+        )
+    }
+
+    private func runPlaying(dt: TimeInterval, currentTime: TimeInterval) {
         if !player.isDead {
             player.applyMovement(autoWalkInput ?? moveJoystick.value)
             if aimTouch != nil, hypot(aimJoystick.value.dx, aimJoystick.value.dy) > 0.15 {
@@ -309,11 +564,30 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        // Bots think and act.
+        for brain in brains {
+            let decision = brain.decide(now: currentTime, scene: self)
+            brain.fighter.applyMovement(decision.move)
+            if let direction = decision.fireDirection {
+                if decision.useSuper, brain.fighter.consumeSuper() {
+                    fire(from: brain.fighter, weapon: brain.fighter.superWeapon, direction: direction)
+                } else if brain.fighter.consumeAmmo() {
+                    fire(from: brain.fighter, weapon: brain.fighter.weapon, direction: direction)
+                }
+            }
+        }
+
         for fighter in fighters {
             fighter.tick(dt: dt, currentTime: currentTime)
-            fighter.zPosition = ZLayer.ySorted(baselineY: fighter.position.y,
-                                               mapPixelHeight: arena.map.pixelHeight)
-            fighter.setHidden(inBush: arena.map.tile(at: fighter.position) == .bush)
+        }
+
+        // Gas shrink + damage (kills anyone it finishes off).
+        if let gasRing {
+            let vulnerable = godMode ? fighters.filter { $0 !== player } : fighters
+            let damaged = gasRing.tick(now: currentTime, fighters: vulnerable)
+            for fighter in damaged where fighter.isDead {
+                eliminate(fighter, by: nil)
+            }
         }
 
         // Expire pellets that flew their full range.
@@ -329,11 +603,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         updateAimLine()
         superButton.update(charge: player.superCharge)
         runAutoFireIfNeeded(currentTime)
-
-        debugLabel?.text = String(
-            format: "shots:%d ammo:%.2f super:%.2f enemies:%d projectiles:%d",
-            shotsFired, player.ammo, player.superCharge, fighters.count - 1, projectiles.count
-        )
     }
 
     private func updateAimLine() {
