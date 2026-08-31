@@ -38,7 +38,7 @@ final class MenuScene: SKScene {
         root.addChild(subtitle)
 
         // Character cards.
-        let cardSize = CGSize(width: 190, height: 148)
+        let cardSize = CGSize(width: 190, height: 186)
         let gap: CGFloat = 22
         let totalWidth = cardSize.width * CGFloat(FighterKit.all.count) + gap * CGFloat(FighterKit.all.count - 1)
 
@@ -48,16 +48,14 @@ final class MenuScene: SKScene {
             card.name = "card_\(index)"
             card.position = CGPoint(
                 x: -totalWidth / 2 + cardSize.width / 2 + CGFloat(index) * (cardSize.width + gap),
-                y: -6
+                y: -26
             )
             root.addChild(card)
             cardNodes.append(card)
 
-            let portrait = SKShapeNode(circleOfRadius: 30)
-            portrait.fillColor = kit.color
-            portrait.strokeColor = SKColor(white: 0.1, alpha: 1)
-            portrait.lineWidth = 3
-            portrait.position = CGPoint(x: 0, y: 32)
+            let portrait = SKSpriteNode(imageNamed: kit.portraitImage)
+            portrait.size = CGSize(width: 84, height: 98)
+            portrait.position = CGPoint(x: 0, y: 38)
             portrait.name = card.name
             card.addChild(portrait)
 
@@ -65,7 +63,7 @@ final class MenuScene: SKScene {
             name.text = kit.name
             name.fontSize = 22
             name.fontColor = .white
-            name.position = CGPoint(x: 0, y: -14)
+            name.position = CGPoint(x: 0, y: -32)
             name.name = card.name
             card.addChild(name)
 
@@ -78,7 +76,7 @@ final class MenuScene: SKScene {
                 blurb.text = text
                 blurb.fontSize = 11.5
                 blurb.fontColor = SKColor(white: 1, alpha: 0.7)
-                blurb.position = CGPoint(x: 0, y: -38 - CGFloat(line) * 15)
+                blurb.position = CGPoint(x: 0, y: -56 - CGFloat(line) * 15)
                 blurb.name = card.name
                 card.addChild(blurb)
             }

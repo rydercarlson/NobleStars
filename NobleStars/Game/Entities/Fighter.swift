@@ -23,45 +23,45 @@ final class Fighter: SKNode {
     var damageMultiplier: CGFloat { 1 + CombatTuning.damageBonusPerPowerCube * CGFloat(powerCubes) }
     var isSuperReady: Bool { superCharge >= 1 }
 
-    private let bodyNode: SKShapeNode
+    private let bodyNode: SKSpriteNode
+    private let weaponNode: SKSpriteNode
     private let shadowNode: SKShapeNode
     private let statusBar: StatusBar
 
-    /// Direction the fighter is facing, for aiming and the facing indicator.
+    /// Direction the fighter is facing, for aiming and the weapon pose.
     private(set) var facing = CGVector(dx: 0, dy: -1)
-    private let facingDot: SKShapeNode
 
     init(kit: FighterKit) {
         self.kit = kit
         let color = kit.color
         bodyColor = color
 
-        shadowNode = SKShapeNode(ellipseOf: CGSize(width: 40, height: 18))
+        shadowNode = SKShapeNode(ellipseOf: CGSize(width: 40, height: 16))
         shadowNode.fillColor = SKColor(white: 0, alpha: 0.25)
         shadowNode.strokeColor = .clear
         shadowNode.zPosition = -1
 
-        bodyNode = SKShapeNode(circleOfRadius: bodyRadius)
-        bodyNode.fillColor = color
-        bodyNode.strokeColor = SKColor(white: 0.1, alpha: 1)
-        bodyNode.lineWidth = 3
-        bodyNode.position = CGPoint(x: 0, y: 18)
+        bodyNode = SKSpriteNode(imageNamed: kit.bodyImage)
+        bodyNode.size = CGSize(width: 44, height: 50)
+        bodyNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        bodyNode.position = CGPoint(x: 0, y: 2)
 
-        facingDot = SKShapeNode(circleOfRadius: 6)
-        facingDot.fillColor = SKColor(white: 0.95, alpha: 1)
-        facingDot.strokeColor = SKColor(white: 0.1, alpha: 1)
-        facingDot.lineWidth = 2
+        weaponNode = SKSpriteNode(imageNamed: kit.weaponImage)
+        weaponNode.anchorPoint = CGPoint(x: 0.12, y: 0.5)
+        weaponNode.setScale(0.55)
+        weaponNode.position = CGPoint(x: 0, y: 20)
+        weaponNode.zPosition = 2
 
         statusBar = StatusBar(healthColor: color)
-        statusBar.position = CGPoint(x: 0, y: 52)
+        statusBar.position = CGPoint(x: 0, y: 58)
 
         super.init()
 
         addChild(shadowNode)
         addChild(bodyNode)
-        bodyNode.addChild(facingDot)
+        addChild(weaponNode)
         addChild(statusBar)
-        updateFacingDot()
+        updateWeaponPose()
         refreshStatusBar()
 
         let body = SKPhysicsBody(circleOfRadius: bodyRadius)
@@ -147,7 +147,7 @@ final class Fighter: SKNode {
         let magnitude = hypot(direction.dx, direction.dy)
         guard magnitude > 0.001 else { return }
         facing = CGVector(dx: direction.dx / magnitude, dy: direction.dy / magnitude)
-        updateFacingDot()
+        updateWeaponPose()
     }
 
     /// Bush concealment. You always see yourself faintly; enemies deep in a
@@ -190,9 +190,12 @@ final class Fighter: SKNode {
         refreshStatusBar()
         // Hit flash.
         bodyNode.run(.sequence([
-            .run { [bodyNode] in bodyNode.fillColor = SKColor(white: 1, alpha: 1) },
+            .run { [bodyNode] in
+                bodyNode.color = .white
+                bodyNode.colorBlendFactor = 0.85
+            },
             .wait(forDuration: 0.07),
-            .run { [bodyNode, bodyColor] in bodyNode.fillColor = bodyColor },
+            .run { [bodyNode] in bodyNode.colorBlendFactor = 0 },
         ]))
     }
 
@@ -299,8 +302,13 @@ final class Fighter: SKNode {
         statusBar.update(health: health, maxHealth: maxHealth, ammo: ammo, cubes: powerCubes)
     }
 
-    private func updateFacingDot() {
-        facingDot.position = CGPoint(x: facing.dx * bodyRadius * 0.65,
-                                     y: facing.dy * bodyRadius * 0.65)
+    /// Weapon points where the fighter aims, flipping so it's never upside down.
+    private func updateWeaponPose() {
+        let angle = atan2(facing.dy, facing.dx)
+        weaponNode.zRotation = angle
+        weaponNode.yScale = abs(angle) > .pi / 2 ? -0.55 : 0.55
+        weaponNode.position = CGPoint(x: facing.dx * 10, y: 20 + facing.dy * 4)
+        // Draw the weapon behind the body when aiming up-screen.
+        weaponNode.zPosition = facing.dy > 0.3 ? -0.5 : 2
     }
 }

@@ -8,6 +8,16 @@ struct FighterKit {
     let weapon: Weapon
     let superWeapon: Weapon
 
+    var portraitImage: String { "portrait_\(name.lowercased())" }
+    var bodyImage: String { "body_\(name.lowercased())" }
+    var weaponImage: String {
+        switch weapon.style {
+        case .lob: return "weapon_racket"
+        case .melee: return "weapon_paddle"
+        default: return "weapon_shotgun"
+        }
+    }
+
     /// Shotgun bruiser (the original starter fighter).
     static let nova = FighterKit(
         name: "Nova",
