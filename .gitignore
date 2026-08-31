@@ -12,3 +12,4 @@ NobleStars.xcodeproj/
 
 # Swift Package Manager (future)
 .build/
+build/

@@ -21,6 +21,15 @@ var center_label: Label
 var players_label: Label
 var feed_label: Label
 var status_label: Label
+var move_stick: TouchStick
+var aim_stick: TouchStick
+var super_btn: SuperButton
+var results: Control
+var results_title: Label
+var aiming_super := false
+
+const CAMERA_OFFSET := Vector3(0, 19, 6.0)   # steeper, more top-down
+const TAP_THRESHOLD := 0.3
 
 # Debug hooks
 var god_mode := OS.get_environment("NS3_GODMODE") != ""
@@ -60,10 +69,60 @@ func _ready() -> void:
 func _build_hud() -> void:
 	hud = CanvasLayer.new()
 	add_child(hud)
+	move_stick = TouchStick.new()
+	aim_stick = TouchStick.new()
+	super_btn = SuperButton.new()
+	hud.add_child(move_stick)
+	hud.add_child(aim_stick)
+	hud.add_child(super_btn)
+	super_btn.layout(get_viewport().get_visible_rect().size)
+	get_viewport().size_changed.connect(func() -> void:
+		super_btn.layout(get_viewport().get_visible_rect().size))
+
 	center_label = _label(Vector2(640, 240), 72, HORIZONTAL_ALIGNMENT_CENTER)
 	players_label = _label(Vector2(1130, 20), 26, HORIZONTAL_ALIGNMENT_RIGHT)
 	feed_label = _label(Vector2(830, 60), 18, HORIZONTAL_ALIGNMENT_RIGHT)
 	status_label = _label(Vector2(20, 20), 20, HORIZONTAL_ALIGNMENT_LEFT)
+	_build_results_overlay()
+
+func _build_results_overlay() -> void:
+	results = Control.new()
+	results.set_anchors_preset(Control.PRESET_FULL_RECT)
+	results.visible = false
+	hud.add_child(results)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	results.add_child(dim)
+
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_CENTER)
+	vbox.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	vbox.grow_vertical = Control.GROW_DIRECTION_BOTH
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 22)
+	results.add_child(vbox)
+
+	results_title = Label.new()
+	results_title.add_theme_font_size_override("font_size", 52)
+	results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(results_title)
+
+	var again := Button.new()
+	again.text = "  PLAY AGAIN  "
+	again.add_theme_font_size_override("font_size", 30)
+	again.pressed.connect(func() -> void:
+		results.visible = false
+		start_match())
+	vbox.add_child(again)
+
+	var menu := Button.new()
+	menu.text = "  CHARACTER SELECT  "
+	menu.add_theme_font_size_override("font_size", 22)
+	menu.pressed.connect(func() -> void:
+		get_tree().change_scene_to_file("res://menu.tscn"))
+	vbox.add_child(menu)
 
 func _label(pos: Vector2, size: int, align: int) -> Label:
 	var l := Label.new()
@@ -92,9 +151,8 @@ func start_match() -> void:
 	var spawns := arena.spawn_points.duplicate()
 	spawns.shuffle()
 
-	var kit_name := OS.get_environment("NS3_KIT")
-	player = _spawn_fighter(Kits.named(kit_name) if kit_name != "" else Kits.nova(),
-							spawns.pop_front(), true)
+	var player_kit: Dictionary = Session.kit if not Session.kit.is_empty() else Kits.nova()
+	player = _spawn_fighter(player_kit, spawns.pop_front(), true)
 	player.display_name = "You"
 
 	var i := 1
@@ -112,8 +170,9 @@ func start_match() -> void:
 	phase_at = now
 	center_label.text = "3"
 	feed_label.text = ""
+	results.visible = false
 	_update_players_label()
-	cam.position = player.position + Vector3(0, 16, 10)
+	cam.position = player.position + CAMERA_OFFSET
 	cam.look_at(player.position, Vector3.UP)
 
 func _spawn_fighter(kit: Dictionary, pos: Vector3, is_player: bool) -> Fighter:
@@ -377,8 +436,13 @@ func _eliminate(f: Fighter, killer: String) -> void:
 
 func _end_match(rank: int, victory: bool) -> void:
 	phase = Phase.ENDED
-	center_label.text = ("VICTORY!\n" if victory else "DEFEATED\n") \
-		+ "You placed #%d of 10\n(R to play again)" % rank
+	center_label.text = ""
+	move_stick.release()
+	aim_stick.release()
+	results_title.text = ("VICTORY!" if victory else "DEFEATED") + "\nYou placed #%d of 10" % rank
+	results_title.add_theme_color_override("font_color",
+		Color(1.0, 0.85, 0.2) if victory else Color(0.95, 0.4, 0.35))
+	results.visible = true
 
 func _update_players_label() -> void:
 	players_label.text = "%d LEFT" % fighters.size()
@@ -392,7 +456,10 @@ func _physics_process(delta: float) -> void:
 			var remaining := 3.5 - (now - phase_at)
 			if remaining <= 0.0:
 				phase = Phase.PLAYING
-				center_label.text = ""
+				center_label.text = "FIGHT!"
+				get_tree().create_timer(0.8).timeout.connect(func() -> void:
+					if phase == Phase.PLAYING:
+						center_label.text = "")
 				gas = GasRing.new()
 				add_child(gas)
 				gas.start(now, arena.columns)
@@ -416,12 +483,15 @@ func _run_playing(delta: float) -> void:
 		if OS.get_environment("NS3_AUTOWALK") != "":
 			var parts := OS.get_environment("NS3_AUTOWALK").split(",")
 			dir = Vector3(float(parts[0]), 0, float(parts[1]))
+		elif move_stick.active:
+			dir = Vector3(move_stick.value.x, 0, move_stick.value.y)
 		else:
 			if Input.is_physical_key_pressed(KEY_W): dir.z -= 1
 			if Input.is_physical_key_pressed(KEY_S): dir.z += 1
 			if Input.is_physical_key_pressed(KEY_A): dir.x -= 1
 			if Input.is_physical_key_pressed(KEY_D): dir.x += 1
-		player.apply_movement(dir.normalized())
+			dir = dir.normalized()
+		player.apply_movement(dir.limit_length(1.0))
 
 	for b in brains:
 		var d := b.decide(now, self)
@@ -463,34 +533,63 @@ func _fire_player(weapon: Dictionary, dir: Vector3, dist: float) -> void:
 		perform_attack(player, weapon, dir, dist)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if phase != Phase.PLAYING or player == null or player.is_dead():
+	if player == null or not is_instance_valid(player):
 		return
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var aim := _mouse_aim()
-		_fire_player(player.kit.weapon, aim[0], aim[1])
-	elif event is InputEventKey and event.pressed and not event.echo:
+	# Touch controls (mouse is emulated as touch on desktop): left half of
+	# the screen moves, right half aims — release to fire, tap to auto-aim.
+	if event is InputEventScreenTouch:
+		var half := get_viewport().get_visible_rect().size.x / 2.0
+		if event.pressed:
+			if phase != Phase.PLAYING:
+				return
+			if super_btn.hit(event.position) and player.is_super_ready() and not aim_stick.active:
+				aiming_super = true
+				aim_stick.begin(event.position, event.index)
+			elif event.position.x < half and not move_stick.active:
+				move_stick.begin(event.position, event.index)
+			elif event.position.x >= half and not aim_stick.active:
+				aiming_super = false
+				aim_stick.begin(event.position, event.index)
+		else:
+			if move_stick.active and event.index == move_stick.touch_index:
+				move_stick.release()
+			elif aim_stick.active and event.index == aim_stick.touch_index:
+				var v: Vector2 = aim_stick.value
+				var was_super := aiming_super
+				aim_stick.release()
+				aiming_super = false
+				_release_fire(v, was_super)
+	elif event is InputEventScreenDrag:
+		if move_stick.active and event.index == move_stick.touch_index:
+			move_stick.update_drag(event.position)
+		elif aim_stick.active and event.index == aim_stick.touch_index:
+			aim_stick.update_drag(event.position)
+			if aim_stick.value.length() > 0.15:
+				player.face_direction(Vector3(aim_stick.value.x, 0, aim_stick.value.y))
+	elif event is InputEventKey and event.pressed and not event.echo and phase == Phase.PLAYING:
+		# Desktop shortcuts kept for playtesting.
 		if event.physical_keycode == KEY_SPACE:
-			var enemy := nearest_visible_enemy(player, player.kit.weapon.range * 1.1)
-			if enemy:
-				var v := enemy.global_position - player.global_position
-				_fire_player(player.kit.weapon, v, v.length())
-			else:
-				_fire_player(player.kit.weapon, player.facing, player.kit.weapon.range)
+			_auto_aim_fire(player.kit.weapon, false)
 		elif event.physical_keycode == KEY_E and player.is_super_ready():
-			var aim := _mouse_aim()
-			_fire_player(player.kit["super"], aim[0], aim[1])
+			_auto_aim_fire(player.kit["super"], true)
 
-func _mouse_aim() -> Array:
-	var mouse := get_viewport().get_mouse_position()
-	var from := cam.project_ray_origin(mouse)
-	var ray := cam.project_ray_normal(mouse)
-	if abs(ray.y) < 0.001:
-		return [player.facing, player.kit.weapon.range]
-	var t := -from.y / ray.y
-	var point := from + ray * t
-	var v := point - player.global_position
-	v.y = 0
-	return [v.normalized() if v.length() > 0.01 else player.facing, v.length()]
+func _release_fire(stick_value: Vector2, use_super: bool) -> void:
+	if phase != Phase.PLAYING or player.is_dead():
+		return
+	var weapon: Dictionary = player.kit["super"] if use_super else player.kit.weapon
+	if stick_value.length() >= TAP_THRESHOLD:
+		var dir := Vector3(stick_value.x, 0, stick_value.y)
+		_fire_player(weapon, dir, stick_value.length() * weapon.range)
+	else:
+		_auto_aim_fire(weapon, use_super)
+
+func _auto_aim_fire(weapon: Dictionary, _use_super: bool) -> void:
+	var enemy := nearest_visible_enemy(player, weapon.range * 1.1)
+	if enemy:
+		var v := enemy.global_position - player.global_position
+		_fire_player(weapon, v, v.length())
+	else:
+		_fire_player(weapon, player.facing, weapon.range)
 
 func _update_concealment() -> void:
 	if player == null:
@@ -506,17 +605,16 @@ func _update_concealment() -> void:
 func _process(_delta: float) -> void:
 	if player == null or not is_instance_valid(player):
 		return
-	var target := player.global_position + Vector3(0, 16, 10)
+	var target := player.global_position + CAMERA_OFFSET
 	cam.global_position = cam.global_position.lerp(target, 0.08)
 	cam.look_at(player.global_position, Vector3.UP)
 
 func _update_status() -> void:
 	if player == null:
 		return
-	status_label.text = "%s   HP %d/%d   ammo %.1f   super %d%%   cubes %d%s" % [
-		player.kit.name, player.health, player.max_health, player.ammo,
-		int(player.super_charge * 100), player.cubes,
-		"   gas %d" % gas.inset if gas else ""]
+	super_btn.set_charge(player.super_charge)
+	status_label.text = "%s   HP %d/%d   ammo %.1f   cubes %d" % [
+		player.kit.name, player.health, player.max_health, player.ammo, player.cubes]
 
 func _shot_check() -> void:
 	if _shot_times.is_empty() or _shot_prefix == "":
