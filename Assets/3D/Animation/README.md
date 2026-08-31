@@ -16,9 +16,31 @@ produce. The raw Meshy export of the tennis brawler is preserved in git history
 |---|---|---|---|---|---|---|
 | `tennis_brawler_animated.glb` | Tony | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 5 | ~21,000 | 7.0 MB |
 | `paddle_brawler_animated.glb` | Henry | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.5 MB |
+| `staff_brawler_animated.glb` | Sanjit (planned) | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 8 | ~7,300 | 9.8 MB |
 
-Both are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
-`godot/scripts/kits.gd` (`model` + `clips`).
+Tony and Henry are wired into the game: copied to `godot/assets/<kit>.glb` and declared
+in `godot/scripts/kits.gd` (`model` + `clips`). Sanjit is asset-only for now — he has no
+kit in `kits.gd` yet (see `plans.md`: double punch primary, boomeranging staff super).
+
+## `staff_brawler_animated.glb` (Sanjit — planned kit)
+
+Chibi martial artist with a headband who carries his bo staff at his hip — the staff is
+skinned to `RightHand` and held perpendicular to the grip, so it rides horizontally beside
+him at idle and follows the hand through the attack clips. ~7,300 tris, one 2048×2048
+atlas. The richest clip set of the three:
+
+| Clip | Length | Note |
+|---|---|---|
+| `Idle` | 4.00 s | Synthesized by the tool (export shipped none) |
+| `Running` / `RunFast` / `Walking` | 0.63 / 0.47 / 1.03 s | |
+| `Double_Combo_Attack` | 2.83 s | The plans.md "double punch" primary — sped up like Tony's 3× Thrust_Slash when wired |
+| `Attack` | 2.80 s | Generic strike, spare |
+| `Axe_Spin_Attack` | 2.50 s | Spin attack, spare |
+| `Crouch_Charge_and_Throw` | 7.70 s | Charge-up and throw — raw material for the boomeranging-staff Super |
+
+Wiring him when the kit design is ready is the standard four steps below; the obvious
+clip mapping is idle `Idle`, run `Running`, attack `Double_Combo_Attack` at ~4–5×.
+A thrown-staff Super needs game code (detach/projectile/return), not just a clip.
 
 ## `tennis_brawler_animated.glb`
 
