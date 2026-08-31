@@ -345,6 +345,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard magnitude > 0.001 else { return }
         let unit = CGVector(dx: direction.dx / magnitude, dy: direction.dy / magnitude)
         fighter.face(unit)
+        fighter.playAttackAnimation(weapon: weapon, direction: unit)
 
         switch weapon.style {
         case .pellets:
@@ -390,8 +391,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let target = CGPoint(x: fighter.position.x + unit.dx * throwDistance,
                              y: fighter.position.y + unit.dy * throwDistance)
         let ball = LobProjectile(
-            owner: fighter, from: start, to: target, weapon: weapon, damage: damage,
-            color: SKColor(red: 0.85, green: 0.95, blue: 0.3, alpha: 1)
+            owner: fighter, from: start, to: target, weapon: weapon, damage: damage
         ) { [weak self] lob in
             self?.lobLanded(lob)
         }
@@ -452,29 +452,33 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             damageLootBox(box, amount: damage)
         }
 
-        // Swipe visual: a narrow paddle slice that sweeps across the arc.
-        let sliceHalf: CGFloat = 16 * .pi / 180
-        let slice = SKShapeNode()
-        let path = CGMutablePath()
-        path.move(to: .zero)
-        path.addArc(center: .zero, radius: weapon.range,
-                    startAngle: -sliceHalf, endAngle: sliceHalf,
-                    clockwise: false)
-        path.closeSubpath()
-        slice.path = path
-        slice.fillColor = SKColor(white: 1, alpha: 0.5)
-        slice.strokeColor = SKColor(white: 1, alpha: 0.8)
-        slice.lineWidth = 2
-        slice.position = CGPoint(x: fighter.position.x, y: fighter.position.y + 14)
-        slice.zPosition = fighter.zPosition + 1
-        slice.zRotation = baseAngle - halfArc + sliceHalf
-        world.addChild(slice)
-        let sweepAngle = (baseAngle + halfArc - sliceHalf) - slice.zRotation
-        slice.run(.sequence([
-            .group([.rotate(byAngle: sweepAngle, duration: 0.16),
-                    .sequence([.wait(forDuration: 0.08), .fadeOut(withDuration: 0.12)])]),
+        // Swipe visual: the paddle itself sweeps across the arc, with a
+        // faint trailing arc line for motion.
+        let paddle = SKSpriteNode(imageNamed: fighter.kit.weaponImage)
+        paddle.anchorPoint = CGPoint(x: -0.02, y: 0.5)
+        paddle.setScale(weapon.range / 120)
+        paddle.position = CGPoint(x: fighter.position.x, y: fighter.position.y + 14)
+        paddle.zPosition = fighter.zPosition + 2
+        paddle.zRotation = baseAngle - halfArc
+        world.addChild(paddle)
+        paddle.run(.sequence([
+            .rotate(byAngle: 2 * halfArc, duration: 0.14),
+            .fadeOut(withDuration: 0.10),
             .removeFromParent(),
         ]))
+
+        let trail = SKShapeNode()
+        let trailPath = CGMutablePath()
+        trailPath.addArc(center: .zero, radius: weapon.range * 0.85,
+                         startAngle: baseAngle - halfArc, endAngle: baseAngle + halfArc,
+                         clockwise: false)
+        trail.path = trailPath
+        trail.strokeColor = SKColor(white: 1, alpha: 0.35)
+        trail.lineWidth = 4
+        trail.position = paddle.position
+        trail.zPosition = fighter.zPosition + 1
+        world.addChild(trail)
+        trail.run(.sequence([.fadeOut(withDuration: 0.22), .removeFromParent()]))
     }
 
     /// Per-frame dash progress: damage on contact, water crossing, ending.

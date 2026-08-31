@@ -46,11 +46,13 @@ final class Fighter: SKNode {
         bodyNode.anchorPoint = CGPoint(x: 0.5, y: 0)
         bodyNode.position = CGPoint(x: 0, y: 2)
 
+        // Weapon stays hidden until an attack animation pops it out.
         weaponNode = SKSpriteNode(imageNamed: kit.weaponImage)
         weaponNode.anchorPoint = CGPoint(x: 0.12, y: 0.5)
         weaponNode.setScale(0.55)
         weaponNode.position = CGPoint(x: 0, y: 20)
         weaponNode.zPosition = 2
+        weaponNode.alpha = 0
 
         statusBar = StatusBar(healthColor: color)
         statusBar.position = CGPoint(x: 0, y: 58)
@@ -61,7 +63,6 @@ final class Fighter: SKNode {
         addChild(bodyNode)
         addChild(weaponNode)
         addChild(statusBar)
-        updateWeaponPose()
         refreshStatusBar()
 
         let body = SKPhysicsBody(circleOfRadius: bodyRadius)
@@ -100,6 +101,7 @@ final class Fighter: SKNode {
     func beginDash(weapon: Weapon, direction: CGVector) {
         let state = DashState(weapon: weapon, direction: direction, remaining: weapon.range)
         dashState = state
+        setMoving(false)
         face(direction)
         // Dash can cross water.
         physicsBody?.collisionBitMask = PhysicsCategory.wall
@@ -116,6 +118,7 @@ final class Fighter: SKNode {
         dashState = nil
         physicsBody?.collisionBitMask =
             PhysicsCategory.wall | PhysicsCategory.water | PhysicsCategory.fighter | PhysicsCategory.lootBox
+        weaponNode.run(.fadeOut(withDuration: 0.2))
     }
 
     /// Drive movement from a joystick vector (magnitude 0...1).
@@ -133,6 +136,7 @@ final class Fighter: SKNode {
         body.velocity = CGVector(dx: input.dx * moveSpeed + knockbackVelocity.dx,
                                  dy: input.dy * moveSpeed + knockbackVelocity.dy)
         let magnitude = hypot(input.dx, input.dy)
+        setMoving(magnitude > 0.1)
         if magnitude > 0.1 {
             face(CGVector(dx: input.dx / magnitude, dy: input.dy / magnitude))
         }
@@ -147,7 +151,6 @@ final class Fighter: SKNode {
         let magnitude = hypot(direction.dx, direction.dy)
         guard magnitude > 0.001 else { return }
         facing = CGVector(dx: direction.dx / magnitude, dy: direction.dy / magnitude)
-        updateWeaponPose()
     }
 
     /// Bush concealment. You always see yourself faintly; enemies deep in a
@@ -302,13 +305,61 @@ final class Fighter: SKNode {
         statusBar.update(health: health, maxHealth: maxHealth, ammo: ammo, cubes: powerCubes)
     }
 
-    /// Weapon points where the fighter aims, flipping so it's never upside down.
-    private func updateWeaponPose() {
-        let angle = atan2(facing.dy, facing.dx)
-        weaponNode.zRotation = angle
-        weaponNode.yScale = abs(angle) > .pi / 2 ? -0.55 : 0.55
-        weaponNode.position = CGPoint(x: facing.dx * 10, y: 20 + facing.dy * 4)
-        // Draw the weapon behind the body when aiming up-screen.
-        weaponNode.zPosition = facing.dy > 0.3 ? -0.5 : 2
+    // MARK: - Walk bob & attack animations
+
+    private var isBobbing = false
+
+    /// Squash-and-stretch cycle while moving so the character feels alive.
+    private func setMoving(_ moving: Bool) {
+        guard moving != isBobbing else { return }
+        isBobbing = moving
+        bodyNode.removeAction(forKey: "walkbob")
+        if moving {
+            bodyNode.run(.repeatForever(.sequence([
+                .group([.scaleY(to: 0.93, duration: 0.11), .scaleX(to: 1.06, duration: 0.11)]),
+                .group([.scaleY(to: 1.05, duration: 0.11), .scaleX(to: 0.96, duration: 0.11)]),
+            ])), withKey: "walkbob")
+        } else {
+            bodyNode.run(.group([.scaleX(to: 1, duration: 0.08), .scaleY(to: 1, duration: 0.08)]),
+                         withKey: "walkbob")
+        }
+    }
+
+    /// Pops the held weapon out and animates it for one attack.
+    /// Melee is excluded — the scene sweeps the paddle through the world.
+    func playAttackAnimation(weapon: Weapon, direction: CGVector) {
+        guard weapon.style != .melee else { return }
+        face(direction)
+        let angle = atan2(direction.dy, direction.dx)
+        let flip: CGFloat = abs(angle) > .pi / 2 ? -1 : 1
+
+        weaponNode.removeAllActions()
+        weaponNode.alpha = 1
+        weaponNode.xScale = 0.55
+        weaponNode.yScale = 0.55 * flip
+        weaponNode.zPosition = direction.dy > 0.3 ? -0.5 : 2
+        weaponNode.position = CGPoint(x: direction.dx * 9, y: 20 + direction.dy * 4)
+
+        switch weapon.style {
+        case .pellets:
+            weaponNode.zRotation = angle
+            weaponNode.run(.sequence([   // recoil kick
+                .moveBy(x: -direction.dx * 7, y: -direction.dy * 7, duration: 0.05),
+                .moveBy(x: direction.dx * 7, y: direction.dy * 7, duration: 0.09),
+                .wait(forDuration: 0.25),
+                .fadeOut(withDuration: 0.15),
+            ]))
+        case .lob:
+            weaponNode.zRotation = angle - 1.1 * flip
+            weaponNode.run(.sequence([   // racket swing through the ball
+                .rotate(toAngle: angle + 0.5 * flip, duration: 0.12, shortestUnitArc: true),
+                .wait(forDuration: 0.25),
+                .fadeOut(withDuration: 0.15),
+            ]))
+        case .dash:
+            weaponNode.zRotation = angle // held forward for the whole dash
+        case .melee:
+            break
+        }
     }
 }

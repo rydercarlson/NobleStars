@@ -85,7 +85,7 @@ struct Face {
 
 let henrySkin = rgba(0.96, 0.80, 0.66)
 let tonySkin = rgba(0.93, 0.76, 0.60)
-let henryHairColor = rgba(0.76, 0.58, 0.38)
+let henryHairColor = rgba(0.60, 0.44, 0.27)
 let tonyHairColor = rgba(0.22, 0.18, 0.15)
 let henryVest = rgba(0.72, 0.68, 0.62)
 let henryVestLight = rgba(0.83, 0.80, 0.75)
@@ -95,12 +95,13 @@ let tonyPants = rgba(0.24, 0.24, 0.27)
 let novaSuit = rgba(0.25, 0.75, 0.95)
 let novaSuitDark = rgba(0.16, 0.52, 0.70)
 
-/// Curly hair: a crown of overlapping circles.
+/// Curly hair concentrated on top and the front fringe; sides stay short.
 func henryHair(_ c: CGContext, _ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat) {
     let curls: [(CGFloat, CGFloat, CGFloat)] = [
-        (-0.85, 0.45, 0.34), (-0.55, 0.80, 0.38), (-0.18, 0.95, 0.40),
-        (0.22, 0.93, 0.38), (0.58, 0.76, 0.36), (0.86, 0.42, 0.32),
-        (-0.98, 0.05, 0.24), (0.98, 0.02, 0.22),
+        // Top crown
+        (-0.50, 0.82, 0.34), (-0.14, 0.96, 0.36), (0.24, 0.93, 0.34), (0.58, 0.76, 0.30),
+        // Front fringe hanging over the forehead
+        (-0.52, 0.58, 0.24), (-0.16, 0.66, 0.26), (0.22, 0.64, 0.25), (0.54, 0.52, 0.21),
     ]
     for (fx, fy, fr) in curls {
         c.circle(cx + fx * r, cy + fy * r, fr * r, fill: henryHairColor, stroke: outline, lw: 3)
@@ -111,30 +112,40 @@ func henryHair(_ c: CGContext, _ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat) {
     }
 }
 
-/// Straight dark hair with a full fringe.
+/// Spiky black hair: a cap with spikes radiating up and a jagged fringe.
 func tonyHair(_ c: CGContext, _ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat) {
-    // Cap covering the top of the head
     c.setFillColor(tonyHairColor)
+    // Cap over the top of the head
     c.addArc(center: CGPoint(x: cx, y: cy), radius: r + 2,
-             startAngle: .pi * 0.02, endAngle: .pi * 0.98, clockwise: false)
+             startAngle: .pi * 0.12, endAngle: .pi * 0.88, clockwise: false)
     c.closePath(); c.fillPath()
-    // Fringe: a band with a softly scalloped bottom edge
-    let top = cy + r * 0.30
-    c.move(to: CGPoint(x: cx - r - 2, y: cy))
-    c.addLine(to: CGPoint(x: cx - r - 2, y: top))
-    c.addLine(to: CGPoint(x: cx + r + 2, y: top))
-    c.addLine(to: CGPoint(x: cx + r + 2, y: cy))
-    var x = cx + r
-    while x > cx - r {
-        c.addArc(center: CGPoint(x: x - r * 0.16, y: cy + r * 0.16), radius: r * 0.17,
-                 startAngle: 0, endAngle: .pi, clockwise: false)
-        x -= r * 0.33
+    // Radiating spikes
+    for i in 0..<6 {
+        let a = .pi * (0.20 + 0.12 * CGFloat(i))
+        let tip = CGPoint(x: cx + cos(a) * r * 1.38, y: cy + sin(a) * r * 1.38)
+        let b1 = CGPoint(x: cx + cos(a - 0.16) * r * 0.92, y: cy + sin(a - 0.16) * r * 0.92)
+        let b2 = CGPoint(x: cx + cos(a + 0.16) * r * 0.92, y: cy + sin(a + 0.16) * r * 0.92)
+        c.move(to: b1); c.addLine(to: tip); c.addLine(to: b2); c.closePath(); c.fillPath()
+        c.setStrokeColor(outline); c.setLineWidth(2.5)
+        c.move(to: b1); c.addLine(to: tip); c.addLine(to: b2); c.strokePath()
+        c.setFillColor(tonyHairColor)
     }
-    c.closePath(); c.fillPath()
-    // Outline pass
+    // Jagged fringe teeth over the forehead
+    let baseY = cy + r * 0.52
+    let tipY = cy + r * 0.26
+    let teeth = 5
+    for i in 0..<teeth {
+        let x0 = cx - r * 0.78 + r * 1.56 * CGFloat(i) / CGFloat(teeth)
+        let x1 = x0 + r * 1.56 / CGFloat(teeth)
+        c.move(to: CGPoint(x: x0, y: baseY + 6))
+        c.addLine(to: CGPoint(x: (x0 + x1) / 2, y: tipY))
+        c.addLine(to: CGPoint(x: x1, y: baseY + 6))
+        c.closePath(); c.fillPath()
+    }
+    // Outline pass on the cap
     c.setStrokeColor(outline); c.setLineWidth(3)
     c.addArc(center: CGPoint(x: cx, y: cy), radius: r + 2,
-             startAngle: .pi * 0.02, endAngle: .pi * 0.98, clockwise: false)
+             startAngle: .pi * 0.12, endAngle: .pi * 0.88, clockwise: false)
     c.strokePath()
 }
 
@@ -250,16 +261,16 @@ func portraitNova(_ c: CGContext) {
 func bodyCommon(_ c: CGContext, torso: CGColor, legs: CGColor, skin: CGColor,
                 hair: (CGContext, CGFloat, CGFloat, CGFloat) -> Void,
                 helmet: Bool = false) {
-    // Legs
+    // 3/4 top-down proportions: big head over a foreshortened body,
+    // small feet peeking out.
     for side: CGFloat in [-1, 1] {
-        c.rounded(CGRect(x: 44 + side * 15 - 9, y: 0, width: 18, height: 20), 7,
+        c.rounded(CGRect(x: 44 + side * 14 - 9, y: 0, width: 18, height: 14), 6,
                   fill: legs, stroke: outline, lw: 3)
     }
-    // Torso
-    c.rounded(CGRect(x: 20, y: 12, width: 48, height: 36), 15,
+    c.rounded(CGRect(x: 21, y: 8, width: 46, height: 30), 14,
               fill: torso, stroke: outline, lw: 3)
     // Head
-    let cy: CGFloat = 68, r: CGFloat = 26
+    let cy: CGFloat = 62, r: CGFloat = 29
     c.circle(44, cy, r, fill: skin, stroke: outline, lw: 3)
     if helmet {
         novaHelmet(c, 44, cy, r - 2)
@@ -402,6 +413,17 @@ render("body_nova", 88, 100) { c in
 render("weapon_racket", 100, 36) { weaponRacket($0) }
 render("weapon_paddle", 120, 28) { weaponPaddle($0) }
 render("weapon_shotgun", 90, 26) { weaponShotgun($0) }
+
+render("ball_tennis", 32, 32) { c in
+    c.circle(16, 16, 13.5, fill: rgba(0.85, 0.95, 0.30), stroke: outline, lw: 2.5)
+    c.setStrokeColor(rgba(1, 1, 1, 0.95)); c.setLineWidth(2.5)
+    c.addArc(center: CGPoint(x: -1, y: 16), radius: 15.5,
+             startAngle: -.pi * 0.28, endAngle: .pi * 0.28, clockwise: false)
+    c.strokePath()
+    c.addArc(center: CGPoint(x: 33, y: 16), radius: 15.5,
+             startAngle: .pi * 0.72, endAngle: .pi * 1.28, clockwise: false)
+    c.strokePath()
+}
 
 render("tile_grass_light", 128, 128) { grassTile($0, base: rgba(0.55, 0.75, 0.35), seed: 11) }
 render("tile_grass_dark", 128, 128) { grassTile($0, base: rgba(0.51, 0.71, 0.32), seed: 29) }

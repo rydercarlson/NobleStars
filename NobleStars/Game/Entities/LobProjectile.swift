@@ -9,7 +9,7 @@ final class LobProjectile: SKNode {
     let damage: Int
 
     init(owner: Fighter, from start: CGPoint, to target: CGPoint,
-         weapon: Weapon, damage: Int, color: SKColor,
+         weapon: Weapon, damage: Int,
          onLand: @escaping (LobProjectile) -> Void) {
         self.owner = owner
         self.weapon = weapon
@@ -24,11 +24,10 @@ final class LobProjectile: SKNode {
         shadow.strokeColor = .clear
         addChild(shadow)
 
-        let ball = SKShapeNode(circleOfRadius: weapon.pelletRadius)
-        ball.fillColor = color
-        ball.strokeColor = SKColor(white: 0.15, alpha: 1)
-        ball.lineWidth = 2
+        let ball = SKSpriteNode(imageNamed: "ball_tennis")
+        ball.size = CGSize(width: weapon.pelletRadius * 2.4, height: weapon.pelletRadius * 2.4)
         ball.position = CGPoint(x: 0, y: 20)
+        ball.run(.repeatForever(.rotate(byAngle: -.pi * 2, duration: 0.7)))
         addChild(ball)
 
         let distance = hypot(target.x - start.x, target.y - start.y)
