@@ -207,6 +207,17 @@ static func is_unlocked(id: String) -> bool:
 static func unlock(id: String) -> void:
 	unlocked[id.to_lower()] = true
 
+static func unlock_all_brawlers() -> void:
+	for brawler in MenuData.brawlers:
+		unlocked[str(brawler.get("id", "")).to_lower()] = true
+	save()
+
+static func all_brawlers_unlocked() -> bool:
+	for brawler in MenuData.brawlers:
+		if not is_unlocked(str(brawler.get("id", ""))):
+			return false
+	return true
+
 static func is_claimed(id: String) -> bool:
 	return bool(claimed.get(id, false))
 

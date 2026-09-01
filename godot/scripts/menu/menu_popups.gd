@@ -23,6 +23,21 @@ static func settings(shell: MenuShell) -> MenuPopup:
 		shell.toast("Support: dm the dev", "inbox"))
 	popup.setting_row("Support", "Nobles Brawl · Noble Stars menu v1", help)
 
+	var unlock_all: Button = MenuUI.small_button(
+			"UNLOCKED" if SaveGame.all_brawlers_unlocked() else "UNLOCK ALL", "blue")
+	unlock_all.disabled = SaveGame.all_brawlers_unlocked()
+	if unlock_all.disabled:
+		unlock_all.modulate = Color(0.7, 0.7, 0.7)
+	unlock_all.pressed.connect(func() -> void:
+		SaveGame.unlock_all_brawlers()
+		unlock_all.text = "UNLOCKED"
+		unlock_all.disabled = true
+		unlock_all.modulate = Color(0.7, 0.7, 0.7)
+		shell.sfx("reward")
+		shell.brawler_changed.emit()
+		shell.toast("Developer mode: all brawlers unlocked", "brawlers"))
+	popup.setting_row("Developer mode", "Unlock every brawler on this save", unlock_all)
+
 	var reset: Button = MenuUI.small_button("RESET", "red")
 	reset.pressed.connect(func() -> void:
 		var ok: bool = await shell.confirm("Reset progress?",

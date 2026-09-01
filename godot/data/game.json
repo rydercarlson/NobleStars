@@ -1,5 +1,21 @@
 {
   "season": { "number": 1, "name": "BACK TO SCHOOL", "endsInDays": 27, "tier": 9, "maxTier": 60, "tokens": 340, "tokensPerTier": 500 },
+  "startingBrawlers": ["nova"],
+  "trophyRoad": [
+    { "trophies": 20, "kind": "brawler_drop" },
+    { "trophies": 40, "kind": "coins", "amount": 150 },
+    { "trophies": 80, "kind": "brawler_drop" },
+    { "trophies": 150, "kind": "star_drop", "amount": 1 },
+    { "trophies": 200, "kind": "brawler_drop" },
+    { "trophies": 300, "kind": "gems", "amount": 20 },
+    { "trophies": 400, "kind": "brawler_drop" },
+    { "trophies": 550, "kind": "coins", "amount": 750 },
+    { "trophies": 700, "kind": "brawler_drop" },
+    { "trophies": 850, "kind": "star_drop", "amount": 2 },
+    { "trophies": 1000, "kind": "brawler_drop" },
+    { "trophies": 1200, "kind": "gems", "amount": 50 },
+    { "trophies": 1500, "kind": "brawler_drop" }
+  ],
   "modes": [
     { "id": "showdown_solo", "name": "SHOWDOWN", "sub": "Solo", "players": "10 players", "color": "#57c81e", "icon": "bulldog",
       "map": "Castle Courtyard", "text": "Ten brawlers enter the Castle courtyard. Grab power cubes, survive the shrinking gas, be the last one standing." },

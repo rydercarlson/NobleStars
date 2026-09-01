@@ -194,6 +194,7 @@ func _claim(claim_id: String, reward: Dictionary, button: Control) -> void:
 	SaveGame.claim(claim_id)
 	var kind: String = str(reward.get("kind", "coins"))
 	var amount: int = int(reward.get("amount", 1))
+	var unlocked_brawler: Dictionary = {}
 	if kind == "coins" or kind == "gems":
 		SaveGame.grant(kind, amount)
 		menu.refresh_currencies()
@@ -201,11 +202,15 @@ func _claim(claim_id: String, reward: Dictionary, button: Control) -> void:
 		SaveGame.unlock(str(reward.get("id", "")))
 		SaveGame.save()
 	elif kind == "brawler_drop":
-		var unlocked: Dictionary = _unlock_random_brawler()
+		unlocked_brawler = _unlock_random_brawler()
 		SaveGame.save()
-		if not unlocked.is_empty():
+		if not unlocked_brawler.is_empty():
 			reward = reward.duplicate()
-			reward["name"] = "UNLOCKED %s" % str(unlocked.get("name", "BRAWLER"))
+			reward["name"] = "UNLOCKED %s" % str(unlocked_brawler.get("name", "BRAWLER"))
+		else:
+			reward = reward.duplicate()
+			reward["name"] = "500 COINS"
+			menu.refresh_currencies()
 	SaveGame.save()
 	sfx("reward")
 	menu.burst(center_of(button), _reward_icon(reward), 14)
@@ -213,6 +218,8 @@ func _claim(claim_id: String, reward: Dictionary, button: Control) -> void:
 			_reward_icon(reward))
 	var drops: int = amount if kind == "star_drop" else 0
 	_reopen()
+	if not unlocked_brawler.is_empty():
+		_show_brawler_unlock(unlocked_brawler)
 	for i in drops:
 		get_tree().create_timer(0.35 + i * 0.12).timeout.connect(func() -> void:
 			ShopScreen.open_star_drop(menu))
@@ -242,6 +249,34 @@ func _unlock_random_brawler() -> Dictionary:
 			break
 	SaveGame.unlock(str(pick.get("id", "")))
 	return pick
+
+func _show_brawler_unlock(brawler: Dictionary) -> void:
+	var popup: MenuPopup = menu.popup("Brawler Drop", 720)
+	var column := MenuUI.vbox(10)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	popup.body_box.add_child(column)
+	var kicker: Label = MenuUI.display("NEW BRAWLER!", 34, MenuUI.YELLOW_HI, 5)
+	kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(kicker)
+	var art := CenterContainer.new()
+	art.custom_minimum_size = Vector2(0, 250)
+	art.add_child(_reward_art({"kind": "brawler", "id": str(brawler.get("id", ""))}))
+	column.add_child(art)
+	var name: Label = MenuUI.display(str(brawler.get("name", "BRAWLER")), 58,
+			brawler.get("color", MenuUI.TEXT), 8)
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(name)
+	var rarity: Dictionary = MenuData.rarity_of(brawler)
+	var rarity_label: Label = MenuUI.body(str(rarity.get("label", "Rare")).to_upper(),
+			22, MenuUI.hex(rarity.get("color"), MenuUI.TEXT_DIM))
+	rarity_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(rarity_label)
+	var awesome: Button = MenuUI.button("AWESOME", "yellow", 34,
+			Vector2(300, 76))
+	awesome.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	awesome.pressed.connect(popup.close_screen)
+	column.add_child(awesome)
+	menu.burst(menu.stage.size * 0.5, "star_drop", 20)
 
 func _rarity_weight(rarity: String) -> float:
 	match rarity:
