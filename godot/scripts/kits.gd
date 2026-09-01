@@ -163,8 +163,16 @@ static func tony() -> Dictionary:
 		"move_speed": SPEED_SLOW,
 		"reload": RELOAD_SLOW,
 		"weapon": {
+			# 3.0x, not the 2.1x the dodge-window maths alone wanted. A lob
+			# resolves where it LANDS, so its AOE only forgives a miss if the
+			# shell arrives near the target — a longer hang amplifies any lead
+			# error instead of being paid for by the blast radius. Slowing it to
+			# 2.1x dropped his measured hit rate from 81% to 63% in NS3_SIM. At
+			# 3.0x the shell hangs 0.73s and the target covers 4.1 m, which is
+			# what it covered before the retune. See CHARACTER_BUILDING.md:
+			# "An arcing attack has to be timed against how fast people move."
 			"style": Style.LOB, "pellets": 1, "spread_deg": 0.0, "damage": 1240,
-			"range": 5.5 * TILE, "speed": SPEED_SLOW * 2.10, "radius": 0.42,
+			"range": 5.5 * TILE, "speed": SPEED_SLOW * 3.00, "radius": 0.42,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.7 * TILE, "water_mult": 1.0,
 		},

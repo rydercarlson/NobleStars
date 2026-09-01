@@ -312,7 +312,7 @@ screen cap in section 4 binds before the body-width band does.
 |---|---|---|---|---|---|---|---|---|
 | Nova pellet | 5.60 | 4.3 | 0.44 | 17.1 | 3.05 | .50 | .25 | 1.29 |
 | Nova Super | 5.60 | 5.0 | 0.52 | 18.5 | 3.30 | .54 | .29 | 1.30 |
-| Tony lob | 5.04 | 5.5 | 0.42 | 10.6 | 2.10 | 1.04 | .79 | 1.48 |
+| Tony lob | 5.04 | 5.5 | 0.42 | 15.1 | 3.00 | .73 | .48 | 0.74 |
 | Tony Super | 5.04 | 6.0 | 0.56 | 19.7 | 3.90 | .61 | .36 | 1.27 |
 | Henry sweep | 5.04 | 1.5 | — | — | — | — | — | — |
 | Henry dash | 5.04 | 3.4 | — | 16.1 | 3.20 | .42 | .17 | — |
@@ -321,11 +321,17 @@ screen cap in section 4 binds before the body-width band does.
 | Kovacs clap | 4.48 | 2.4 | — | — | — | — | — | — |
 | Kovacs leap | 4.48 | 3.6 | — | — | — | — | — | — |
 | Leon button | 5.60 | 4.8 | 0.46 | 17.9 | 3.20 | .54 | .29 | 1.35 |
-| Leon Super | 5.60 | 4.8 | 0.66 | 11.8 | 2.10 | .82 | .57 | 0.76 |
-| Anders sack | 5.60 | 2.8 | 0.44 | 9.5 | 1.70 | .59 | .34 | 0.81 |
-| Anders Pop Off | 5.60 | 2.8 | 0.48 | 15.7 | 2.80 | .36 | .11 | 0.35 |
+| Leon Super | 5.60 | 4.8 | 0.66 | 11.8 | 2.10 | .82 | .57 | 0.49 |
+| Anders sack | 5.60 | 2.8 | 0.44 | 9.5 | 1.70 | .59 | .34 | 0.55 |
+| Anders Pop Off | 5.60 | 2.8 | 0.48 | 15.7 | 2.80 | .36 | .11 | 0.22 |
 | Hammy shot | 5.60 | 5.5 | 0.62 | 20.2 | 3.60 | .55 | **.30** | 1.20 |
 | Hammy Super | 5.60 | 6.0 | 0.70 | 18.5 | 3.30 | .65 | .40 | 1.35 |
+
+**Caveat on the AOE rows.** `lead/hit` treats the blast radius as hit width,
+which overstates forgiveness for anything that resolves where it *lands* rather
+than along its path — a lob's AOE only helps if the shell arrives near the
+target, so a longer hang amplifies lead error instead of being paid for by the
+radius. Tony's lob is timed against target movement instead; see its kit note.
 
 Targets: **dodge ≥ 0.22s · lead/hit 0.80–1.45 · projectile width ≤ 1.0
 body-widths** (Brawl Stars' median). Ratio is deliberately *not* a target — see
