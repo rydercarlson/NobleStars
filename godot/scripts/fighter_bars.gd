@@ -62,9 +62,10 @@ func _draw() -> void:
 		_draw_health_number(health_rect, f.health)
 
 		# Ammo pips underneath, each filling left-to-right.
-		var pip_w := (BAR_W - 2.0 * PIP_GAP) / 3.0
+		var pips: int = maxi(1, int(f.max_ammo))
+		var pip_w := (BAR_W - float(pips - 1) * PIP_GAP) / float(pips)
 		var pip_y := p.y + BAR_H + BAR_GAP
-		for i in 3:
+		for i in pips:
 			var px := left + i * (pip_w + PIP_GAP)
 			var pip_rect := Rect2(px, pip_y, pip_w, PIP_H)
 			draw_style_box(_style(TRACK_COLOR, 3, OUTLINE_COLOR, 1), pip_rect)
@@ -74,6 +75,16 @@ func _draw() -> void:
 				var pip_fill := Rect2(pip_inner.position,
 						Vector2(pip_inner.size.x * pf, pip_inner.size.y))
 				draw_style_box(_style(AMMO_COLOR, 2), pip_fill)
+
+		# Hammy's streak changes how the next shot should be played, so show three
+		# compact Heat pips directly below ammo. All three burn while On Fire.
+		if bool(f.kit.get("weapon", {}).get("heat_trait", false)):
+			var heat_y := pip_y + PIP_H + 3.0
+			for i in 3:
+				var heat_rect := Rect2(left + i * (pip_w + PIP_GAP), heat_y, pip_w, 5.0)
+				var lit: bool = f.is_on_fire(game.now) or i < f.heat_hits
+				draw_style_box(_style(Color(1.0, 0.22, 0.01) if lit else TRACK_COLOR,
+						2, OUTLINE_COLOR, 1), heat_rect)
 
 ## Loot boxes are shootable targets, so they read like one: the same health bar
 ## the fighters wear, drawn under them so a fighter's bar always wins the

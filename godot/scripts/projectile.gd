@@ -10,13 +10,20 @@ var origin := Vector3.ZERO
 var already_hit: Array = []
 var button_text := ""
 var button_color := Color.WHITE
+var hit_fighter := false
+## Called once when a heat-trait shot ends: (hit_fighter: bool).
+var on_finished := Callable()
 ## Set by the main scene to its _on_projectile_hit. The swept ray below reports
 ## through this rather than through body_entered; see _physics_process.
 var on_sweep_hit := Callable()
-var _flight_time := 0.0
+var _distance_traveled := 0.0
+var _speed := 0.0
+var _bounces_left := 0
 var _sweep: PhysicsShapeQueryParameters3D
 
 func _ready() -> void:
+	_speed = float(weapon.speed)
+	_bounces_left = int(weapon.get("bounces", 0))
 	collision_layer = 1 << 3
 	collision_mask = (1 << 0) | (1 << 2) | (1 << 5)  # walls | fighters | boxes
 	monitoring = true
@@ -37,8 +44,9 @@ func _ready() -> void:
 	mesh.radius = weapon.radius
 	mesh.height = weapon.radius * 2
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = button_color if button_text != "" else \
-			(Color(1.0, 0.45, 0.15) if weapon.destroys_walls else Color(1.0, 0.85, 0.3))
+	mat.albedo_color = button_color if button_text != "" else weapon.get(
+			"projectile_color", Color(1.0, 0.45, 0.15) if weapon.destroys_walls \
+			else Color(1.0, 0.85, 0.3))
 	mat.emission_enabled = true
 	mat.emission = mat.albedo_color * 0.6
 	mesh.material = mat
@@ -57,9 +65,8 @@ func _ready() -> void:
 		add_child(label)
 
 func _physics_process(delta: float) -> void:
-	_flight_time += delta
-	var traveled: float = _flight_time * float(weapon.speed)
-	var next_pos := origin + direction * traveled
+	var motion := direction * _speed * delta
+	var next_pos := global_position + motion
 	# Area3D overlap is sampled once per physics tick, so a fast projectile can
 	# jump clean past a fighter between ticks and never report the hit. A ray
 	# over the full frame movement makes every shot deterministic, the same fix
@@ -67,7 +74,6 @@ func _physics_process(delta: float) -> void:
 	# advances a 25 m/s pellet ~4 m per tick against a ~0.6 m hitbox (it made
 	# every pellet kit read as broken in the balance table), but a 42 m/s Super
 	# can skip past a target's edge at normal speed too.
-	var motion := next_pos - global_position
 	var skip: Array[RID] = []
 	if is_instance_valid(owner_fighter):
 		skip.append(owner_fighter.get_rid())
@@ -84,16 +90,32 @@ func _physics_process(delta: float) -> void:
 	var frac := space.cast_motion(_sweep)
 	if frac[0] >= 1.0:
 		global_position = next_pos
+		_distance_traveled += motion.length()
 	else:
 		_sweep.transform = Transform3D(Basis(), global_position + motion * frac[1])
 		_sweep.motion = Vector3.ZERO
 		var rest := space.get_rest_info(_sweep)
+		var impact := global_position + motion * frac[0]
+		_distance_traveled += motion.length() if weapon.pierces \
+				else global_position.distance_to(impact)
 		# A piercing shot keeps its momentum; anything else stops where it hit.
-		global_position = next_pos if weapon.pierces else global_position + motion * frac[0]
+		global_position = next_pos if weapon.pierces else impact
 		var collider: Object = instance_from_id(rest.collider_id) if rest.has("collider_id") else null
-		if collider is Node3D and on_sweep_hit.is_valid():
+		var wall_hit := collider is CollisionObject3D \
+				and (int((collider as CollisionObject3D).collision_layer) & (1 << 0)) != 0
+		if wall_hit and _bounces_left > 0 and rest.has("normal"):
+			_bounces_left -= 1
+			direction = direction.bounce(rest.normal).normalized()
+			damage = int(round(damage * float(weapon.get("bounce_damage_mult", 1.0))))
+			_speed *= float(weapon.get("bounce_speed_mult", 1.0))
+			global_position = impact + direction * 0.05
+		elif collider is Node3D and on_sweep_hit.is_valid():
 			on_sweep_hit.call(collider, self)
 		elif collider == null:
 			global_position = next_pos   # nothing resolved; don't stall in place
-	if traveled > weapon.range:
+	if _distance_traveled > float(weapon.range):
 		queue_free()
+
+func _exit_tree() -> void:
+	if on_finished.is_valid():
+		on_finished.call(hit_fighter)

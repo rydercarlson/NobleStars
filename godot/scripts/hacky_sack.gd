@@ -22,6 +22,7 @@ var rally := 1
 var on_enemy_hit := Callable()     # (Fighter target, HackySack sack)
 var on_rally := Callable()         # (HackySack sack) — Anders kicked it again
 var on_land := Callable()          # (Fighter or null, HackySack) — diagnostics
+var on_box_hit := Callable()       # (Node box, HackySack)
 
 const MAX_RALLY := 3
 ## Offensive landings only — on an enemy or on bare floor. Being caught by
@@ -65,6 +66,10 @@ func _ready() -> void:
 	collision_mask = 0          # landings resolve by radius, not by overlap
 	monitoring = false
 	_land_radius = maxf(float(weapon.get("aoe", 1.0)), 0.6)
+	# One pip, and it does not start refilling until the rally is over: the
+	# reload is the price of ending a rally, not something that ticks during it.
+	if is_instance_valid(owner_fighter):
+		owner_fighter.ammo_locked = true
 
 	var visual := MeshInstance3D.new()
 	var mesh := SphereMesh.new()
@@ -174,11 +179,25 @@ func _land() -> void:
 		if _ground_gap(f) <= _land_radius:
 			struck = f
 			break
+	# Power cube boxes resolve here too. The sack lands by radius rather than by
+	# collision, so anything that is not a fighter is invisible unless it is
+	# looked for by name.
+	var hit_box := false
+	for box in get_tree().get_nodes_in_group("lootbox"):
+		if not is_instance_valid(box):
+			continue
+		var v := Vector2(global_position.x - box.global_position.x,
+				global_position.z - box.global_position.z)
+		if v.length() <= _land_radius + 0.5:
+			hit_box = true
+			if on_box_hit.is_valid():
+				on_box_hit.call(box, self)
+			break
 	if on_land.is_valid():
 		on_land.call(struck, self)
 	if struck != null and on_enemy_hit.is_valid():
 		on_enemy_hit.call(struck, self)
-	_spend_touch(struck)
+	_spend_touch(struck, struck != null or hit_box)
 
 ## Flat direction of the hop that just landed, for knockback.
 func travel_dir() -> Vector3:
@@ -191,14 +210,14 @@ func _ground_gap(f: Fighter) -> float:
 			global_position.z - f.global_position.z).length()
 
 ## One landing resolved. Kick it on if any touches remain.
-func _spend_touch(struck: Fighter) -> void:
+func _spend_touch(struck: Fighter, connected: bool) -> void:
 	_touches_left -= 1
 	if _touches_left <= 0:
 		queue_free()
 		return
-	# After landing on an enemy the sack goes back to Anders — that is the rally,
-	# out and back, and it is why it must never re-pick whoever it just hit.
-	if struck != null and is_instance_valid(owner_fighter) and not owner_fighter.is_dead() \
+	# After landing on something the sack goes back to Anders — that is the
+	# rally, out and back, and it is why it must never re-pick what it just hit.
+	if connected and is_instance_valid(owner_fighter) and not owner_fighter.is_dead() \
 			and _ground_gap(owner_fighter) <= REACH:
 		_begin_hop(owner_fighter.global_position, owner_fighter)
 		return
@@ -255,6 +274,10 @@ func _nearest_enemy() -> Fighter:
 			best = d
 			found = f
 	return found
+
+func _exit_tree() -> void:
+	if is_instance_valid(owner_fighter):
+		owner_fighter.ammo_locked = false
 
 func _bounce_pulse() -> void:
 	var tw := create_tween()
