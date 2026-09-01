@@ -326,10 +326,11 @@ static func anders() -> Dictionary:
 		# and a thin projectile fired down a fixed vector could not catch anyone
 		# who had moved. speed is the spike's dive rate, so it lands fast.
 		"super": {
-			"style": Style.POP_OFF, "pellets": 1, "spread_deg": 0.0, "damage": 1800,
+			# spread_deg 360 so the blast ring draws as a full circle.
+			"style": Style.POP_OFF, "pellets": 1, "spread_deg": 360.0, "damage": 1800,
 			"range": 3.5 * TILE, "speed": 22.0, "radius": 0.34,
-			"destroys_walls": false, "knockback": 12.0, "pierces": true,
-			"aoe": 1.2 * TILE, "water_mult": 1.0,
+			"destroys_walls": false, "knockback": 14.0, "pierces": true,
+			"aoe": 1.7 * TILE, "water_mult": 1.0,
 		},
 	}
 
@@ -370,31 +371,3 @@ static func hammy() -> Dictionary:
 ## Sniper: one small, fast basketball at the screen-range cap. Consecutive
 ## fighter hits light him On Fire; that strong basic-attack utility is U=0.85.
 ## Formula gives 1422; 1250 is the measured trim for his unusually long uptime.
-static func hammy() -> Dictionary:
-	return {
-		"name": "Hammy", "color": Color(1.0, 0.36, 0.08),
-		"role": "Sniper",
-		"desc": "Sinks long-range three-pointers; three consecutive hits set his shots On Fire.",
-		"super_desc": "Bank Is Open: fires a huge basketball that gains power on every wall bounce and sets enemies on fire.",
-		"max_health": HEALTH_VERY_LOW,
-		"move_speed": SPEED_NORMAL,
-		"reload": RELOAD_SLOW,
-		"weapon": {
-			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1250,
-			"range": 5.5 * TILE, "speed": 29.0, "radius": 0.24,
-			"destroys_walls": false, "knockback": 0.0, "pierces": false,
-			"aoe": 0.0, "water_mult": 1.0, "heat_trait": true,
-			"projectile_color": Color(1.0, 0.34, 0.04),
-		},
-		# The direct hit is deliberately modest: banking is the point. Each wall
-		# adds 25%, so three clean banks ramp 1600 -> 3125 before the fire damage.
-		"super": {
-			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1600,
-			"range": 6.5 * TILE, "speed": 24.0, "radius": 0.46,
-			"destroys_walls": false, "knockback": 5.0, "pierces": false,
-			"aoe": 0.0, "water_mult": 1.0, "bounces": 3,
-			"bounce_damage_mult": 1.25, "bounce_speed_mult": 1.08,
-			"burn_duration": 3.0, "burn_tick_damage": 100,
-			"projectile_color": Color(1.0, 0.20, 0.01),
-		},
-	}

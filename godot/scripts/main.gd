@@ -776,15 +776,27 @@ func _pop_off_spike(f: Fighter, weapon: Dictionary, spot: Vector3, mult: float) 
 func _pop_off_land(lob: Lob) -> void:
 	var center: Vector3 = lob.target_pos
 	var radius: float = float(lob.weapon.aoe) + 0.5
+	# A visible blast ring at the impact, so the Super reads as an explosion
+	# going off where he was rather than a sack quietly touching down.
+	_spawn_shockwave(center, lob.weapon, Color(1.0, 0.85, 0.35))
 	for f in fighters:
 		if not is_instance_valid(f) or f == lob.owner_fighter or f.is_dead():
 			continue
 		var away := f.global_position - center
 		away.y = 0.0
-		if away.length() > radius:
+		var gap := away.length()
+		if gap > radius:
 			continue
-		var push: Vector3 = away.normalized() if away.length() > 0.05 else Vector3.FORWARD
-		deal_damage(lob.damage, f, _live(lob.owner_fighter), push, lob.weapon.knockback)
+		var push: Vector3 = away.normalized() if gap > 0.05 else Vector3.FORWARD
+		# Splash falloff: full damage at the centre, 55% at the rim. Landing it
+		# on someone is still worth more than catching them in the edge.
+		var falloff: float = lerpf(1.0, 0.55, clampf(gap / maxf(radius, 0.01), 0.0, 1.0))
+		deal_damage(int(lob.damage * falloff), f, _live(lob.owner_fighter),
+				push, lob.weapon.knockback)
+	# Power cube boxes are caught by the blast too.
+	for box in get_tree().get_nodes_in_group("lootbox"):
+		if is_instance_valid(box) and box.global_position.distance_to(center) <= radius:
+			_damage_lootbox(box, lob.damage)
 
 func _on_boomerang_hit(body: Node3D, boom: Boomerang) -> void:
 	if not is_instance_valid(boom):
