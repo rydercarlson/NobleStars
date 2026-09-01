@@ -243,16 +243,23 @@ func _spawn_cube(pos: Vector3) -> void:
 	area.collision_mask = 1 << 2
 	area.position = pos + Vector3(0, 0.5, 0)
 	area.add_to_group("cube")
-	var m := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(0.5, 0.5, 0.5)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.75, 0.3, 0.9)
-	mat.emission_enabled = true
-	mat.emission = Color(0.4, 0.1, 0.5)
-	box.material = mat
-	m.mesh = box
+	# Meshy power-cube token, spinning Brawl-style with a soft bob.
+	var m: Node3D = (load("res://assets/power_cube.glb") as PackedScene).instantiate()
+	m.scale = Vector3.ONE * 0.3
+	for mi in m.find_children("*", "MeshInstance3D", true, false):
+		var mesh: Mesh = mi.mesh
+		for si in mesh.get_surface_count():
+			var mat = mesh.surface_get_material(si)
+			if mat is BaseMaterial3D:
+				mat.metallic = 0.0
 	area.add_child(m)
+	var spin := area.create_tween().set_loops()
+	spin.tween_property(m, "rotation:y", TAU, 2.6).as_relative()
+	var bob := area.create_tween().set_loops()
+	bob.tween_property(m, "position:y", 0.09, 1.1).as_relative() \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	bob.tween_property(m, "position:y", -0.09, 1.1).as_relative() \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	var col := CollisionShape3D.new()
 	var shape := SphereShape3D.new()
 	shape.radius = 0.7
@@ -282,6 +289,8 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	var unit := Vector3(dir.x, 0, dir.z).normalized()
 	f.face_direction(unit)
+	if f.is_silenced(now):
+		return
 	var is_super: bool = weapon == f.kit.get("super")
 	f.play_attack_animation(now, is_super)
 	match int(weapon.style):
@@ -333,6 +342,39 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			boom.body_entered.connect(_on_boomerang_hit.bind(boom))
 			add_child(boom)
 			f.set_held_item_visible(false)   # the staff is in the air now
+		Kits.Style.LANES:
+			# Four parallel button lanes (A/B/X/Y), each drifting on its own.
+			var labels: Array = [["A", Color(0.35, 0.82, 0.35)], ["B", Color(0.9, 0.3, 0.3)],
+					["X", Color(0.35, 0.55, 0.95)], ["Y", Color(0.92, 0.8, 0.25)]]
+			var perp := Vector3(-unit.z, 0, unit.x)
+			var gap: float = weapon.get("lane_gap", 0.85)
+			for i in int(weapon.pellets):
+				var off: float = (float(i) - (int(weapon.pellets) - 1) / 2.0) * gap
+				var shot := LaneShot.new()
+				shot.weapon = weapon
+				shot.damage = int(weapon.damage * f.damage_multiplier())
+				shot.owner_fighter = f
+				shot.direction = unit
+				shot.label = labels[i % labels.size()][0]
+				shot.tint = labels[i % labels.size()][1]
+				shot.drift_amp = weapon.get("drift_amp", 0.55)
+				shot.drift_hz = weapon.get("drift_hz", 2.4)
+				shot.drift_phase = randf() * TAU
+				shot.position = f.global_position + unit * 0.8 + perp * off + Vector3(0, 1.0, 0)
+				shot.origin = shot.position
+				shot.body_entered.connect(_on_projectile_hit.bind(shot))
+				add_child(shot)
+		Kits.Style.SIGNAL:
+			var sig := GlitchSignal.new()
+			sig.weapon = weapon
+			sig.damage = int(weapon.damage * f.damage_multiplier())
+			sig.owner_fighter = f
+			sig.direction = unit
+			sig.position = f.global_position + unit * 0.9 + Vector3(0, 1.2, 0)
+			sig.origin = sig.position
+			sig.body_entered.connect(_on_glitch_signal_hit.bind(sig))
+			sig.expired.connect(_detonate_signal.bind(sig))
+			add_child(sig)
 		Kits.Style.SHOCKWAVE:
 			var delay: float = weapon.get("delay", 0.0)
 			if delay > 0.0:
@@ -359,6 +401,61 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 		body.queue_free()   # shell plows through
 	elif not body.is_in_group("water"):
 		proj.queue_free()
+
+func _on_glitch_signal_hit(body: Node3D, sig: GlitchSignal) -> void:
+	if not is_instance_valid(sig):
+		return
+	if body is Fighter and (body == sig.owner_fighter or body.is_dead()):
+		return
+	if body.is_in_group("water"):
+		return
+	_detonate_signal(sig)
+
+## Disconnect goes off: area damage plus a silence — hit fighters can still
+## move, but cannot attack until the timer runs out.
+func _detonate_signal(sig: GlitchSignal) -> void:
+	if not is_instance_valid(sig) or sig.already_hit.size() > 0:
+		return
+	sig.already_hit.append(sig)   # reused as a one-shot detonation latch
+	var center := sig.global_position
+	var silence_s: float = sig.weapon.get("silence", 2.4)
+	for f in fighters:
+		if f == sig.owner_fighter or f.is_dead():
+			continue
+		var v := f.global_position - center
+		v.y = 0
+		if v.length() <= sig.weapon.aoe + 0.5:
+			deal_damage(sig.damage, f, sig.owner_fighter, v.normalized(), sig.weapon.knockback)
+			f.silence_until_time(now + silence_s)
+	for box in get_tree().get_nodes_in_group("lootbox"):
+		if box.global_position.distance_to(center) <= sig.weapon.aoe + 0.7:
+			_damage_lootbox(box, sig.damage)
+	_spawn_glitch_burst(center, sig.weapon.aoe)
+	sig.queue_free()
+
+## Expanding two-tone shell so Disconnect's blast area is readable.
+func _spawn_glitch_burst(center: Vector3, radius: float) -> void:
+	for i in 2:
+		var shell := MeshInstance3D.new()
+		var mesh := SphereMesh.new()
+		mesh.radius = 1.0
+		mesh.height = 2.0
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		var c := Color(0.1, 0.95, 0.9, 0.4) if i == 0 else Color(0.95, 0.2, 0.85, 0.4)
+		mat.albedo_color = c
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mesh.material = mat
+		shell.mesh = mesh
+		shell.position = center + Vector3(0.06 * (1 - 2 * i), 0, 0)
+		shell.scale = Vector3.ONE * 0.2
+		add_child(shell)
+		var tw := create_tween()
+		tw.tween_property(shell, "scale", Vector3.ONE * radius, 0.28 + 0.07 * i) \
+				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tw.parallel().tween_property(shell, "transparency", 1.0, 0.4 + 0.07 * i).from(0.35)
+		tw.tween_callback(shell.queue_free)
 
 func _on_boomerang_hit(body: Node3D, boom: Boomerang) -> void:
 	if not is_instance_valid(boom):
@@ -671,7 +768,19 @@ func _update_aim_indicator() -> void:
 
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	im.surface_set_color(color)
-	if int(weapon.style) == Kits.Style.LOB:
+	if int(weapon.style) == Kits.Style.LANES:
+		# Parallel-lane corridor: a rectangle as wide as the four lanes.
+		var perp := Vector3(-dir.z, 0, dir.x)
+		var halfw: float = (weapon.get("lane_gap", 0.85) * (int(weapon.pellets) - 1) / 2.0) \
+				+ weapon.radius + 0.25
+		var far := origin + dir * weapon.range
+		im.surface_add_vertex(origin - perp * halfw)
+		im.surface_add_vertex(origin + perp * halfw)
+		im.surface_add_vertex(far + perp * halfw)
+		im.surface_add_vertex(origin - perp * halfw)
+		im.surface_add_vertex(far + perp * halfw)
+		im.surface_add_vertex(far - perp * halfw)
+	elif int(weapon.style) == Kits.Style.LOB:
 		# Landing-zone circle at the throw distance.
 		var dist: float = clamp(stick.value.length() * weapon.range,
 								Kits.TILE * 1.5, weapon.range)
@@ -730,7 +839,8 @@ func _run_playing(delta: float) -> void:
 	for b in brains:
 		var d := b.decide(now, self)
 		b.fighter.apply_movement(d.move)
-		if d.fire_dir != null and not b.fighter.is_dashing():
+		if d.fire_dir != null and not b.fighter.is_dashing() \
+				and not b.fighter.is_silenced(now):
 			if d.use_super and b.fighter.consume_super():
 				perform_attack(b.fighter, b.fighter.kit["super"], d.fire_dir, d.fire_dist)
 			elif not d.use_super and b.fighter.consume_ammo():
@@ -760,6 +870,8 @@ func _run_playing(delta: float) -> void:
 func _fire_player(weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	if phase != Phase.PLAYING or player.is_dead() or player.is_dashing():
 		return
+	if player.is_silenced(now):
+		return   # Disconnected — no ammo or Super charge is spent
 	if weapon == player.kit["super"]:
 		if player.consume_super():
 			perform_attack(player, weapon, dir, dist)

@@ -18,9 +18,27 @@ produce. The raw Meshy export of the tennis brawler is preserved in git history
 | `paddle_brawler_animated.glb` | Henry | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.5 MB |
 | `staff_brawler_animated.glb` | Sanjit | Meshy AI (merged animations), 2026-08-31, cleaned + staff split | 24-joint humanoid | 8 | ~7,300 | 9.9 MB |
 | `stomp_brawler_animated.glb` | Kovacs | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.9 MB |
+| `signal_brawler_animated.glb` | Leon | Meshy AI (merged animations), 2026-09-01, cleaned | 24-joint humanoid | 6 | ~8,200 | 20.8 MB |
 
-All four are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
+All five are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
 `godot/scripts/kits.gd` (`model` + `clips`).
+
+## `signal_brawler_animated.glb` (Leon)
+
+Gamer kid holding a controller in his left hand. Ships with two mage-cast clips (Meshy's
+own `mage_soell_cast_*` naming, typo included — the kit references them verbatim):
+
+- **Attack** (`mage_soell_cast_3` at 4×, `attack_seek: 0.6`): the palm-thrust release
+  frame sits at t≈0.90 s, so seeking to 0.6 puts it ~0.075 s after cast. Fires four
+  labeled A/B/X/Y button shots (`Style.LANES`) in wide parallel lanes, each with an
+  independent side-to-side sine drift. The aim indicator draws a corridor, not a cone.
+- **Super — Disconnect** (`mage_soell_cast_2` at 3×, `super_seek: 0.75`): overhead slam
+  release at t≈1.28 s. Fires a slow glitch signal (`Style.SIGNAL`) — dark prism core with
+  cyan/magenta RGB-split ghosts jittering around it — that detonates on contact or at max
+  range: area damage plus a **silence** (`weapon.silence`, 2.4 s) that blocks attacking
+  but not moving. Silenced fighters show flickering glitch bars overhead; no ammo or
+  Super charge is spent while silenced. `attack_seek` joins `super_seek` in the clip
+  contract (seek works for both slots now).
 
 ## `stomp_brawler_animated.glb` (Kovacs)
 

@@ -14,10 +14,10 @@ const HEALTH_PER_CUBE := 400
 const DAMAGE_BONUS_PER_CUBE := 0.10
 const MOVE_SPEED := 7.0   # ~250 pt/s in the 2D game
 
-enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG, SHOCKWAVE }
+enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG, SHOCKWAVE, LANES, SIGNAL }
 
 static func all() -> Array:
-	return [nova(), tony(), henry(), sanjit(), kovacs()]
+	return [nova(), tony(), henry(), sanjit(), kovacs(), leon()]
 
 static func named(kit_name: String) -> Dictionary:
 	for k in all():
@@ -89,6 +89,35 @@ static func sanjit() -> Dictionary:
 			"range": 7.0 * TILE, "speed": 16.0, "radius": 0.45,
 			"destroys_walls": false, "knockback": 4.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0,
+		},
+	}
+
+static func leon() -> Dictionary:
+	# Gamer: four labeled button shots (A/B/X/Y) in wide parallel lanes, each
+	# with its own side-to-side drift. The Super, Disconnect, is a slow glitch
+	# signal that detonates in an area and silences — hit enemies keep moving
+	# but cannot attack for `silence` seconds. Cast clips seek straight to the
+	# release frames found in the animation data (thrust at 0.90s, slam 1.28s).
+	return {
+		"name": "Leon", "color": Color(0.55, 0.9, 0.35),
+		"model": "res://assets/leon.glb",
+		"clips": {"idle": "Idle", "run": "Running", "attack": "mage_soell_cast_3",
+				  "attack_speed": 4.0, "attack_seek": 0.6,
+				  "super": "mage_soell_cast_2", "super_speed": 3.0,
+				  "super_seek": 0.75},
+		"weapon": {
+			"style": Style.LANES, "pellets": 4, "spread_deg": 14.0, "damage": 320,
+			"range": 6.0 * TILE, "speed": 22.0, "radius": 0.17,
+			"destroys_walls": false, "knockback": 0.0, "pierces": false,
+			"aoe": 0.0, "water_mult": 1.0,
+			"lane_gap": 0.85, "drift_amp": 0.55, "drift_hz": 2.4,
+		},
+		"super": {
+			"style": Style.SIGNAL, "pellets": 1, "spread_deg": 8.0, "damage": 1200,
+			"range": 7.0 * TILE, "speed": 13.0, "radius": 0.5,
+			"destroys_walls": false, "knockback": 6.0, "pierces": false,
+			"aoe": 2.2 * TILE, "water_mult": 1.0,
+			"silence": 2.4,
 		},
 	}
 

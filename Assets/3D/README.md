@@ -21,9 +21,12 @@ assets**, not shipped app resources.
 | `paddle_brawler.glb` | Meshy AI (remeshed + texture), 2026-08-31 | 6,796 | 10,091 | No | 28.3 MB |
 | `Animation/tennis_brawler_animated.glb` | Meshy AI (merged animations), 2026-08-31, cleaned | ~21,000 | 19,628 | Yes, 24 joints | 7.0 MB |
 | `Animation/paddle_brawler_animated.glb` | Meshy AI (merged animations), 2026-08-31, cleaned | ~8,300 | 11,417 | Yes, 24 joints | 17.5 MB |
+| `power_cube.glb` | Meshy AI (token, 8k texture), 2026-09-01 | 7,316 | — | No (prop) | 21.8 MB |
 
 The static files are kept as generator-output archives (the paddle one carries two
 4096×4096 maps — hence the size); the `Animation/` versions are what the game uses.
+`power_cube.glb` is a live game prop, not an archive: `main.gd` spawns it as the power
+cube pickup, spinning Brawl-style with a soft bob (looped tweens, no animation clip).
 
 ## `tennis_brawler.glb`
 

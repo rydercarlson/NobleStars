@@ -23,6 +23,8 @@ var _material: StandardMaterial3D
 var _model: Node3D
 var _anim: AnimationPlayer
 var _held_item: Node3D   # e.g. Sanjit's staff — hidden while his Super flies
+var silenced_until := 0.0   # Leon's Disconnect: no attacking until this time
+var _silence_fx: Node3D
 var _attack_anim_until := 0.0
 var _pending_popup := 0
 
@@ -107,6 +109,7 @@ func _setup_capsule() -> void:
 
 ## Drives idle/run/attack clips; called by the scene each frame with game time.
 func update_animation(game_now: float) -> void:
+	_update_silence_fx(game_now)
 	if _anim == null or is_dead():
 		return
 	if game_now < _attack_anim_until:
@@ -124,7 +127,7 @@ func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 	var clip_name: String = clips.get("super", clips.attack) if is_super else clips.attack
 	var speed: float = clips.get("super_speed", clips.get("attack_speed", 1.0)) if is_super \
 			else clips.get("attack_speed", 1.0)
-	var seek_to: float = clips.get("super_seek", 0.0) if is_super else 0.0
+	var seek_to: float = clips.get("super_seek", 0.0) if is_super else clips.get("attack_seek", 0.0)
 	_anim.play(clip_name, 0.05, speed)
 	if seek_to > 0.0:
 		_anim.seek(seek_to, true)
@@ -136,6 +139,42 @@ func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 func set_held_item_visible(shown: bool) -> void:
 	if _held_item:
 		_held_item.visible = shown
+
+## Leon's Disconnect: blocked from attacking (moving is fine) until `until`.
+func silence_until_time(until: float) -> void:
+	silenced_until = maxf(silenced_until, until)
+
+func is_silenced(game_now: float) -> bool:
+	return game_now < silenced_until
+
+## Flickering glitch bars overhead while silenced — built lazily, jittered
+## every frame from update_animation's game clock.
+func _update_silence_fx(game_now: float) -> void:
+	if not is_silenced(game_now):
+		if _silence_fx:
+			_silence_fx.visible = false
+		return
+	if _silence_fx == null:
+		_silence_fx = Node3D.new()
+		for i in 3:
+			var bar := MeshInstance3D.new()
+			var box := BoxMesh.new()
+			box.size = Vector3(0.55 - i * 0.1, 0.055, 0.02)
+			var mat := StandardMaterial3D.new()
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			var c := [Color(0.1, 0.95, 0.9), Color(1, 1, 1), Color(0.95, 0.2, 0.85)][i] as Color
+			mat.albedo_color = c
+			mat.emission_enabled = true
+			mat.emission = c * 0.8
+			box.material = mat
+			bar.mesh = box
+			bar.position.y = 2.55 + i * 0.11
+			_silence_fx.add_child(bar)
+		add_child(_silence_fx)
+	_silence_fx.visible = fmod(game_now * 9.0, 1.0) > 0.18
+	for i in _silence_fx.get_child_count():
+		var bar: Node3D = _silence_fx.get_child(i)
+		bar.position.x = sin(game_now * (11.0 + i * 3.7) + i * 2.1) * 0.09
 
 func apply_movement(input_dir: Vector3) -> void:
 	if is_dashing():
