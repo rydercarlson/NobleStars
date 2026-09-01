@@ -7,29 +7,34 @@ A fully interactive, Brawl Stars-style home menu for **Nobles Brawl**. Plain HTM
 ## Run it
 
 ```bash
-npm install
-npm start              # then open http://localhost:3000
+# any static server works — the menu is just files
+npx serve .            # then open http://localhost:3000
+# or
+python3 -m http.server 8080   # http://localhost:8080
 ```
 
-`npm start` runs the local menu launcher. When matchmaking completes it starts
-the Godot project with the chosen brawler and mode. Set `NOBLES_GODOT_BIN` if
-Godot is not installed at `/Applications/Godot.app` or available as `godot4`.
-Use `npm run start:static` for a menu-only server; PLAY will explain that the
-native launcher is unavailable. Opening `index.html` straight from disk will
-not work (ES modules + fetch need HTTP). GitHub Pages can host the menu, but a
-web page cannot launch the native Godot game on a player's computer.
+Opening `index.html` straight from disk will **not** work (ES modules + fetch need http). GitHub Pages works out of the box: Settings → Pages → deploy from `main` / root.
 
-## What's in the menu
+## What's in the menu (v0.5 — Pass + Shop pass)
+
+Top bar: **Trophy Road** (far left, opens the milestone timeline) · profile · **Power Points / Coins / Gems / Bling** (tap → shop) · menu (slides out a drawer: account, settings, controls, game log, leaderboard).
+Left stack: **Nobles Pass** (glows + `!` when rewards are claimable) · **Shop** (daily reset countdown) · **Brawlers**. Right stack: **Quests** (daily / seasonal / special) · Friends · Club · Inbox (mail + news tabs).
+Center: 3D brawler (tap = attack, drag = spin), **team slots** that slide open a Friends/Club invite drawer, skins button. Bottom: event plate with rotation countdown, **PLAY** that turns into `SEARCHING FOR PLAYERS X/10` + CANCEL right on the home screen.
+Reward boxes are **Dawg Treats** with seven rarities (Common → Ultra Legendary) and a full-screen reveal.
+
+All 2D art (brawler cards, logo, loading key art, currency/mode icons, treats) was generated with ChatGPT image gen in a consistent Brawl style and lives in `assets/cards`, `assets/ui/icons/gen`, `assets/ui/treats`, `assets/ui/decor/logo.webp`, `assets/ui/background/loading_keyart.jpg`.
+
+## Screens
 
 | Screen | What it does |
 | --- | --- |
 | **Home** | Auditorium stage, live 3D brawler with procedural idle (tap → attack clip, drag → spin), profile plate, season plate with token progress, coins/gems, side buttons, mode selector, PLAY. |
-| **Brawlers** | Roster grid (rarity colors, trophies, power, locked state) → detail view with a second live 3D preview, stats, attack/super, trophy road, upgrade (coins) and **Select** (changes the brawler on stage). |
-| **Shop** | Special offers, daily deals (free claims, coins/gems purchases with flying currency), gem packs, Star Drop opening with rarity roll (can unlock Kovacs / Henry). |
-| **Nobles Pass** | Season header, free / premium lanes, claimable tiers, premium unlock, token progress. |
+| **Brawlers** | Brawl-style cards (rank badge + trophies on top, power level + gadget/star power/gear slots below, rarity-colored frame), sort dropdown (rarity / trophies / power / closest rank) → detail with live 3D, stats, **upgrade matrix** (Power Points + Coins, green when affordable, red deficits) and an **equipment hub** (school-flavored: Trick, Honor Roll, Locker Gear, Spirit Week — buy/equip in a sub-menu). |
+| **Shop** | Brawl-style tabs: **Offers** (timer ribbons, strikethrough prices, value/OFF badges, free-brawler connect card), **Daily Deals**, **Skins** (bling), **Resources** + gem packs. Dawg Treat opening with rarity roll (can unlock Kovacs / Henry). |
+| **Nobles Pass** | Brawl Pass layout: season hero card (GET → premium), REWARDS / QUESTS tabs, XP bar, two-lane track (premium on top with PLUS skins + locks, free below) with tier pins, claim with rewards / treats. |
 | **News / Friends / Club / Inbox** | Cards, online friends with invites, club roster + working chat, mail with claimable rewards and unread badges. |
-| **Choose Event** | All modes with Nobles-themed maps → detail → select (updates the home mode plate). |
-| **PLAY** | Matchmaking lobby that fills with players, then launches the Godot Solo Showdown match with the selected brawler. |
+| **Events** | Active map pool with per-event rotation countdowns + upcoming events → detail → select. |
+| **PLAY** | In-place matchmaking on the home screen (`SEARCHING FOR PLAYERS X/10`, player avatars fill in, CANCEL), MATCH FOUND, hand-off to the (future) battle scene, simulated result. |
 | **Menu / Profile** | Settings (music, SFX, hints, reset), player name change, stats. |
 
 State (currencies, unlocks, claims, name, settings) persists in `localStorage`. Reset it from Settings → Reset progress.

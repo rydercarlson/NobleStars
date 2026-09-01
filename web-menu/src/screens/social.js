@@ -6,7 +6,7 @@ import { url } from '../assets.js';
 import { game, renderHome } from '../main.js';
 import { sfx } from '../audio.js';
 
-const portraitOf = (id) => { const b = game.brawlers.brawlers.find((x) => x.id === id) || game.brawlers.brawlers[0]; return url(b.portrait); };
+const portraitOf = (id) => { const b = game.brawlers.brawlers.find((x) => x.id === id) || game.brawlers.brawlers[0]; return url(b.art); };
 
 export function news() {
   openScreen((el, api) => {
@@ -90,8 +90,13 @@ export function inbox() {
   openScreen((el, api) => {
     const mail = game.data.inbox;
     el.append(topbar(api, 'Inbox'));
-    const content = h('div.content.scroll'); const rows = h('div.list');
+    const content = h('div.content.scroll');
+    let cur = 'mail';
+    const bar = h('div.quest-tabs'); const rows = h('div.list'); const newsGrid = h('div.grid.news-grid');
     const render = () => {
+      bar.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('on', b.dataset.id === cur));
+      rows.classList.toggle('hidden', cur !== 'mail'); newsGrid.classList.toggle('hidden', cur !== 'news');
+      if (cur === 'news') { if (!newsGrid.children.length) { for (const n of game.data.news) newsGrid.append(h('div.card.news-card', { style: { '--ac': n.accent } }, h('div.tag.t', {}, n.tag), h('div.ttl.t.outline.thin', {}, n.title), h('div.body', {}, n.body), h('div.date', {}, n.date))); stagger(newsGrid, 60); } return; }
       rows.replaceChildren();
       for (const m of mail) {
         const unread = m.unread && !state.readMail[m.id];
@@ -103,8 +108,10 @@ export function inbox() {
       }
       stagger(rows, 50);
     };
+    const unreadN = mail.filter((m) => m.unread && !state.readMail[m.id]).length;
+    bar.append(h('button.tab-btn', { dataset: { id: 'mail' }, onClick: () => { cur = 'mail'; render(); } }, `MAIL${unreadN ? ' (' + unreadN + ')' : ''}`), h('button.tab-btn', { dataset: { id: 'news' }, onClick: () => { cur = 'news'; render(); } }, 'NEWS'));
     render();
-    content.append(rows); el.append(content);
+    content.append(bar, rows, newsGrid); el.append(content);
   }, { name: 'inbox' });
 }
 

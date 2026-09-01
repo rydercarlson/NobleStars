@@ -29,7 +29,7 @@ export function profile() {
   popup('Profile', (body, api) => {
     const b = currentBrawler();
     const head = h('div', { style: { display: 'flex', alignItems: 'center', gap: '22px' } },
-      h('div', { style: { width: '140px', height: '140px', borderRadius: '20px', border: '3px solid var(--line)', overflow: 'hidden', background: '#10131f', flex: 'none' } }, h('img', { src: url(b.portrait), style: { width: '130%', margin: '10% 0 0 -15%' } })),
+      h('div', { style: { width: '140px', height: '140px', borderRadius: '20px', border: '3px solid var(--line)', overflow: 'hidden', background: '#10131f', flex: 'none' } }, h('img', { src: url(b.art), style: { width: '130%', margin: '10% 0 0 -15%' } })),
       h('div', { style: { flex: 1 } },
         h('div.t.outline.thin', { style: { font: '52px/1 var(--font-display)' } }, state.name),
         h('div', { style: { font: '800 22px var(--font-body)', color: 'var(--text-dim)', marginTop: '6px' } }, `#NOBLES${String(state.level).padStart(3, '0')} · Level ${state.level} · Club: ${game.data.club.name}`)),
@@ -44,7 +44,7 @@ export function profile() {
     const unlocked = Object.keys(state.unlocked).length;
     const stats = h('div.stat-grid',
       st('Trophies', fmt(state.trophies), 'trophy'), st('Highest', fmt(state.trophies + 60), 'trophy'), st('Brawlers', `${unlocked}/${game.brawlers.brawlers.length}`, 'brawlers'),
-      st('3v3 wins', fmt(38 + state.matches), null), st('Solo wins', fmt(12 + state.matches), null), st('Star points', fmt(state.starPoints), 'star_drop'));
+      st('3v3 wins', fmt(38 + state.matches), null), st('Solo wins', fmt(12 + state.matches), null), st('Star points', fmt(state.starPoints), 'star_points'));
     body.append(head, h('div.t.outline.hair', { style: { font: '26px/1 var(--font-display)', marginTop: '6px' } }, 'CHANGE NAME'), nameRow, h('div.t.outline.hair', { style: { font: '26px/1 var(--font-display)', marginTop: '6px' } }, 'STATS'), stats);
   }, { name: 'profile' });
 }

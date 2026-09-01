@@ -232,8 +232,9 @@ export function buildIdleClip(root, animations = [], opts = {}) {
 
 /**
  * Small looping head/neck "personality" layer, meant to be converted with
- * AnimationUtils.makeClipAdditive and played on top of a baked Idle clip.
- * First keyframe is the rest pose, so the additive reference is clean.
+ * AnimationUtils.makeClipAdditive and played on top of a baked Idle so each
+ * brawler keeps an individual presence instead of a shared breath cycle.
+ * Frame 0 is the rest pose, so the additive reference is clean.
  */
 export function buildAccentClip(root, opts = {}) {
   const duration = opts.duration ?? 6.4;
@@ -252,10 +253,8 @@ export function buildAccentClip(root, opts = {}) {
     const qp = parentWorldQ.get(bone);
     const e = new THREE.Euler(pitch * DEG, yaw * DEG, roll * DEG, 'XYZ');
     const R = new THREE.Quaternion().setFromEuler(e);
-    const qpInv = qp.clone().invert();
-    return qpInv.multiply(R).multiply(qp);
+    return qp.clone().invert().multiply(R).multiply(qp);
   };
-  // ease in from exactly zero so frame 0 (the additive reference) is rest
   const env = (t) => Math.min(1, t * 2) * Math.min(1, (duration - t) * 2);
   const n = Math.round(duration * fps);
   const times = new Float32Array(n + 1);
@@ -266,9 +265,7 @@ export function buildAccentClip(root, opts = {}) {
     const rest = bone.quaternion.clone();
     const qv = new Float32Array((n + 1) * 4);
     for (let i = 0; i <= n; i++) {
-      const t = times[i];
-      const o = fn(t);
-      const k = env(t);
+      const t = times[i], o = fn(t), k = env(t);
       const q = worldRot(bone, (o.pitch ?? 0) * k, (o.yaw ?? 0) * k, (o.roll ?? 0) * k).multiply(rest);
       qv[i * 4] = q.x; qv[i * 4 + 1] = q.y; qv[i * 4 + 2] = q.z; qv[i * 4 + 3] = q.w;
     }

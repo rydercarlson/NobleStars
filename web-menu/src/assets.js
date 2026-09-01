@@ -47,7 +47,7 @@ export function preloadImages(urls, onProgress = () => {}) {
 
 export function allImageSlots() {
   const out = [];
-  for (const g of ['buttons', 'icons', 'panels', 'decor']) for (const k in manifest[g] || {}) { const v = manifest[g][k]; if (v) out.push(url(v)); }
+  for (const g of ['buttons', 'icons']) for (const k in manifest[g] || {}) { const v = manifest[g][k]; if (v) out.push(url(v)); }
   return out;
 }
 

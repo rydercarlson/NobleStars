@@ -7,7 +7,7 @@
    "title": "The Blaster Kid",
    "rarity": "starting",
    "role": "Controller",
-   "description": "Rapid-fires six controller buttons in a tight medium-range cone. Fragile, but wins by attrition.",
+   "description": "Rapid-fires six controller buttons in a tight medium-range cone. Fragile, so he wins by attrition.",
    "model": "assets/models/leon.glb",
    "portrait": "assets/portraits/leon.png",
    "stance": "ready",
@@ -32,13 +32,18 @@
    },
    "super": {
     "name": "Disconnect",
-    "text": "Lobs a controller that blasts an area, then leaves a field that keeps enemies from attacking for 2.4s."
+    "text": "Lobs a controller that blasts an area, then leaves a field that stops enemies attacking for 2.4s."
    },
    "unlocked": true,
    "trophies": 412,
    "rank": 12,
    "power": 7,
-   "pins": 4
+   "pins": 4,
+   "cardArt": "assets/cards/leon.webp",
+   "gadget": "Extra Clip",
+   "starPower": "Class Clown",
+   "gear": "Hall Pass",
+   "hypercharge": "Fire Drill"
   },
   {
    "id": "sanjit",
@@ -78,7 +83,12 @@
    "trophies": 305,
    "rank": 10,
    "power": 5,
-   "pins": 2
+   "pins": 2,
+   "cardArt": "assets/cards/sanjit.webp",
+   "gadget": "Belt Test",
+   "starPower": "Dojo Discipline",
+   "gear": "Warm-Up",
+   "hypercharge": "Black Belt"
   },
   {
    "id": "tony",
@@ -116,7 +126,12 @@
    "trophies": 188,
    "rank": 8,
    "power": 4,
-   "pins": 1
+   "pins": 1,
+   "cardArt": "assets/cards/tony.webp",
+   "gadget": "Second Serve",
+   "starPower": "Match Point",
+   "gear": "Sweatband",
+   "hypercharge": "Grand Slam"
   },
   {
    "id": "kovacs",
@@ -156,7 +171,12 @@
    "rank": 1,
    "power": 1,
    "pins": 0,
-   "unlockHint": "Found in Star Drops"
+   "unlockHint": "Found in Dawg Treats",
+   "cardArt": "assets/cards/kovacs.webp",
+   "gadget": "Protein Shake",
+   "starPower": "Gym Rat",
+   "gear": "Weight Belt",
+   "hypercharge": "Max Rep"
   },
   {
    "id": "henry",
@@ -184,7 +204,7 @@
    },
    "attack": {
     "name": "Paddle Whack",
-    "text": "A huge 110\u00b0 sweep that punishes anyone in reach."
+    "text": "A huge 110-degree sweep that punishes anyone in reach."
    },
    "super": {
     "name": "Portage",
@@ -195,39 +215,50 @@
    "rank": 1,
    "power": 1,
    "pins": 0,
-   "unlockHint": "Nobles Pass \u00b7 Tier 30"
+   "unlockHint": "Nobles Pass \u00b7 Tier 30",
+   "cardArt": "assets/cards/henry.webp",
+   "gadget": "Trail Mix",
+   "starPower": "Survivor",
+   "gear": "Hiking Boots",
+   "hypercharge": "Wilderness Week"
   }
  ],
  "rarities": {
   "starting": {
    "label": "Starting Brawler",
    "color": "#59c1ff",
-   "dark": "#1d5f8f"
+   "dark": "#1d5f8f",
+   "hi": "#a9e6ff"
   },
   "rare": {
    "label": "Rare",
    "color": "#6df26a",
-   "dark": "#1f7a2c"
+   "dark": "#1f7a2c",
+   "hi": "#b8ffb0"
   },
   "super_rare": {
    "label": "Super Rare",
    "color": "#4f8dff",
-   "dark": "#1a3fa8"
+   "dark": "#1a3fa8",
+   "hi": "#9dbcff"
   },
   "epic": {
    "label": "Epic",
    "color": "#c56cff",
-   "dark": "#5a1d9c"
+   "dark": "#5a1d9c",
+   "hi": "#e3b8ff"
   },
   "mythic": {
    "label": "Mythic",
    "color": "#ff5f5f",
-   "dark": "#8f1414"
+   "dark": "#8f1414",
+   "hi": "#ffb0b0"
   },
   "legendary": {
    "label": "Legendary",
    "color": "#ffe14f",
-   "dark": "#a36a00"
+   "dark": "#a36a00",
+   "hi": "#fff3a8"
   }
  }
 }

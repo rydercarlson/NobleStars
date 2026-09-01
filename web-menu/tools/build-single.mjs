@@ -14,6 +14,7 @@ const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] :
 const modelsDir = resolve(opt('--models', join(root, 'assets/models')));
 const out = resolve(opt('--out', join(root, 'dist/nobles-brawl.html')));
 const fragment = args.includes('--fragment');
+const slim = args.includes('--slim'); // skip unused spares (decor, panels, 3D portraits) to fit hosted size caps
 
 const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.glb': 'model/gltf-binary', '.woff2': 'font/woff2', '.json': 'application/json', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg' };
 const dataUrl = (file) => `data:${mime[extname(file).toLowerCase()] || 'application/octet-stream'};base64,${readFileSync(file).toString('base64')}`;
@@ -21,8 +22,12 @@ const dataUrl = (file) => `data:${mime[extname(file).toLowerCase()] || 'applicat
 // 1. collect assets ---------------------------------------------------------
 const assets = {};
 const walk = (dir, mapTo) => { for (const f of readdirSync(dir)) { const p = join(dir, f); if (statSync(p).isDirectory()) walk(p, mapTo); else if (mime[extname(f).toLowerCase()]) assets[mapTo(p)] = dataUrl(p); } };
-walk(join(root, 'assets/ui'), (p) => relative(root, p).replace(/\\/g, '/'));
-walk(join(root, 'assets/portraits'), (p) => relative(root, p).replace(/\\/g, '/'));
+const rel = (p) => relative(root, p).replace(/\\/g, '/');
+walk(join(root, 'assets/ui'), rel);
+walk(join(root, 'assets/cards'), rel);
+if (!slim) walk(join(root, 'assets/portraits'), rel);
+if (slim) for (const k of Object.keys(assets)) if (/^assets\/ui\/(decor\/(?!logo|pass_hero|skin_)|panels\/|generated\/)/.test(k)) delete assets[k];
+if (slim) { assets['assets/ui/generated/rank_badge.svg'] = dataUrl(join(root, 'assets/ui/generated/rank_badge.svg')); for (const f of ['close','back','check','online','hanger','quests','bling','hypercharge','token','star_drop','settings_gear','gear','lock','gadget','star_power','power_point','star_points','trophy','coin','gem']) { const p = join(root, 'assets/ui/generated', f + '.svg'); if (existsSync(p)) assets[rel(p)] = dataUrl(p); } }
 walk(join(root, 'assets/fonts'), (p) => relative(root, p).replace(/\\/g, '/'));
 walk(join(root, 'data'), (p) => relative(root, p).replace(/\\/g, '/'));
 walk(modelsDir, (p) => 'assets/models/' + relative(modelsDir, p).replace(/\\/g, '/'));

@@ -16,6 +16,25 @@ export function preloadModel(u) {
   return cache.get(full);
 }
 
+/** Brawl-style ink outline: an inverted hull pushed out along the normals, drawn behind the mesh. */
+function addOutline(model, width) {
+  const meshes = []; model.traverse((o) => { if (o.isMesh && !o.userData.isOutline) meshes.push(o); });
+  for (const m of meshes) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0x0b0d16, side: THREE.BackSide });
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uWidth = { value: width };
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uWidth;')
+        .replace('#include <skinning_vertex>', '#include <skinning_vertex>\ntransformed += normalize(objectNormal) * uWidth * (1.0 / max(0.0001, length(vec3(modelMatrix[0][0], modelMatrix[1][1], modelMatrix[2][2])) / 1.7320508));');
+    };
+    let hull;
+    if (m.isSkinnedMesh) { hull = new THREE.SkinnedMesh(m.geometry, mat); hull.bind(m.skeleton, m.bindMatrix); hull.bindMode = m.bindMode; }
+    else hull = new THREE.Mesh(m.geometry, mat);
+    hull.userData.isOutline = true; hull.frustumCulled = false; hull.renderOrder = -1; hull.castShadow = false;
+    hull.position.copy(m.position); hull.quaternion.copy(m.quaternion); hull.scale.copy(m.scale);
+    m.parent.add(hull);
+  }
+}
+
 export class BrawlerView {
   /**
    * @param {HTMLCanvasElement} canvas
@@ -124,43 +143,46 @@ export class BrawlerView {
     model.traverse((o) => {
       if (!o.isMesh) return;
       o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
-      if (o.material) {
-        o.material.side = THREE.FrontSide;
-        // Menu-brightness lift: let the base texture glow a little so the
-        // characters pop against the stage instead of reading in shadow.
-        if (o.material.map) {
-          o.material.emissive = new THREE.Color(0xffffff);
-          o.material.emissiveMap = o.material.map;
-          o.material.emissiveIntensity = 0.34;
-        }
+      const mat = o.material;
+      if (!mat) return;
+      mat.side = THREE.FrontSide;
+      // Meshy leaves metallicFactor at the glTF default of 1.0; full metal
+      // renders near-black without a reflection probe.
+      if (mat.metalness !== undefined) mat.metalness = 0;
+      // Menu-brightness lift so brawlers pop against the stage. Models still
+      // carrying Meshy's emissive-duplicate are already self-lit, so only the
+      // cleaned ones get the boost.
+      if (mat.map && !mat.emissiveMap) {
+        mat.emissive = new THREE.Color(0xffffff);
+        mat.emissiveMap = mat.map;
+        mat.emissiveIntensity = 0.34;
       }
+      mat.needsUpdate = true;
     });
+    if (this.opts.outline !== false) addOutline(model, this.opts.outlineWidth ?? 0.0055);
     this.group.add(model); this.model = model;
-    // Meshy exports face +Z; the cleaned NobleStars models face -Z and carry a
-    // 'headfront' marker — use it to face the camera either way.
+    // Meshy exports face +Z; the cleaned models face -Z and carry a 'headfront'
+    // marker. Measure in the model's own space — world space would inherit the
+    // yaw the stage group kept from the previously shown brawler.
     this.baseYaw = 0;
-    const head = model.getObjectByName('Head'), front = model.getObjectByName('headfront');
-    if (head && front) {
-      // measure in the model's own space — world space would drag in whatever
-      // rotation the stage group kept from the previous brawler
+    const headB = model.getObjectByName('Head'), frontB = model.getObjectByName('headfront');
+    if (headB && frontB) {
       const hp = new THREE.Vector3(), fp = new THREE.Vector3();
-      head.getWorldPosition(hp); model.worldToLocal(hp);
-      front.getWorldPosition(fp); model.worldToLocal(fp);
+      headB.getWorldPosition(hp); model.worldToLocal(hp);
+      frontB.getWorldPosition(fp); model.worldToLocal(fp);
       if (fp.z < hp.z) this.baseYaw = Math.PI;
     }
     this.group.rotation.y = this.baseYaw;
     this.mixer = new THREE.AnimationMixer(model);
     this.clips = gltf.animations;
-    // The cleaned models ship a baked, seam-free 'Idle'; the procedural
-    // builder stays as the fallback for models that lack one.
+    // Prefer the model's own baked, seam-free Idle; the procedural builder
+    // stays as the fallback for models that ship without one.
     const baked = gltf.animations.find((a) => a.name === 'Idle');
     const idle = baked || buildIdleClip(model, gltf.animations, { stance: brawler.stance || 'relaxed', ...(brawler.idle || {}) });
     this.idleAction = this.mixer.clipAction(idle);
     this.idleAction.setLoop(THREE.LoopRepeat, Infinity);
     this.idleAction.play();
     this.current = this.idleAction;
-    // Per-brawler personality on top of the shared breath cycle: a small
-    // additive head/neck wander driven by the brawler's idle seed.
     if (baked) {
       const accent = buildAccentClip(model, { ...(brawler.idle || {}) });
       if (accent) {
@@ -173,7 +195,7 @@ export class BrawlerView {
     // baked clips
     this.actions = {};
     for (const clip of gltf.animations) {
-      if (clip === idle) continue; // a baked Idle IS this same action — leave it looping
+      if (clip === idle) continue; // a baked Idle is this same action — leave it looping
       const a = this.mixer.clipAction(clip); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; this.actions[clip.name] = a;
     }
     this.mixer.addEventListener('finished', (e) => { if (e.action !== this.idleAction) this._toIdle(0.35); });

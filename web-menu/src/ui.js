@@ -17,7 +17,7 @@ export function h(tag, props = {}, ...children) {
     const v = props[k];
     if (v == null) continue;
     if (k === 'class') el.className += (el.className ? ' ' : '') + v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k === 'style' && typeof v === 'object') { for (const [sk, sv] of Object.entries(v)) { if (sk.startsWith('--')) el.style.setProperty(sk, sv); else el.style[sk] = sv; } }
     else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'html') el.innerHTML = v;
@@ -122,6 +122,25 @@ export function currencyPills() {
 export function refreshCurrencies() {
   $$('.cur-coins, #cur-coins').forEach((el) => countTo(el, state.coins));
   $$('.cur-gems, #cur-gems').forEach((el) => countTo(el, state.gems));
+  $$('.cur-pp').forEach((el) => countTo(el, state.powerPoints));
+  $$('.cur-bling').forEach((el) => countTo(el, state.bling));
+}
+
+/** Right-side drawer (team invite, menu). */
+export function drawer(title, buildBody, { name = 'drawer', tabs = null } = {}) {
+  return openScreen((el, api) => {
+    const box = h('div.drawer',
+      h('div.dh', h('div.title.t.outline.thin', {}, title), h('button.btn-close', { onClick: () => api.close(), dataset: { sfx: 'back' } }, icon('close'))));
+    const body = h('div.db');
+    if (tabs) {
+      const bar = h('div.tabs'); let cur = tabs[0].id;
+      const render = () => { body.replaceChildren(); tabs.find((t) => t.id === cur).build(body, api); $$('.tab-btn', bar).forEach((b) => b.classList.toggle('on', b.dataset.id === cur)); };
+      for (const t of tabs) bar.append(h('button.tab-btn', { dataset: { id: t.id }, onClick: () => { cur = t.id; render(); } }, t.label));
+      box.append(bar, body); render();
+    } else { buildBody(body, api); box.append(body); }
+    const wrap = h('div.drawer-wrap', { onClick: (e) => { if (e.target === wrap) api.close(); } }, box);
+    el.append(wrap);
+  }, { popup: true, name });
 }
 
 // ---------------------------------------------------------------- popups
