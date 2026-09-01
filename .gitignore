@@ -13,3 +13,8 @@ NobleStars.xcodeproj/
 # Swift Package Manager (future)
 .build/
 build/
+
+# The HTML menu was deleted (its art moved into godot/assets/menu), but the
+# build output and dependencies linger on disk. web-menu/.gitignore went with
+# it, so without this a `git add -A` sweeps in ~90 MB of node_modules.
+web-menu/
