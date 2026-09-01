@@ -33,6 +33,19 @@ xcodebuild -project NobleStars.xcodeproj -scheme NobleStars \
 - Arena maps are ASCII grids in `Game/Arena/ArenaMap.swift` (`#` wall, `b` bush, `~` water, `S` spawn, `X` loot box)
 - `Assets/3D` — source 3D models for the in-progress 3D direction (not bundled into the app)
 
+## The menu
+
+The game's menu is the **web menu** in [`web-menu/`](web-menu/) — a Brawl
+Stars-style interactive home (auditorium stage, live 3D brawlers with baked
+idles, roster/shop/pass/social screens) built as plain HTML/JS + three.js. It
+supersedes the in-engine Godot lobby as the menu of record: the Godot lobby
+stays as the functional in-game entry point, but menu look, structure, and
+roster presentation are authored there. Run it with any static server:
+
+```sh
+cd web-menu && python3 -m http.server 8080   # http://localhost:8080
+```
+
 ## Development
 
 This game is being built with [Claude Code](https://claude.com/claude-code). See `CLAUDE.md` for the agent-facing build notes.

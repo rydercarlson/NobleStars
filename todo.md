@@ -30,6 +30,14 @@ only and is not tracked here.
       damage flash for modelled fighters, so hits on Tony/Henry/etc. have no body
       feedback (only the damage popup).
 
+## Menu
+
+- [x] **The web menu is the menu of record** (`web-menu/`), per Ryder — it
+      overrides the in-engine lobby design. Roster data there is transcribed
+      from `kits.gd`; when kits are retuned, mirror the numbers into
+      `web-menu/data/brawlers.json`. Nova and Anders join it when they get
+      models.
+
 ## Arena & visuals
 
 - [ ] **Arena visual pass.** The floor is one flat green plane, walls are plain

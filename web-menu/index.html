@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1338">
+  <title>Nobles Brawl</title>
+  <link rel="icon" href="assets/ui/icons/nobles_shield.png">
+  <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
+  </script>
+</head>
+<body>
+  <div id="viewport">
+    <div id="stage">
+      <div id="bg"></div>
+
+      <!-- 3D brawler on stage -->
+      <div id="brawler-view">
+        <div class="shadow"></div>
+        <canvas></canvas>
+        <div class="tap-hint">TAP TO ATTACK · DRAG TO SPIN</div>
+      </div>
+
+      <!-- Home HUD -->
+      <div id="home">
+        <button id="profile-btn" class="hud plate clickable" data-sfx="click">
+          <img class="shield" data-slot="icons.shield" alt="">
+          <div class="info">
+            <div class="name t" id="player-name">GUEST</div>
+            <div class="trophies"><img data-slot="icons.trophy" alt=""><span class="num" id="player-trophies">0</span></div>
+          </div>
+        </button>
+
+        <button id="season-btn" class="hud plate yellow clickable" data-sfx="click">
+          <img class="shield" data-slot="icons.shield" alt="">
+          <div class="lines">
+            <div class="l1 t outline thin" id="season-l1">SEASON 1</div>
+            <div class="l2 t outline thin" id="season-l2">BACK TO SCHOOL</div>
+          </div>
+          <div class="progress"><i id="season-progress"></i></div>
+        </button>
+
+        <div id="currency" class="hud">
+          <button class="currency plate clickable" data-open="shop" data-sfx="click"><img data-slot="icons.coin" alt=""><span class="v num" id="cur-coins">0</span><span class="plus">+</span></button>
+          <button class="currency plate clickable" data-open="shop" data-sfx="click"><img data-slot="icons.gem" alt=""><span class="v num" id="cur-gems">0</span><span class="plus">+</span></button>
+        </div>
+
+        <button id="btn-menu" class="img-btn" data-open="settings" data-sfx="click"><img data-slot="buttons.menu" alt="Menu"></button>
+
+        <div class="hud col-left">
+          <button class="img-btn side-btn" data-open="shop" data-sfx="click"><img data-slot="buttons.shop" alt="Shop"></button>
+          <button class="img-btn side-btn" data-open="brawlers" data-sfx="click"><img data-slot="buttons.brawlers" alt="Brawlers"></button>
+          <button class="img-btn side-btn pass" data-open="pass" data-sfx="click"><img data-slot="buttons.nobles_pass" alt="Nobles Pass"></button>
+        </div>
+
+        <div class="hud col-right">
+          <button class="img-btn side-btn" data-open="news" data-sfx="click"><img data-slot="buttons.news" alt="News"></button>
+          <button class="img-btn side-btn" data-open="friends" data-sfx="click"><img data-slot="buttons.friends" alt="Friends"><span class="dot hidden" id="friends-dot"></span></button>
+          <button class="img-btn side-btn" data-open="club" data-sfx="click"><img data-slot="buttons.club" alt="Club"></button>
+          <button class="img-btn side-btn" data-open="inbox" data-sfx="click"><img data-slot="buttons.inbox" alt="Inbox"><span class="dot hidden" id="inbox-dot"></span></button>
+        </div>
+
+        <div id="bottom" class="hud">
+          <button id="mode-btn" class="plate clickable" data-open="modes" data-sfx="click">
+            <div class="icon"><img data-slot="icons.bulldog" alt="" id="mode-icon"></div>
+            <div class="txt">
+              <div class="name t outline thin" id="mode-name">SHOWDOWN</div>
+              <div class="sub t outline hair" id="mode-sub">Solo</div>
+            </div>
+            <div class="tab"></div>
+          </button>
+          <button id="play-btn" class="img-btn" data-sfx="play"><img data-slot="buttons.play" alt="Play"></button>
+        </div>
+      </div>
+
+      <div id="screens"></div>
+      <div id="toasts"></div>
+      <div class="fx-layer" id="fx"></div>
+
+      <div id="loader">
+        <div class="logo t outline">NOBLES<b>BRAWL</b></div>
+        <div class="bar"><i id="load-bar"></i></div>
+        <div class="tip" id="load-tip">Warming up the auditorium…</div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
