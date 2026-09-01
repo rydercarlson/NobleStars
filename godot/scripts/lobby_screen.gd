@@ -1,9 +1,11 @@
 class_name LobbyScreen
 extends Control
-## Home screen, drawn by the painted assembly-hall artwork (the shell's lobby
-## backdrop): invisible hotspots sit over the art's buttons and route into the
-## real screens, and the few values the art can't bake — player name, trophies,
-## coins, selected fighter, an off-default mode — render as overlays.
+## Home screen, drawn by the painted assembly-hall artwork: the shell's lobby
+## backdrop is the art with its buttons removed (assets/menu/bg.png), and each
+## button is its own texture (assets/menu/btn_*.png) placed back at its exact
+## crop rect — so idle, the screen recomposes the original painting, and a
+## pressed button can genuinely depress. Values the art can't bake — player
+## name, trophies, coins, selected fighter, an off-default mode — are overlays.
 
 var menu: MenuShell
 
@@ -19,19 +21,19 @@ var _toast_label: Label
 var _toast_tween: Tween
 
 func _ready() -> void:
-	# Hotspots over the buttons painted into the artwork.
-	_hotspot(0.031, 0.062, 0.157, 0.140, func() -> void: menu.show_screen("settings"))
-	_hotspot(0.179, 0.055, 0.347, 0.151, func() -> void: news_popup.visible = true)
-	_hotspot(0.914, 0.058, 0.970, 0.130, func() -> void: menu.show_screen("settings"))
-	_hotspot(0.023, 0.213, 0.108, 0.310, func() -> void: menu.show_screen("shop"))
-	_hotspot(0.023, 0.342, 0.108, 0.444, func() -> void: menu.show_screen("fighters"))
-	_hotspot(0.023, 0.468, 0.108, 0.593, func() -> void: menu.show_screen("road"))
-	_hotspot(0.910, 0.215, 0.992, 0.317, func() -> void: news_popup.visible = true)
-	_hotspot(0.910, 0.342, 0.992, 0.444, func() -> void: menu.show_screen("friends"))
-	_hotspot(0.910, 0.470, 0.992, 0.572, func() -> void: _show_toast("Club — coming soon"))
-	_hotspot(0.910, 0.597, 0.992, 0.699, func() -> void: _show_toast("Inbox — coming soon"))
-	_hotspot(0.429, 0.842, 0.683, 0.954, func() -> void: menu.show_screen("modes"))
-	_hotspot(0.701, 0.838, 0.916, 0.959, func() -> void: _play())
+	# The art's buttons, restored at their crop rects as pressable textures.
+	_art_button("guest", 0.031, 0.062, 0.157, 0.140, func() -> void: menu.show_screen("settings"))
+	_art_button("season", 0.179, 0.055, 0.347, 0.151, func() -> void: news_popup.visible = true)
+	_art_button("menu", 0.914, 0.058, 0.970, 0.130, func() -> void: menu.show_screen("settings"))
+	_art_button("shop", 0.023, 0.213, 0.108, 0.310, func() -> void: menu.show_screen("shop"))
+	_art_button("brawlers", 0.023, 0.342, 0.108, 0.444, func() -> void: menu.show_screen("fighters"))
+	_art_button("nobles_pass", 0.023, 0.455, 0.108, 0.593, func() -> void: menu.show_screen("road"))
+	_art_button("news", 0.910, 0.215, 0.992, 0.317, func() -> void: news_popup.visible = true)
+	_art_button("friends", 0.910, 0.342, 0.992, 0.444, func() -> void: menu.show_screen("friends"))
+	_art_button("club", 0.910, 0.470, 0.992, 0.572, func() -> void: _show_toast("Club — coming soon"))
+	_art_button("inbox", 0.910, 0.597, 0.992, 0.699, func() -> void: _show_toast("Inbox — coming soon"))
+	_art_button("showdown", 0.429, 0.842, 0.683, 0.954, func() -> void: menu.show_screen("modes"))
+	_art_button("play", 0.701, 0.838, 0.916, 0.959, func() -> void: _play())
 
 	# Player name over the art's GUEST chip text plate.
 	var name_wrap := PanelContainer.new()
@@ -100,22 +102,22 @@ func _anchors(c: Control, l: float, t: float, r: float, b: float) -> void:
 	c.offset_right = 0
 	c.offset_bottom = 0
 
-## Invisible button over a painted control, with a soft flash while pressed.
-func _hotspot(l: float, t: float, r: float, b: float, action: Callable) -> void:
-	var btn := Button.new()
-	btn.flat = true
-	var empty := StyleBoxEmpty.new()
-	for state in ["normal", "hover", "pressed", "focus"]:
-		btn.add_theme_stylebox_override(state, empty)
+## One of the art's buttons as its own texture, placed back at its crop rect.
+## Pressing shrinks and dims it against the cleaned background underneath.
+func _art_button(btn_name: String, l: float, t: float, r: float, b: float,
+		action: Callable) -> void:
+	var btn := TextureButton.new()
+	btn.texture_normal = load("res://assets/menu/btn_%s.png" % btn_name)
+	btn.ignore_texture_size = true
+	btn.stretch_mode = TextureButton.STRETCH_SCALE
 	_anchors(btn, l, t, r, b)
-	var flash := ColorRect.new()
-	flash.color = Color(1, 1, 1, 0.16)
-	flash.set_anchors_preset(Control.PRESET_FULL_RECT)
-	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	flash.visible = false
-	btn.add_child(flash)
-	btn.button_down.connect(func() -> void: flash.visible = true)
-	btn.button_up.connect(func() -> void: flash.visible = false)
+	btn.resized.connect(func() -> void: btn.pivot_offset = btn.size / 2.0)
+	btn.button_down.connect(func() -> void:
+		btn.scale = Vector2(0.94, 0.94)
+		btn.modulate = Color(0.82, 0.82, 0.82))
+	btn.button_up.connect(func() -> void:
+		btn.scale = Vector2.ONE
+		btn.modulate = Color.WHITE)
 	btn.pressed.connect(action)
 	add_child(btn)
 

@@ -40,7 +40,7 @@ func _ready() -> void:
 	# The painted assembly-hall artwork is the lobby's backdrop; the flat navy
 	# sits above it for every other screen, which was designed against it.
 	var art := TextureRect.new()
-	art.texture = load("res://assets/menu_bg.png")
+	art.texture = load("res://assets/menu/bg.png")
 	art.stretch_mode = TextureRect.STRETCH_SCALE
 	art.set_anchors_preset(Control.PRESET_FULL_RECT)
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
