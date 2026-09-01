@@ -10,7 +10,7 @@ const TROPHY_TABLE: Array[int] = [8, 6, 5, 4, 3, 1, 0, 0, -1, -2]
 static var loaded := false
 static var coins: int = 0
 static var trophies: Dictionary = {}      # kit name -> int
-static var selected_kit: String = "Nova"  # always by name, never a kit Dictionary
+static var selected_kit: String = "Tony"  # always by name, never a kit Dictionary
 static var selected_mode: String = "showdown"
 static var player_name: String = "Star"
 static var music_volume: float = 1.0
@@ -45,7 +45,7 @@ static func ensure_loaded() -> void:
 		for kit_name in saved_trophies:
 			trophies[str(kit_name)] = int(saved_trophies[kit_name])
 	if Kits.named(selected_kit).name.to_lower() != selected_kit.to_lower():
-		selected_kit = "Nova"  # saved kit no longer exists
+		selected_kit = "Tony"  # saved kit no longer exists
 
 static func save() -> void:
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
