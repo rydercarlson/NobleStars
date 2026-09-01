@@ -1,31 +1,62 @@
 class_name SaveGame
-## Persistent player progression (trophies, coins, selections), stored as JSON
-## in user://save.json. Statics survive scene changes, same pattern as Session.
+## Persistent player progression, stored as JSON in user://save.json. Statics
+## survive scene changes, same pattern as Session.
+##
+## This is the native version of the web menu's localStorage save (web-menu/
+## src/state.js): same fields, same defaults, but per-fighter trophies come
+## from real matches rather than a demo number, and pass tokens are earned by
+## playing instead of a "collect tokens" button.
 
 const SAVE_PATH := "user://save.json"
+const SAVE_VERSION := 2
 
 ## Showdown placement rewards, rank 1..10.
 const TROPHY_TABLE: Array[int] = [8, 6, 5, 4, 3, 1, 0, 0, -1, -2]
 
+## One-off starting grant, matching web-menu/src/state.js defaults, so the shop
+## and the pass are not dead on a brand-new save.
+const START_COINS := 1250
+const START_GEMS := 90
+const START_STAR_POINTS := 120
+
 static var loaded := false
 static var coins: int = 0
+static var gems: int = 0
+static var star_points: int = 0
+static var level: int = 6
+static var matches: int = 0
 static var trophies: Dictionary = {}      # kit name -> int
+static var power: Dictionary = {}         # brawler id -> power level (1+)
+static var unlocked: Dictionary = {}      # brawler id -> bool
+static var claimed: Dictionary = {}       # shop / pass / mail reward id -> true
+static var read_mail: Dictionary = {}     # inbox id -> true
+static var club_chat: Array = []          # [{who, text}, ...]
+static var pass_tier: int = 1
+static var pass_tokens: int = 0
+static var pass_premium: bool = false
 static var selected_kit: String = "Tony"  # always by name, never a kit Dictionary
-static var selected_mode: String = "showdown"
-static var player_name: String = "Star"
-static var music_volume: float = 1.0
-static var sfx_volume: float = 1.0
+static var selected_mode: String = "showdown_solo"
+static var player_name: String = "GUEST"
+static var music_on: bool = true
+static var sfx_on: bool = true
+static var hints_on: bool = true
+static var first_run: bool = true
 
 static func ensure_loaded() -> void:
 	if loaded:
 		return
 	loaded = true
+	MenuData.ensure_loaded()
 	for k in Kits.all():
 		trophies[k.name] = 0
+		unlocked[str(k.name).to_lower()] = true
+		power[str(k.name).to_lower()] = 1
 	if OS.get_environment("NS3_RESET_SAVE") != "":
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+		_grant_start()
 		return
 	if not FileAccess.file_exists(SAVE_PATH):
+		_grant_start()
 		return
 	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if file == null:
@@ -35,17 +66,54 @@ static func ensure_loaded() -> void:
 		return
 	var data: Dictionary = parsed
 	coins = int(data.get("coins", 0))
+	gems = int(data.get("gems", 0))
+	star_points = int(data.get("star_points", 0))
+	level = int(data.get("level", level))
+	matches = int(data.get("matches", 0))
 	selected_kit = str(data.get("selected_kit", selected_kit))
 	selected_mode = str(data.get("selected_mode", selected_mode))
 	player_name = str(data.get("player_name", player_name))
-	music_volume = clampf(float(data.get("music_volume", 1.0)), 0.0, 1.0)
-	sfx_volume = clampf(float(data.get("sfx_volume", 1.0)), 0.0, 1.0)
-	var saved_trophies: Variant = data.get("trophies", {})
-	if saved_trophies is Dictionary:
-		for kit_name in saved_trophies:
-			trophies[str(kit_name)] = int(saved_trophies[kit_name])
+	pass_tier = maxi(1, int(data.get("pass_tier", 1)))
+	pass_tokens = maxi(0, int(data.get("pass_tokens", 0)))
+	pass_premium = bool(data.get("pass_premium", false))
+	music_on = bool(data.get("music_on", true))
+	sfx_on = bool(data.get("sfx_on", true))
+	hints_on = bool(data.get("hints_on", true))
+	first_run = bool(data.get("first_run", true))
+	_merge_ints(trophies, data.get("trophies", {}))
+	_merge_ints(power, data.get("power", {}))
+	_merge_bools(unlocked, data.get("unlocked", {}))
+	_merge_bools(claimed, data.get("claimed", {}))
+	_merge_bools(read_mail, data.get("read_mail", {}))
+	var chat: Variant = data.get("club_chat", [])
+	if chat is Array:
+		club_chat = chat
+	# v1 saves predate the menu economy and used the engine's mode id.
+	if int(data.get("version", 1)) < 2:
+		_grant_start()
+		if selected_mode == "showdown":
+			selected_mode = "showdown_solo"
 	if Kits.named(selected_kit).name.to_lower() != selected_kit.to_lower():
 		selected_kit = "Tony"  # saved kit no longer exists
+
+static func _merge_ints(dst: Dictionary, src: Variant) -> void:
+	if not src is Dictionary:
+		return
+	var d: Dictionary = src
+	for k in d:
+		dst[str(k)] = int(d[k])
+
+static func _merge_bools(dst: Dictionary, src: Variant) -> void:
+	if not src is Dictionary:
+		return
+	var d: Dictionary = src
+	for k in d:
+		dst[str(k)] = bool(d[k])
+
+static func _grant_start() -> void:
+	coins = maxi(coins, START_COINS)
+	gems = maxi(gems, START_GEMS)
+	star_points = maxi(star_points, START_STAR_POINTS)
 
 static func save() -> void:
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -53,21 +121,137 @@ static func save() -> void:
 		push_warning("SaveGame: cannot write %s" % SAVE_PATH)
 		return
 	file.store_string(JSON.stringify({
-		"version": 1,
+		"version": SAVE_VERSION,
 		"coins": coins,
+		"gems": gems,
+		"star_points": star_points,
+		"level": level,
+		"matches": matches,
 		"trophies": trophies,
+		"power": power,
+		"unlocked": unlocked,
+		"claimed": claimed,
+		"read_mail": read_mail,
+		"club_chat": club_chat,
+		"pass_tier": pass_tier,
+		"pass_tokens": pass_tokens,
+		"pass_premium": pass_premium,
 		"selected_kit": selected_kit,
 		"selected_mode": selected_mode,
 		"player_name": player_name,
-		"music_volume": music_volume,
-		"sfx_volume": sfx_volume,
+		"music_on": music_on,
+		"sfx_on": sfx_on,
+		"hints_on": hints_on,
+		"first_run": first_run,
 	}, "\t"))
+
+static func reset() -> void:
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+	loaded = false
+	coins = 0
+	gems = 0
+	star_points = 0
+	matches = 0
+	trophies = {}
+	power = {}
+	unlocked = {}
+	claimed = {}
+	read_mail = {}
+	club_chat = []
+	pass_tier = 1
+	pass_tokens = 0
+	pass_premium = false
+	selected_kit = "Tony"
+	selected_mode = "showdown_solo"
+	player_name = "GUEST"
+	music_on = true
+	sfx_on = true
+	hints_on = true
+	first_run = true
+	ensure_loaded()
+	save()
 
 static func total_trophies() -> int:
 	var total := 0
 	for kit_name in trophies:
 		total += int(trophies[kit_name])
 	return total
+
+# MARK: brawler-id helpers (the menu addresses fighters by lowercase id)
+
+static func brawler_trophies(id: String) -> int:
+	return int(trophies.get(Kits.named(id).name, 0))
+
+static func brawler_power(id: String) -> int:
+	return maxi(1, int(power.get(id.to_lower(), 1)))
+
+static func set_brawler_power(id: String, value: int) -> void:
+	power[id.to_lower()] = maxi(1, value)
+
+static func is_unlocked(id: String) -> bool:
+	return bool(unlocked.get(id.to_lower(), false))
+
+static func unlock(id: String) -> void:
+	unlocked[id.to_lower()] = true
+
+static func is_claimed(id: String) -> bool:
+	return bool(claimed.get(id, false))
+
+static func claim(id: String) -> void:
+	claimed[id] = true
+
+static func unread_mail() -> int:
+	var n := 0
+	for m in MenuData.game.get("inbox", []):
+		if bool(m.get("unread", false)) and not bool(read_mail.get(str(m.id), false)):
+			n += 1
+	return n
+
+static func spend(currency: String, price: int) -> bool:
+	if currency == "free" or price <= 0:
+		return true
+	if not can_afford(currency, price):
+		return false
+	if currency == "coins":
+		coins -= price
+	elif currency == "gems":
+		gems -= price
+	save()
+	return true
+
+static func can_afford(currency: String, price: int) -> bool:
+	if currency == "free" or price <= 0:
+		return true
+	if currency == "coins":
+		return coins >= price
+	if currency == "gems":
+		return gems >= price
+	return true
+
+static func grant(kind: String, amount: int) -> void:
+	match kind:
+		"coins":
+			coins += amount
+		"gems":
+			gems += amount
+		"star_points":
+			star_points += amount
+	save()
+
+## Adds pass tokens, rolling tiers over. Returns how many tiers were gained.
+static func add_pass_tokens(amount: int) -> int:
+	var season: Dictionary = MenuData.season()
+	var per_tier: int = maxi(1, int(season.get("tokensPerTier", 500)))
+	var max_tier: int = int(season.get("maxTier", 60))
+	pass_tokens += amount
+	var gained := 0
+	while pass_tokens >= per_tier and pass_tier < max_tier:
+		pass_tokens -= per_tier
+		pass_tier += 1
+		gained += 1
+	if pass_tier >= max_tier:
+		pass_tokens = mini(pass_tokens, per_tier)
+	return gained
 
 ## Applies end-of-match rewards and persists. rank is 1..10.
 static func award_match(kit_name: String, rank: int) -> Dictionary:
@@ -77,5 +261,14 @@ static func award_match(kit_name: String, rank: int) -> Dictionary:
 	trophies[kit_name] = maxi(0, before + delta)
 	var earned: int = maxi(2, 22 - 2 * rank)
 	coins += earned
+	matches += 1
+	# A match is worth tokens on the Nobles Pass — placing well is worth more.
+	var tokens: int = maxi(40, 180 - 12 * rank)
+	var tiers: int = add_pass_tokens(tokens)
 	save()
-	return {"trophies": int(trophies[kit_name]) - before, "coins": earned}
+	return {
+		"trophies": int(trophies[kit_name]) - before,
+		"coins": earned,
+		"tokens": tokens,
+		"tiers": tiers,
+	}
