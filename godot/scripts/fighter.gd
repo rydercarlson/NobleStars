@@ -10,6 +10,7 @@ var is_player := false
 var max_health := Kits.BASE_MAX_HEALTH
 var health := Kits.BASE_MAX_HEALTH
 var ammo := Kits.MAX_AMMO
+var reload := Kits.AMMO_RECHARGE_SECONDS   # seconds per ammo pip; set from the kit
 var super_charge := 0.0
 var cubes := 0
 var last_damage_at := -100.0
@@ -17,11 +18,16 @@ var facing := Vector3.FORWARD
 
 var knockback_vel := Vector3.ZERO
 var dash: Dictionary = {}   # empty = not dashing
+var leap: Dictionary = {}   # empty = grounded; used by jump-smash Supers
+var disconnected_until := -1.0
 
 var _body_mesh: MeshInstance3D
 var _material: StandardMaterial3D
 var _model: Node3D
 var _anim: AnimationPlayer
+var _skel: Skeleton3D
+var _foot_bones: PackedInt32Array = []
+var _foot_rest_y := 0.0
 var _attack_anim_until := 0.0
 var _pending_popup := 0
 
@@ -32,6 +38,18 @@ func is_dead() -> bool:
 func is_dashing() -> bool:
 	return not dash.is_empty()
 
+func is_leaping() -> bool:
+	return not leap.is_empty()
+
+func is_disconnected(game_now: float) -> bool:
+	return game_now < disconnected_until
+
+func apply_disconnect(game_now: float, duration: float) -> void:
+	var was_disconnected := is_disconnected(game_now)
+	disconnected_until = maxf(disconnected_until, game_now + duration)
+	if not was_disconnected:
+		_popup("DISCONNECTED", Color(1.0, 0.25, 0.85))
+
 func damage_multiplier() -> float:
 	return 1.0 + Kits.DAMAGE_BONUS_PER_CUBE * cubes
 
@@ -39,6 +57,9 @@ func is_super_ready() -> bool:
 	return super_charge >= 1.0
 
 func _ready() -> void:
+	max_health = int(kit.get("max_health", Kits.BASE_MAX_HEALTH))
+	health = max_health
+	reload = float(kit.get("reload", Kits.AMMO_RECHARGE_SECONDS))
 	collision_layer = 1 << 2                  # fighters
 	collision_mask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 5)  # walls|water|fighters|boxes
 
@@ -77,6 +98,43 @@ func _setup_model() -> void:
 			if a:
 				a.loop_mode = Animation.LOOP_LINEAR
 		_anim.play(clips.idle)
+	_calibrate_feet()
+
+## Meshy's run and attack clips drop the hips well below the rest pose, which
+## drives the feet through the floor. Record where the feet sit in the idle pose
+## so `_ground_feet` can lift the model by however far they later sink.
+func _calibrate_feet() -> void:
+	var skels := _model.find_children("*", "Skeleton3D", true, false)
+	if skels.is_empty():
+		return
+	_skel = skels[0]
+	for b in _skel.get_bone_count():
+		var bone_name := _skel.get_bone_name(b).to_lower()
+		if bone_name.contains("foot") or bone_name.contains("toe"):
+			_foot_bones.append(b)
+	if _foot_bones.is_empty():
+		_skel = null
+		return
+	if _anim:
+		_anim.seek(0.0, true)
+	_foot_rest_y = _lowest_foot_y()
+
+## Height of the lowest foot/toe bone in the model's own space — independent of
+## the lift `_ground_feet` applies, so the two never chase each other.
+func _lowest_foot_y() -> float:
+	_skel.force_update_all_bone_transforms()
+	var to_model := _model.global_transform.affine_inverse() * _skel.global_transform
+	var lowest := INF
+	for b in _foot_bones:
+		lowest = minf(lowest, (to_model * _skel.get_bone_global_pose(b)).origin.y)
+	return lowest
+
+## Lift the model so the planted foot never sinks below its idle resting height.
+## Never pushes down, so a clip that keeps its feet high just stands normally.
+func _ground_feet() -> void:
+	if _skel == null:
+		return
+	_model.position.y = maxf(0.0, _foot_rest_y - _lowest_foot_y())
 
 ## Placeholder capsule for kits without a model yet.
 func _setup_capsule() -> void:
@@ -107,6 +165,7 @@ func _setup_capsule() -> void:
 func update_animation(game_now: float) -> void:
 	if _anim == null or is_dead():
 		return
+	_ground_feet()
 	if game_now < _attack_anim_until:
 		return
 	var clips: Dictionary = kit.clips
@@ -115,22 +174,30 @@ func update_animation(game_now: float) -> void:
 	if _anim.current_animation != want:
 		_anim.play(want, 0.15)
 
-func play_attack_animation(game_now: float) -> void:
+## Plays the kit's attack clip, or its `super` clip when the Super fires (kits
+## without one reuse the attack clip). `*_seek` skips a clip's wind-up so the
+## impact frame lands with the hit instead of a beat after it.
+func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 	if _anim == null:
 		return
 	var clips: Dictionary = kit.clips
-	var speed: float = clips.get("attack_speed", 1.0)
-	_anim.play(clips.attack, 0.05, speed)
-	var a: Animation = _anim.get_animation(clips.attack)
+	var clip_name: String = clips.get("super", clips.attack) if is_super else clips.attack
+	var speed: float = clips.get("super_speed", clips.get("attack_speed", 1.0)) if is_super \
+			else clips.get("attack_speed", 1.0)
+	var seek_to: float = clips.get("super_seek", 0.0) if is_super else clips.get("attack_seek", 0.0)
+	_anim.play(clip_name, 0.05, speed)
+	if seek_to > 0.0:
+		_anim.seek(seek_to, true)
+	var a: Animation = _anim.get_animation(clip_name)
 	if a:
-		_attack_anim_until = game_now + a.length / speed
+		_attack_anim_until = game_now + (a.length - seek_to) / speed
 
 func apply_movement(input_dir: Vector3) -> void:
+	if is_leaping():
+		velocity = Vector3.ZERO
+		return
 	if is_dashing():
-		if dash.windup > 0.0:
-			velocity = Vector3.ZERO
-		else:
-			velocity = dash.direction * dash.weapon.speed
+		velocity = dash.direction * dash.weapon.speed
 		move_and_slide()
 		return
 	var speed: float = kit.get("move_speed", Kits.MOVE_SPEED)
@@ -149,13 +216,19 @@ func face_direction(dir: Vector3) -> void:
 
 func begin_dash(weapon: Dictionary, direction: Vector3) -> void:
 	dash = {"weapon": weapon, "direction": direction.normalized(), "remaining": weapon.range,
-			"windup": 0.35, "hit": [], "crossed_water": false}
+			"hit": [], "crossed_water": false}
 	face_direction(direction)
 	collision_mask = (1 << 0) | (1 << 5)   # walls + boxes only: dash crosses water
 
 func end_dash() -> void:
 	dash = {}
 	collision_mask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 5)
+
+func begin_leap(weapon: Dictionary, direction: Vector3, distance: float) -> void:
+	var landing := global_position + direction.normalized() * clampf(distance, Kits.TILE, weapon.range)
+	leap = {"weapon": weapon, "start": global_position, "landing": landing, "elapsed": 0.0,
+			"duration": 0.48}
+	face_direction(direction)
 
 func consume_ammo() -> bool:
 	if ammo < 1.0:
@@ -195,7 +268,7 @@ func collect_cube() -> void:
 
 func tick(delta: float, now: float) -> void:
 	if ammo < Kits.MAX_AMMO:
-		ammo = min(Kits.MAX_AMMO, ammo + delta / Kits.AMMO_RECHARGE_SECONDS)
+		ammo = min(Kits.MAX_AMMO, ammo + delta / reload)
 	if not is_dead() and health < max_health and now - last_damage_at > Kits.REGEN_DELAY:
 		health = min(max_health, health + int(ceil(max_health * Kits.REGEN_RATE_PER_SECOND * delta)))
 	if _pending_popup > 0 and now - last_damage_at > 0.12:

@@ -85,6 +85,8 @@ func _build() -> void:
 											Color(0.62, 0.46, 0.32), 1)
 					if not is_border:
 						wall.add_to_group("breakable")
+						# Stable id so net play can replicate wall destruction.
+						wall.name = "Wall_%d_%d" % [row, col]
 				"~":
 					var w := _static_box(c + Vector3(0, 0.12, 0), Vector3(ts, 0.24, ts),
 										 Color(0.30, 0.55, 0.85, 0.85), 2)

@@ -18,11 +18,17 @@ config/name="NobleStars 3D"
 run/main_scene="res://menu.tscn"
 config/features=PackedStringArray("4.7")
 
+[autoload]
+
+Net="*res://scripts/net_play.gd"
+
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/handheld/orientation=4
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [input_devices]
 

@@ -1,82 +1,98 @@
+class_name MenuShell
 extends Control
-## Title screen + character select, mirroring the 2D game's menu.
+## Menu shell: shared chrome (background, 3D fighter stage) plus screen
+## switching between lobby / fighters / modes / shop / road / settings.
 
-var selected := 0
-var cards: Array[Button] = []
+var screens: Dictionary = {}
+var stage: MenuStage
+var lobby: LobbyScreen
 
 func _ready() -> void:
+	SaveGame.ensure_loaded()
 	# Debug: NS3_MENU_SHOT=/path.png screenshots the menu and quits.
+	# Combine with NS3_MENU_SCREEN=lobby|fighters|modes|shop|road|settings.
 	if OS.get_environment("NS3_MENU_SHOT") != "":
 		get_tree().create_timer(1.5).timeout.connect(func() -> void:
 			get_viewport().get_texture().get_image().save_png(OS.get_environment("NS3_MENU_SHOT"))
 			get_tree().quit())
+	# Net debug hooks: NS3_HOST=<n> hosts and auto-starts once n players are in
+	# the room; NS3_JOIN=<ip> joins that host. Both skip the menu UI, and they
+	# beat the single-player hooks so NS3_AUTOFIRE etc. can combine with them.
+	elif OS.get_environment("NS3_HOST") != "":
+		var want := int(OS.get_environment("NS3_HOST"))
+		Net.host_game(SaveGame.player_name, SaveGame.selected_kit)
+		Net.roster_changed.connect(func() -> void:
+			if Net.active and Net.players.size() >= want and not Net.locked:
+				Net.start_game())
+		return
+	elif OS.get_environment("NS3_JOIN") != "":
+		Net.join_game(OS.get_environment("NS3_JOIN"), SaveGame.player_name, SaveGame.selected_kit)
+		return
 	# Debug hooks jump straight into a match.
-	elif OS.get_environment("NS3_KIT") != "" or OS.get_environment("NS3_AUTOFIRE") != "":
+	elif OS.get_environment("NS3_KIT") != "" or OS.get_environment("NS3_AUTOFIRE") != "" \
+			or OS.get_environment("NS3_SIM") != "":
 		Session.kit = Kits.named(OS.get_environment("NS3_KIT"))
+		Session.mode = "showdown"
 		get_tree().change_scene_to_file.call_deferred("res://game.tscn")
 		return
 
 	var bg := ColorRect.new()
-	bg.color = Color(0.13, 0.16, 0.24)
+	bg.color = UIKit.NAVY
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
-	var vbox := VBoxContainer.new()
-	vbox.set_anchors_preset(Control.PRESET_CENTER)
-	vbox.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	vbox.grow_vertical = Control.GROW_DIRECTION_BOTH
-	vbox.add_theme_constant_override("separation", 26)
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	add_child(vbox)
+	stage = MenuStage.new()
+	add_child(stage)
+	place_stage_center()
 
-	var title := Label.new()
-	title.text = "NOBLE STARS"
-	title.add_theme_font_size_override("font_size", 64)
-	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.25))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title)
+	lobby = LobbyScreen.new()
+	_add_screen("lobby", lobby)
+	_add_screen("fighters", FighterSelect.new())
+	_add_screen("modes", ModeSelect.new())
+	_add_screen("shop", ShopScreen.new())
+	_add_screen("road", TrophyRoadScreen.new())
+	_add_screen("settings", SettingsScreen.new())
+	_add_screen("friends", RoomScreen.new())
 
-	var sub := Label.new()
-	sub.text = "SHOWDOWN — last star standing"
-	sub.add_theme_font_size_override("font_size", 18)
-	sub.add_theme_color_override("font_color", Color(1, 1, 1, 0.65))
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(sub)
+	var start: String = OS.get_environment("NS3_MENU_SCREEN")
+	show_screen(start if screens.has(start) else "lobby")
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 20)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(row)
+func _add_screen(screen_name: String, screen: Control) -> void:
+	screen.set("menu", self)
+	screen.set_anchors_preset(Control.PRESET_FULL_RECT)
+	screen.visible = false
+	add_child(screen)
+	screens[screen_name] = screen
 
-	for i in Kits.all().size():
-		var kit: Dictionary = Kits.all()[i]
-		var card := Button.new()
-		card.custom_minimum_size = Vector2(220, 150)
-		card.text = "%s" % kit.name
-		card.add_theme_font_size_override("font_size", 28)
-		card.pressed.connect(func() -> void:
-			selected = i
-			_restyle())
-		row.add_child(card)
-		cards.append(card)
+func show_screen(screen_name: String) -> void:
+	for s in screens.values():
+		s.visible = false
+	var screen: Control = screens[screen_name]
+	screen.visible = true
+	stage.visible = screen_name == "lobby"
+	if screen_name == "lobby":
+		place_stage_center()
+		stage.show_kit(Kits.named(SaveGame.selected_kit))
+	if screen.has_method("refresh"):
+		screen.refresh()
 
-	var play := Button.new()
-	play.text = "  PLAY  "
-	play.add_theme_font_size_override("font_size", 34)
-	play.pressed.connect(func() -> void:
-		Session.kit = Kits.all()[selected]
-		get_tree().change_scene_to_file("res://game.tscn"))
-	vbox.add_child(play)
-	_restyle()
+func place_stage_center() -> void:
+	stage.anchor_left = 0.5
+	stage.anchor_right = 0.5
+	stage.anchor_top = 0.5
+	stage.anchor_bottom = 0.5
+	stage.offset_left = -MenuStage.STAGE_SIZE.x / 2
+	stage.offset_right = MenuStage.STAGE_SIZE.x / 2
+	stage.offset_top = -MenuStage.STAGE_SIZE.y / 2 - 20
+	stage.offset_bottom = MenuStage.STAGE_SIZE.y / 2 - 20
 
-func _restyle() -> void:
-	for i in cards.size():
-		var kit: Dictionary = Kits.all()[i]
-		var style := StyleBoxFlat.new()
-		style.bg_color = kit.color.darkened(0.55) if i != selected else kit.color.darkened(0.25)
-		style.set_corner_radius_all(14)
-		style.set_border_width_all(4 if i == selected else 1)
-		style.border_color = Color(1.0, 0.85, 0.25) if i == selected else Color(1, 1, 1, 0.25)
-		style.set_content_margin_all(12)
-		for state in ["normal", "hover", "pressed", "focus"]:
-			cards[i].add_theme_stylebox_override(state, style)
+## Fighter-detail view parks the stage on the left half.
+func place_stage_left() -> void:
+	stage.anchor_left = 0.0
+	stage.anchor_right = 0.0
+	stage.anchor_top = 0.5
+	stage.anchor_bottom = 0.5
+	stage.offset_left = 60
+	stage.offset_right = 60 + MenuStage.STAGE_SIZE.x
+	stage.offset_top = -MenuStage.STAGE_SIZE.y / 2
+	stage.offset_bottom = MenuStage.STAGE_SIZE.y / 2

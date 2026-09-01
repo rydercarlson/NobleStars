@@ -1,7 +1,6 @@
 class_name Projectile
 extends Area3D
-## A pellet/shell in flight. Straight-line travel at fixed height; the main
-## scene resolves what it hits via the body_entered signal.
+## A pellet, shell, or controller button in flight.
 
 var weapon: Dictionary
 var damage := 0
@@ -9,6 +8,9 @@ var owner_fighter: Fighter
 var direction := Vector3.FORWARD
 var origin := Vector3.ZERO
 var already_hit: Array = []
+var button_text := ""
+var button_color := Color.WHITE
+var _flight_time := 0.0
 
 func _ready() -> void:
 	collision_layer = 1 << 3
@@ -26,14 +28,28 @@ func _ready() -> void:
 	mesh.radius = weapon.radius
 	mesh.height = weapon.radius * 2
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.45, 0.15) if weapon.destroys_walls else Color(1.0, 0.85, 0.3)
+	mat.albedo_color = button_color if button_text != "" else \
+			(Color(1.0, 0.45, 0.15) if weapon.destroys_walls else Color(1.0, 0.85, 0.3))
 	mat.emission_enabled = true
 	mat.emission = mat.albedo_color * 0.6
 	mesh.material = mat
 	m.mesh = mesh
 	add_child(m)
+	if button_text != "":
+		var label := Label3D.new()
+		label.text = button_text
+		label.font_size = 56
+		label.outline_size = 8
+		label.modulate = Color.WHITE
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.no_depth_test = true
+		label.pixel_size = 0.009
+		label.position.y = weapon.radius + 0.06
+		add_child(label)
 
 func _physics_process(delta: float) -> void:
-	global_position += direction * weapon.speed * delta
-	if global_position.distance_to(origin) > weapon.range:
+	_flight_time += delta
+	var traveled: float = _flight_time * float(weapon.speed)
+	global_position = origin + direction * traveled
+	if traveled > weapon.range:
 		queue_free()

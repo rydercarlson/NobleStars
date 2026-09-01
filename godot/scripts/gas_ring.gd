@@ -34,6 +34,13 @@ func contains(pos: Vector3) -> bool:
 	return pos.x >= safe_min() and pos.x <= safe_max() \
 		and pos.z >= safe_min() and pos.z <= safe_max()
 
+## Distance from pos to the nearest gas edge; negative when outside the safe zone.
+func depth_inside(pos: Vector3) -> float:
+	if is_fully_closed():
+		return -INF
+	return minf(minf(pos.x - safe_min(), safe_max() - pos.x),
+			minf(pos.z - safe_min(), safe_max() - pos.z))
+
 func safe_center() -> Vector3:
 	var mid := map_tiles * Kits.TILE / 2.0
 	return Vector3(mid, 0, mid)
