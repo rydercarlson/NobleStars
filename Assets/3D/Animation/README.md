@@ -16,13 +16,12 @@ produce. The raw Meshy export of the tennis brawler is preserved in git history
 |---|---|---|---|---|---|---|
 | `tennis_brawler_animated.glb` | Tony | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 5 | ~21,000 | 7.0 MB |
 | `paddle_brawler_animated.glb` | Henry | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.5 MB |
-| `staff_brawler_animated.glb` | Sanjit (planned) | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 8 | ~7,300 | 9.8 MB |
+| `staff_brawler_animated.glb` | Sanjit | Meshy AI (merged animations), 2026-08-31, cleaned + staff split | 24-joint humanoid | 8 | ~7,300 | 9.9 MB |
 
-Tony and Henry are wired into the game: copied to `godot/assets/<kit>.glb` and declared
-in `godot/scripts/kits.gd` (`model` + `clips`). Sanjit is asset-only for now — he has no
-kit in `kits.gd` yet (see `plans.md`: double punch primary, boomeranging staff super).
+All three are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
+`godot/scripts/kits.gd` (`model` + `clips`).
 
-## `staff_brawler_animated.glb` (Sanjit — planned kit)
+## `staff_brawler_animated.glb` (Sanjit)
 
 Chibi martial artist with a headband who carries his bo staff at his hip — the staff is
 skinned to `RightHand` and held perpendicular to the grip, so it rides horizontally beside
@@ -38,9 +37,17 @@ atlas. The richest clip set of the three:
 | `Axe_Spin_Attack` | 2.50 s | Spin attack, spare |
 | `Crouch_Charge_and_Throw` | 7.70 s | Charge-up and throw — raw material for the boomeranging-staff Super |
 
-Wiring him when the kit design is ready is the standard four steps below; the obvious
-clip mapping is idle `Idle`, run `Running`, attack `Double_Combo_Attack` at ~4–5×.
-A thrown-staff Super needs game code (detach/projectile/return), not just a clip.
+Wired as: idle `Idle`, run `Running`, attack `Double_Combo_Attack` at 4.5×. The Super
+plays the real throw — `clips.super` seeks `Crouch_Charge_and_Throw` to 5.2 s at 4×, so
+the release (t≈5.6 s, found from the hand-speed peak in the clip data) lands ~0.1 s after
+the boomerang spawns, then follow-through. Kits without a `super` clip keep their attack
+clip for Supers, exactly as before.
+
+**The staff is a separate `held_item` node** (`--split-held-item right` in the tool): 381
+triangles split off `RightHand` into their own skinned mesh, so `fighter.gd` hides the
+in-hand staff while the boomerang Super flies and `boomerang.gd` restores it on any end
+of flight (catch, owner death, cleanup). Boundary triangles stay with the body, keeping
+the fist sealed while empty.
 
 ## `tennis_brawler_animated.glb`
 
@@ -123,7 +130,10 @@ Meshy export:
 2. Read the tool's log — it says what it repaired and which clips it synthesized.
 3. Copy to `godot/assets/<kit>.glb`, run the import scan (`--headless --import`).
 4. Declare in `kits.gd`: `"model": "res://assets/<kit>.glb"` and
-   `"clips": {"idle": ..., "run": ..., "attack": ..., "attack_speed": ...}`.
+   `"clips": {"idle": ..., "run": ..., "attack": ..., "attack_speed": ...}` — plus
+   optional `super`/`super_speed`/`super_seek` for a Super-specific clip, and
+   `--split-held-item left|right` at tool time if the character's weapon should leave
+   their hand while a thrown Super is in the air.
 
 Cleaned models stand on y = 0 facing −Z at ~1.65–1.69 units tall, so they drop into the
 fighter scene with no offset, rotation, or rescale. The capsule `CollisionShape3D` stays —
