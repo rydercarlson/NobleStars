@@ -121,7 +121,20 @@ export class BrawlerView {
     model.updateMatrixWorld(true);
     const box2 = new THREE.Box3().setFromObject(model); const c = box2.getCenter(new THREE.Vector3());
     model.position.set(-c.x, -box2.min.y, -c.z);
-    model.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false; if (o.material) { o.material.side = THREE.FrontSide; } } });
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
+      if (o.material) {
+        o.material.side = THREE.FrontSide;
+        // Menu-brightness lift: let the base texture glow a little so the
+        // characters pop against the stage instead of reading in shadow.
+        if (o.material.map) {
+          o.material.emissive = new THREE.Color(0xffffff);
+          o.material.emissiveMap = o.material.map;
+          o.material.emissiveIntensity = 0.34;
+        }
+      }
+    });
     this.group.add(model); this.model = model;
     // Meshy exports face +Z; the cleaned NobleStars models face -Z and carry a
     // 'headfront' marker — use it to face the camera either way.
