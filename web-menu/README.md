@@ -2,6 +2,16 @@
 
 A fully interactive, Brawl Stars-style home menu for **Nobles Brawl**. Plain HTML/CSS/JS + three.js, no build step. Every visual is an individual, replaceable file.
 
+> **This is the design source, not the shipping menu.** A web page cannot go
+> inside the iOS app, so the menu players actually use is the native Godot
+> rebuild in `godot/scripts/menu/` (entry scene `godot/menu.tscn`). It is the
+> same design, the same art pack, and the same data: `godot/data/brawlers.json`
+> and `godot/data/game.json` are byte-for-byte copies of `data/` here. Edit the
+> copy in this folder, iterate in the browser, then copy the two JSON files into
+> `godot/data/` — the app follows. Layout numbers in `styles.css` are the same
+> "stage pixels" the Godot screens are written against, so a CSS tweak maps
+> one-to-one onto a screen in `godot/scripts/menu/`.
+
 ![home](docs/home.jpg)
 
 ## Run it
