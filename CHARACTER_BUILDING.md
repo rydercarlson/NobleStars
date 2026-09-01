@@ -234,7 +234,7 @@ Seven fighters, all rebalanced to this framework.
 | **Nova** | Shotgunner | Normal 5000 | Normal 7.0 | Normal 1.8 | Medium 4.5 | 1.15 | — | 805 | 1450 (5 × 290) |
 | **Tony** | Artillery | Low 4250 | Slow 6.3 | Slow 2.2 | Long 5.5 | 0.85 | — | 564 | 1240 |
 | **Henry** | Heavyweight | High 5750 | Slow 6.3 | Slow 2.2 | V.Short 1.9 | 0.85 | — | 736 | 1620 |
-| **Sanjit** | Assassin | Low 4250 | V.Fast 8.4 | Fast 1.4 | V.Short 1.5 | 1.00 | — | 807 | 1130 (2 × 565) |
+| **Sanjit** | Assassin | Normal 5000 | V.Fast 8.4 | Fast 1.4 | V.Short 1.8 | 1.15 | — | 879 | 1230 (2 × 615) |
 | **Kovacs** | Tank | V.High 6500 | V.Slow 5.6 | Normal 1.8 | Short 2.5 | 0.85 | — | 667 | 1200 |
 | **Leon** | Controller | Low 4250 | Normal 7.0 | Fast 1.4 | Long 5.0 | 1.40 | — | 876 | 1224 (6 × 204) |
 | **Anders** | Skirmisher | Normal 5000 | Normal 7.0 | Slow 2.2 | Long 5.5 | 1.00 | 1.00 | 591 | 1300 |
@@ -303,8 +303,21 @@ three looked exactly like "this kit is undertuned":
    `projectile.gd` now sweeps a ray over its frame movement instead.
 
 Before that third fix Kovacs sat at 45% wins and Henry at 24%, and both looked
-like obvious overtuning. After it they were 15% and 14% against a 14.3% target,
+like obvious overtuning. After it they fell to 7.0% and 8.6% over 120 matches,
 with no stat changed. **Fix the instrument before you touch a kit.**
+
+### The sim under-rates melee. Trust the playtest.
+
+Those same post-fix numbers had Kovacs at 7.0% and Sanjit at 0.6%, yet in a
+human's hands Kovacs and Henry are the *easiest* kits to win with. Bots walk
+at people in straight lines; a player uses cover, waits out an ammo dump and
+picks the moment to close. Closing a gap is a skill the sim cannot express, so
+every melee kit reads weaker there than it plays.
+
+Use the sim to catch kits that cannot deliver their damage at all — that is a
+mechanical fault and it shows up honestly. Do not use it to set the melee/ranged
+balance point. Sanjit was buffed off a playtest that agreed with the sim; Kovacs
+and Henry were left alone because the playtest disagreed.
 
 `NS3_SIM_SPEED=<n>` overrides the 10x default. If a result smells like a physics
 artifact, run the same matches at `2` and compare `hits/atk`: real balance

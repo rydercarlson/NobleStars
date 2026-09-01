@@ -9,6 +9,9 @@ var direction := Vector3.FORWARD
 var bounces_left := 3
 var on_body_hit := Callable()
 var on_pickup := Callable()
+## Set by the main scene when this sack damages a fighter or a loot box. Only a
+## sack that connected refunds ammo on recovery — see _recover_hacky_sack.
+var connected := false
 var last_hit_normal := Vector3.ZERO
 
 const LIFETIME := 2.8

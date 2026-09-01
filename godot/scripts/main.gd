@@ -501,6 +501,16 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			controller.on_land = _disconnect_lob_land
 			add_child(controller)
 		Kits.Style.HACKY_SACK:
+			# Never more sacks aloft than he has ammo pips. Recovery refunds the
+			# ammo that paid for a sack, so without a ceiling the count only
+			# ever climbs. Hand the pip back: the kick never happened.
+			var aloft := 0
+			for n in get_children():
+				if n is HackySack and n.owner_fighter == f:
+					aloft += 1
+			if aloft >= int(Kits.MAX_AMMO):
+				f.ammo = minf(Kits.MAX_AMMO, f.ammo + 1.0)
+				return
 			var sack := HackySack.new()
 			sack.weapon = weapon
 			sack.damage = int(weapon.damage * f.damage_multiplier())
@@ -637,8 +647,10 @@ func _on_hacky_sack_hit(body: Node3D, sack: HackySack) -> void:
 	if body is Fighter:
 		if body.is_dead():
 			return
+		sack.connected = true
 		deal_damage(sack.damage, body, _live(sack.owner_fighter), sack.direction, sack.weapon.knockback)
 	elif body.is_in_group("lootbox"):
+		sack.connected = true
 		_damage_lootbox(body, sack.damage)
 	elif body.is_in_group("water"):
 		return
@@ -648,6 +660,11 @@ func _recover_hacky_sack(sack: HackySack) -> void:
 	if not is_instance_valid(sack) or not is_instance_valid(sack.owner_fighter):
 		return
 	var owner: Fighter = sack.owner_fighter
+	# A sack kicked into empty air comes back as nothing. Refunding ammo on
+	# every recovery made shots free, which erased his Slow reload tier and let
+	# him keep eight sacks in the air at once.
+	if not sack.connected:
+		return
 	if owner.ammo < Kits.MAX_AMMO:
 		owner.ammo = minf(Kits.MAX_AMMO, owner.ammo + 1.0)
 		owner._popup("+1 AMMO", Color(0.3, 0.95, 0.85))

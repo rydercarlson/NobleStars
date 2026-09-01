@@ -121,10 +121,16 @@ static func tony() -> Dictionary:
 		},
 	}
 
-## Health Low · Speed Very Fast · Reload Fast · Range Very Short 1.5
+## Health Normal · Speed Very Fast · Reload Fast · Range Very Short 1.8
 ## Assassin: fastest fighter in the game and the quickest reload, so he picks
-## every fight — but he has to be inside 3 metres and folds if he is caught out.
-## 1250 × 0.778(R) × 1.25(G) × 0.88(M) × 1.06(S) × 1.00(A) = 1133 → 2 × 565
+## every fight — but he still has to get inside 3.6 metres to throw a punch.
+## A=1.15, measured: the one-two lands 59% per strike where Henry's single
+## sweep lands 86%, because the second punch arrives 0.22s late through a 70
+## degree arc rather than 110. He was priced as the most reliable melee in the
+## game while being the least. Health moved Low -> Normal because his measured
+## shortfall was attack opportunity (5.0 swings per life, the fewest of anyone)
+## rather than damage — a bigger hit is worth nothing if he dies on the walk in.
+## 1250 × 0.778(R) × 1.25(G) × 0.88(M) × 1.00(S) × 1.15(A) = 1230 → 2 × 615
 static func sanjit() -> Dictionary:
 	# Fast brawler: MELEE with pellets=2 is a one-two punch (second hit lands
 	# a beat later); the Super staff flies out over walls and boomerangs back,
@@ -143,18 +149,18 @@ static func sanjit() -> Dictionary:
 				  # spawn), and the follow-through in ~0.6s.
 				  "super": "Crouch_Charge_and_Throw", "super_speed": 4.0,
 				  "super_seek": 5.2},
-		"max_health": HEALTH_LOW,
+		"max_health": HEALTH_NORMAL,
 		"move_speed": SPEED_VERY_FAST,
 		"reload": RELOAD_FAST,
 		"weapon": {
-			"style": Style.MELEE, "pellets": 2, "spread_deg": 70.0, "damage": 565,
-			"range": 1.5 * TILE, "speed": 0.0, "radius": 0.0,
+			"style": Style.MELEE, "pellets": 2, "spread_deg": 70.0, "damage": 615,
+			"range": 1.8 * TILE, "speed": 0.0, "radius": 0.0,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
 		# 2.4x total split across the two passes -> 1.2x per pass.
 		"super": {
-			"style": Style.BOOMERANG, "pellets": 1, "spread_deg": 0.0, "damage": 1360,
+			"style": Style.BOOMERANG, "pellets": 1, "spread_deg": 0.0, "damage": 1480,
 			"range": 5.5 * TILE, "speed": 16.0, "radius": 0.45,
 			"destroys_walls": false, "knockback": 4.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0,
