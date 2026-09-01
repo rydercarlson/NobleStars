@@ -17,9 +17,27 @@ produce. The raw Meshy export of the tennis brawler is preserved in git history
 | `tennis_brawler_animated.glb` | Tony | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 5 | ~21,000 | 7.0 MB |
 | `paddle_brawler_animated.glb` | Henry | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.5 MB |
 | `staff_brawler_animated.glb` | Sanjit | Meshy AI (merged animations), 2026-08-31, cleaned + staff split | 24-joint humanoid | 8 | ~7,300 | 9.9 MB |
+| `stomp_brawler_animated.glb` | Kovacs | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.9 MB |
 
-All three are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
+All four are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
 `godot/scripts/kits.gd` (`model` + `clips`).
+
+## `stomp_brawler_animated.glb` (Kovacs)
+
+Bulky brawler with no weapon — every attack is a radial ground wave
+(`Style.SHOCKWAVE` in `kits.gd`): full damage point blank, fading linearly to the rim,
+knockback outward. `weapon.delay` holds the damage burst until the animation's impact
+frame, both timed from the clip data:
+
+- **Stomp** (`Angry_Ground_Stomp_2`, 1.8 s): the raised foot slams down at t≈0.68 s —
+  at 3× playback the burst fires 0.23 s after cast.
+- **Super** (`Backflip_and_Rise`, 2.7 s): airborne flip, crashes flat to the ground at
+  t≈1.30 s (hips drop to 0.10) — at 2.5× the big wave erupts 0.52 s after cast, then he
+  rises during the recovery tail.
+
+The aim indicator needed no changes: `spread_deg: 360` makes the existing cone renderer
+draw a full circle at wave radius. The `Idle` is synthesized as usual (export shipped
+run/walk cycles only).
 
 ## `staff_brawler_animated.glb` (Sanjit)
 

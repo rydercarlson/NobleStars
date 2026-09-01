@@ -484,7 +484,7 @@ def add_idle(j, blob, log, duration=4.0, keys=17):
 
 
 ATTACKISH = ('attack', 'slash', 'thrust', 'punch', 'swing', 'smash', 'sweep',
-             'hit', 'kick', 'shoot', 'cast')
+             'hit', 'kick', 'shoot', 'cast', 'stomp', 'slam', 'throw')
 
 
 def dirlerp(d0, d1, u):

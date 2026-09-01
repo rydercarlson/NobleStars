@@ -14,10 +14,10 @@ const HEALTH_PER_CUBE := 400
 const DAMAGE_BONUS_PER_CUBE := 0.10
 const MOVE_SPEED := 7.0   # ~250 pt/s in the 2D game
 
-enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG }
+enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG, SHOCKWAVE }
 
 static func all() -> Array:
-	return [nova(), tony(), henry(), sanjit()]
+	return [nova(), tony(), henry(), sanjit(), kovacs()]
 
 static func named(kit_name: String) -> Dictionary:
 	for k in all():
@@ -89,6 +89,34 @@ static func sanjit() -> Dictionary:
 			"range": 7.0 * TILE, "speed": 16.0, "radius": 0.45,
 			"destroys_walls": false, "knockback": 4.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0,
+		},
+	}
+
+static func kovacs() -> Dictionary:
+	# Heavy stomper: every attack is a radial ground wave — full damage point
+	# blank, fading to `falloff` of it at the rim. `delay` holds the burst
+	# until the animation's impact frame (stomp lands at 0.68s of 1.8s, played
+	# at 3x; the Super's backflip crashes down at 1.30s of 2.7s, at 2.5x).
+	return {
+		"name": "Kovacs", "color": Color(0.62, 0.44, 0.85),
+		"model": "res://assets/kovacs.glb",
+		"clips": {"idle": "Idle", "run": "Running", "attack": "Angry_Ground_Stomp_2",
+				  "attack_speed": 3.0,
+				  "super": "Backflip_and_Rise", "super_speed": 2.5},
+		"move_speed": MOVE_SPEED * 0.92,
+		"weapon": {
+			"style": Style.SHOCKWAVE, "pellets": 1, "spread_deg": 360.0, "damage": 800,
+			"range": 2.5 * TILE, "speed": 0.0, "radius": 0.0,
+			"destroys_walls": false, "knockback": 3.0, "pierces": false,
+			"aoe": 0.0, "water_mult": 1.0,
+			"falloff": 0.35, "delay": 0.23,
+		},
+		"super": {
+			"style": Style.SHOCKWAVE, "pellets": 1, "spread_deg": 360.0, "damage": 1700,
+			"range": 4.0 * TILE, "speed": 0.0, "radius": 0.0,
+			"destroys_walls": false, "knockback": 14.0, "pierces": false,
+			"aoe": 0.0, "water_mult": 1.0,
+			"falloff": 0.5, "delay": 0.52,
 		},
 	}
 

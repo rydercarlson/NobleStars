@@ -333,6 +333,14 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			boom.body_entered.connect(_on_boomerang_hit.bind(boom))
 			add_child(boom)
 			f.set_held_item_visible(false)   # the staff is in the air now
+		Kits.Style.SHOCKWAVE:
+			var delay: float = weapon.get("delay", 0.0)
+			if delay > 0.0:
+				get_tree().create_timer(delay).timeout.connect(func() -> void:
+					if phase == Phase.PLAYING and is_instance_valid(f) and not f.is_dead():
+						_shockwave(f, weapon))
+			else:
+				_shockwave(f, weapon)
 
 func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 	if not is_instance_valid(proj):
@@ -406,6 +414,73 @@ func _spawn_melee_arc(f: Fighter, weapon: Dictionary, unit: Vector3) -> void:
 	var tw := create_tween()
 	tw.tween_property(arc, "transparency", 1.0, 0.22).from(0.0)
 	tw.tween_callback(arc.queue_free)
+
+## Radial ground wave (Kovacs): full damage point blank, fading linearly to
+## weapon.falloff of it at the rim. Knockback pushes outward from the slam.
+func _shockwave(f: Fighter, weapon: Dictionary) -> void:
+	_spawn_shockwave_ring(f, weapon)
+	var maxdmg := int(weapon.damage * f.damage_multiplier())
+	var edge_frac: float = weapon.get("falloff", 0.4)
+	for target in fighters:
+		if target == f or target.is_dead():
+			continue
+		var v := target.global_position - f.global_position
+		v.y = 0
+		var d := v.length()
+		if d > weapon.range + 0.5:
+			continue
+		if not has_line_of_sight(f.global_position, target.global_position):
+			continue
+		var frac: float = clamp(d / weapon.range, 0.0, 1.0)
+		var dmg := int(lerpf(float(maxdmg), float(maxdmg) * edge_frac, frac))
+		deal_damage(dmg, target, f, v.normalized(), weapon.knockback)
+	for box in get_tree().get_nodes_in_group("lootbox"):
+		var bv = box.global_position - f.global_position
+		bv.y = 0
+		if bv.length() <= weapon.range + 0.7:
+			_damage_lootbox(box, maxdmg)
+
+## Expanding ground ring so the wave and its reach are readable.
+func _spawn_shockwave_ring(f: Fighter, weapon: Dictionary) -> void:
+	var ring := MeshInstance3D.new()
+	var mesh := ImmediateMesh.new()
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	ring.material_override = mat
+	var tint: Color = f.kit.color.lightened(0.4)
+	var band: float = 0.5 if weapon.range < Kits.TILE * 3.0 else 0.8
+	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var steps := 28
+	for i in steps:
+		var a0 := TAU * i / steps
+		var a1 := TAU * (i + 1) / steps
+		var o0 := Vector3(cos(a0), 0, sin(a0))
+		var o1 := Vector3(cos(a1), 0, sin(a1))
+		var inner := weapon.range - band
+		mesh.surface_set_color(Color(tint, 0.0))
+		mesh.surface_add_vertex(o0 * inner)
+		mesh.surface_set_color(Color(tint, 0.65))
+		mesh.surface_add_vertex(o0 * weapon.range)
+		mesh.surface_add_vertex(o1 * weapon.range)
+		mesh.surface_set_color(Color(tint, 0.0))
+		mesh.surface_add_vertex(o0 * inner)
+		mesh.surface_set_color(Color(tint, 0.65))
+		mesh.surface_add_vertex(o1 * weapon.range)
+		mesh.surface_set_color(Color(tint, 0.0))
+		mesh.surface_add_vertex(o1 * inner)
+	mesh.surface_end()
+	ring.mesh = mesh
+	ring.position = f.global_position + Vector3(0, 0.15, 0)
+	ring.scale = Vector3(0.12, 1, 0.12)
+	add_child(ring)
+	var tw := create_tween()
+	tw.tween_property(ring, "scale", Vector3.ONE, 0.3) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(ring, "transparency", 1.0, 0.42).from(0.0)
+	tw.tween_callback(ring.queue_free)
 
 func _melee(f: Fighter, weapon: Dictionary, unit: Vector3) -> void:
 	_spawn_melee_arc(f, weapon, unit)
