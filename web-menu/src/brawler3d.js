@@ -149,9 +149,9 @@ export class BrawlerView {
       // Meshy leaves metallicFactor at the glTF default of 1.0; full metal
       // renders near-black without a reflection probe.
       if (mat.metalness !== undefined) mat.metalness = 0;
-      // Menu-brightness lift so brawlers pop against the stage. Models still
-      // carrying Meshy's emissive-duplicate are already self-lit, so only the
-      // cleaned ones get the boost.
+      // Menu-brightness lift so brawlers pop against the stage. Models that
+      // still carry Meshy's emissive-duplicate are already self-lit, so only
+      // the cleaned ones get the boost — this can never double-expose.
       if (mat.map && !mat.emissiveMap) {
         mat.emissive = new THREE.Color(0xffffff);
         mat.emissiveMap = mat.map;
