@@ -52,6 +52,12 @@ func _ready() -> void:
 		tip.position = Vector3(0, 0, end)
 		_spin.add_child(tip)
 
+## The staff returns to the thrower's hand however the flight ends —
+## caught, owner died, or match cleanup.
+func _exit_tree() -> void:
+	if owner_fighter != null and is_instance_valid(owner_fighter):
+		owner_fighter.set_held_item_visible(true)
+
 ## Direction of travel right now — used for hit knockback.
 func travel_dir() -> Vector3:
 	if not returning:

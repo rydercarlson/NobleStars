@@ -282,7 +282,8 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	var unit := Vector3(dir.x, 0, dir.z).normalized()
 	f.face_direction(unit)
-	f.play_attack_animation(now)
+	var is_super: bool = weapon == f.kit.get("super")
+	f.play_attack_animation(now, is_super)
 	match int(weapon.style):
 		Kits.Style.PELLETS:
 			var base := atan2(unit.x, unit.z)
@@ -331,6 +332,7 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			boom.origin = boom.position
 			boom.body_entered.connect(_on_boomerang_hit.bind(boom))
 			add_child(boom)
+			f.set_held_item_visible(false)   # the staff is in the air now
 
 func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 	if not is_instance_valid(proj):

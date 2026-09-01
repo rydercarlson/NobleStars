@@ -22,6 +22,7 @@ var _body_mesh: MeshInstance3D
 var _material: StandardMaterial3D
 var _model: Node3D
 var _anim: AnimationPlayer
+var _held_item: Node3D   # e.g. Sanjit's staff — hidden while his Super flies
 var _attack_anim_until := 0.0
 var _pending_popup := 0
 
@@ -69,6 +70,7 @@ func _setup_model() -> void:
 			var mat = mesh.surface_get_material(s)
 			if mat is BaseMaterial3D:
 				mat.metallic = 0.0
+	_held_item = _model.find_child("held_item", true, false)
 	_anim = _model.find_child("AnimationPlayer", true, false)
 	if _anim:
 		var clips: Dictionary = kit.clips
@@ -115,15 +117,25 @@ func update_animation(game_now: float) -> void:
 	if _anim.current_animation != want:
 		_anim.play(want, 0.15)
 
-func play_attack_animation(game_now: float) -> void:
+func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 	if _anim == null:
 		return
 	var clips: Dictionary = kit.clips
-	var speed: float = clips.get("attack_speed", 1.0)
-	_anim.play(clips.attack, 0.05, speed)
-	var a: Animation = _anim.get_animation(clips.attack)
+	var clip_name: String = clips.get("super", clips.attack) if is_super else clips.attack
+	var speed: float = clips.get("super_speed", clips.get("attack_speed", 1.0)) if is_super \
+			else clips.get("attack_speed", 1.0)
+	var seek_to: float = clips.get("super_seek", 0.0) if is_super else 0.0
+	_anim.play(clip_name, 0.05, speed)
+	if seek_to > 0.0:
+		_anim.seek(seek_to, true)
+	var a: Animation = _anim.get_animation(clip_name)
 	if a:
-		_attack_anim_until = game_now + a.length / speed
+		_attack_anim_until = game_now + (a.length - seek_to) / speed
+
+## Show/hide a model's held item (Sanjit's staff) while a thrown copy flies.
+func set_held_item_visible(shown: bool) -> void:
+	if _held_item:
+		_held_item.visible = shown
 
 func apply_movement(input_dir: Vector3) -> void:
 	if is_dashing():
