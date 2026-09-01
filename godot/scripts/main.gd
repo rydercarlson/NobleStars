@@ -427,6 +427,8 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 				proj.origin = proj.position
 				proj.body_entered.connect(_on_projectile_hit.bind(proj))
 				proj.on_sweep_hit = _on_projectile_hit
+				if sim_active:
+					_sim_kit(f.kit.name).p_spawn += 1
 				add_child(proj)
 		Kits.Style.LOB:
 			var throw_dist: float = clamp(dist, Kits.TILE * 1.5, weapon.range)
@@ -567,6 +569,8 @@ func _spawn_button_shot(f: Fighter, weapon: Dictionary, unit: Vector3,
 	proj.origin = proj.position
 	proj.body_entered.connect(_on_projectile_hit.bind(proj))
 	proj.on_sweep_hit = _on_projectile_hit
+	if sim_active:
+		_sim_kit(f.kit.name).p_spawn += 1
 	add_child(proj)
 
 func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
@@ -576,6 +580,8 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 		if body == proj.owner_fighter or body.is_dead() or proj.already_hit.has(body):
 			return
 		proj.already_hit.append(body)
+		if sim_active and is_instance_valid(proj.owner_fighter):
+			_sim_kit(proj.owner_fighter.kit.name).p_fighter += 1
 		deal_damage(proj.damage, body, _live(proj.owner_fighter), proj.direction, proj.weapon.knockback)
 		if not proj.weapon.pierces:
 			proj.queue_free()
@@ -589,6 +595,8 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 				_net_wall_broken.rpc(String(body.name))
 			body.queue_free()
 	elif not body.is_in_group("water"):
+		if sim_active and is_instance_valid(proj.owner_fighter):
+			_sim_kit(proj.owner_fighter.kit.name).p_scenery += 1
 		proj.queue_free()
 
 ## Leon's Disconnect lands in two parts: a one-off burst (damage, knockback and
@@ -979,7 +987,8 @@ func _update_players_label() -> void:
 func _sim_kit(kit_name: String) -> Dictionary:
 	if not sim_stats.has(kit_name):
 		sim_stats[kit_name] = {"spawns": 0, "wins": 0, "kills": 0,
-				"damage": 0, "placement_sum": 0, "attacks": 0, "hits": 0}
+				"damage": 0, "placement_sum": 0, "attacks": 0, "hits": 0,
+				"p_spawn": 0, "p_fighter": 0, "p_scenery": 0}
 	return sim_stats[kit_name]
 
 func _sim_match_end() -> void:
@@ -1018,6 +1027,15 @@ func _sim_report() -> void:
 				float(s.kills) / spawns, float(s.damage) / spawns,
 				float(s.attacks) / spawns, float(s.hits) / attacks,
 				float(s.damage) / attacks])
+	print("\n[sim] projectile fates (spawned -> fighter / scenery / flew past):")
+	for n in names:
+		var s2: Dictionary = sim_stats[n]
+		if s2.p_spawn == 0:
+			continue
+		var tot: float = float(s2.p_spawn)
+		print("%-8s spawned %5d  fighter %5.1f%%  scenery %5.1f%%  past %5.1f%%" % [n,
+				s2.p_spawn, 100.0 * s2.p_fighter / tot, 100.0 * s2.p_scenery / tot,
+				100.0 * (s2.p_spawn - s2.p_fighter - s2.p_scenery) / tot])
 
 # MARK: loop
 

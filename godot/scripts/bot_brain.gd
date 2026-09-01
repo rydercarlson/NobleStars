@@ -78,7 +78,10 @@ func decide(now: float, game) -> Dictionary:
 		var dist := fighter.global_position.distance_to(_target.global_position)
 		var thrown: bool = int(weapon.style) == Kits.Style.LOB \
 				or int(weapon.style) == Kits.Style.DISCONNECT
-		if dist < weapon.range + Kits.TILE * 0.5 \
+		# Strictly inside range: a projectile deletes itself at weapon.range, so
+		# the old "+ half a tile" tolerance meant the opening shot of most
+		# engagements expired in mid-air before it could reach anyone.
+		if dist <= float(weapon.range) \
 				and game.can_see(fighter, _target, thrown):
 			_next_fire_at = now + _fire_interval
 			var aim := _aim_point(_target, weapon, dist, game)

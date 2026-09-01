@@ -14,6 +14,7 @@ var button_color := Color.WHITE
 ## through this rather than through body_entered; see _physics_process.
 var on_sweep_hit := Callable()
 var _flight_time := 0.0
+var _sweep: PhysicsShapeQueryParameters3D
 
 func _ready() -> void:
 	collision_layer = 1 << 3
@@ -25,6 +26,11 @@ func _ready() -> void:
 	s.radius = weapon.radius
 	col.shape = s
 	add_child(col)
+
+	# Reused every frame by the swept-sphere test in _physics_process.
+	_sweep = PhysicsShapeQueryParameters3D.new()
+	_sweep.shape = s
+	_sweep.collision_mask = collision_mask
 
 	var m := MeshInstance3D.new()
 	var mesh := SphereMesh.new()
@@ -61,21 +67,33 @@ func _physics_process(delta: float) -> void:
 	# advances a 25 m/s pellet ~4 m per tick against a ~0.6 m hitbox (it made
 	# every pellet kit read as broken in the balance table), but a 42 m/s Super
 	# can skip past a target's edge at normal speed too.
-	var query := PhysicsRayQueryParameters3D.create(global_position, next_pos, collision_mask)
+	var motion := next_pos - global_position
 	var skip: Array[RID] = []
 	if is_instance_valid(owner_fighter):
 		skip.append(owner_fighter.get_rid())
 	for b in already_hit:      # a piercing shot must not re-hit what it passed
 		if is_instance_valid(b) and b is CollisionObject3D:
 			skip.append(b.get_rid())
-	query.exclude = skip
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	if hit.is_empty():
+	_sweep.transform = Transform3D(Basis(), global_position)
+	_sweep.motion = motion
+	_sweep.exclude = skip
+	var space := get_world_3d().direct_space_state
+	# Sweep the pellet's actual sphere, not a bare line. A ray would only score
+	# when it passed through the 0.45 m capsule itself, throwing away the
+	# projectile's own radius — a third of the hit width on a 0.2 m button.
+	var frac := space.cast_motion(_sweep)
+	if frac[0] >= 1.0:
 		global_position = next_pos
 	else:
+		_sweep.transform = Transform3D(Basis(), global_position + motion * frac[1])
+		_sweep.motion = Vector3.ZERO
+		var rest := space.get_rest_info(_sweep)
 		# A piercing shot keeps its momentum; anything else stops where it hit.
-		global_position = next_pos if weapon.pierces else hit.position
-		if on_sweep_hit.is_valid():
-			on_sweep_hit.call(hit.collider, self)
+		global_position = next_pos if weapon.pierces else global_position + motion * frac[0]
+		var collider: Object = instance_from_id(rest.collider_id) if rest.has("collider_id") else null
+		if collider is Node3D and on_sweep_hit.is_valid():
+			on_sweep_hit.call(collider, self)
+		elif collider == null:
+			global_position = next_pos   # nothing resolved; don't stall in place
 	if traveled > weapon.range:
 		queue_free()

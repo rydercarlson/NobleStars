@@ -233,7 +233,12 @@ static func kovacs() -> Dictionary:
 ## Health Low · Speed Normal · Reload Fast · Range Long 5.0
 ## Controller: a fast, chippy stream of six buttons in a tight cone. Fragile,
 ## and each button is small, so he wins by attrition rather than by bursts.
-## 1250 × 0.778(R) × 0.85(G) × 1.00(M) × 1.06(S) × 1.00(A) = 875 → 6 × 146
+## A=1.40 (Very Demanding), measured rather than guessed: six small projectiles
+## thrown 7 m with no AOE to forgive a near miss land 39% of the time, where
+## Henry's single melee swing lands 85%. Priced at A=1.00 he realised 251 eDPS
+## against a roster median near 470, and no amount of delivery fixing moved it
+## (see CHARACTER_BUILDING.md section 3).
+## 1250 × 0.778(R) × 0.85(G) × 1.00(M) × 1.06(S) × 1.40(A) = 1227 → 6 × 204
 static func leon() -> Dictionary:
 	# Clip timing: both casts are long wind-ups, so they seek straight to their
 	# release frames — mage_soell_cast_3 throws at 0.90s (seek 0.6 @ 4x fires
@@ -255,7 +260,7 @@ static func leon() -> Dictionary:
 			# 7 degrees, not 10: the outer buttons sit at +/-3.15 deg, so at his
 			# full 10 m range they land 0.55 m off centre and still connect with
 			# a ~0.65 m hittable width. At 10 deg they missed past about 8 m.
-			"style": Style.BUTTONS, "pellets": 6, "spread_deg": 7.0, "damage": 146,
+			"style": Style.BUTTONS, "pellets": 6, "spread_deg": 7.0, "damage": 204,
 			"range": 5.0 * TILE, "speed": 22.0, "radius": 0.20,
 			"destroys_walls": false, "knockback": 1.5, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
@@ -265,7 +270,7 @@ static func leon() -> Dictionary:
 		# leaves then holds `zone_seconds` as denied ground — anyone standing in
 		# it cannot attack, and the silence lifts a beat after they step off.
 		"super": {
-			"style": Style.DISCONNECT, "pellets": 1, "spread_deg": 360.0, "damage": 1230,
+			"style": Style.DISCONNECT, "pellets": 1, "spread_deg": 360.0, "damage": 1710,
 			"range": 5.5 * TILE, "speed": 18.0, "radius": 0.52,
 			"destroys_walls": false, "knockback": 5.0, "pierces": false,
 			"aoe": 1.7 * TILE, "water_mult": 1.0, "disconnect_seconds": 2.4,

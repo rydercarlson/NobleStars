@@ -107,13 +107,33 @@ damage_per_attack = 1250 × R × G × M × S × A × U
 | **G** — range | Safety is worth damage | Very Short **1.25**, Short **1.15**, Medium **1.00**, Long **0.85** |
 | **M** — mobility | Control of the engagement | V.Slow **1.12**, Slow **1.06**, Normal **1.00**, Fast **0.94**, V.Fast **0.88** |
 | **S** — survivability | Time on the field | V.Low **1.12**, Low **1.06**, Normal **1.00**, High **0.94**, V.High **0.88** |
-| **A** — delivery | How hard it is to miss | Forgiving **0.85**, Fair **1.00**, Demanding **1.15** |
+| **A** — delivery | How hard it is to miss | Forgiving **0.85**, Fair **1.00**, Demanding **1.15**, Very Demanding **1.40** |
 | **U** — utility | Non-damage value on the *basic attack* | Strong **0.85**, None **1.00** |
 
-**Choosing A.** Forgiving = AOE ≥ 1 tile, a melee arc ≥ 90°, piercing, or
-arcs over walls with no line-of-sight check. Demanding = the full damage only
-lands under a condition the player has to work for — a tight spread, a small
-fast projectile, point-blank-only pellet convergence.
+**Choosing A.** Forgiving = AOE ≥ 1 tile, a melee arc ≥ 90°, piercing, or arcs
+over walls with no line-of-sight check. Demanding = the full damage only lands
+under a condition the player has to work for — a tight spread, a small fast
+projectile, point-blank-only pellet convergence. **Very Demanding** = several
+small projectiles that must *all* connect, thrown far enough that the target can
+move between the shot and the landing.
+
+A is the factor most worth measuring rather than guessing, because the spread is
+wider than it looks. From `hits/atk` and the projectile-fate table:
+
+| delivery | measured hit rate |
+|---|---|
+| Henry, one 110° melee swing | **85%** |
+| Tony, one lobbed 1.4m AOE | **81%** |
+| Nova, 5 pellets converging at 2.7m | **47%** |
+| Leon, 6 buttons thrown 7m | **39%** |
+
+That is a 2.2× spread in how much of its nominal damage a kit actually collects,
+so the 0.85–1.15 range alone cannot express it — hence the 1.40 tier. Leon was
+priced at A=1.00 and realised 251 eDPS against a roster median near 470; five
+separate delivery fixes barely moved him, because the shortfall was never a bug
+after the physics was corrected. **If a kit's realised eDPS (`dmg/atk ÷ reload`)
+sits far off the roster, check its hit rate before assuming the stats are
+wrong — and if the hit rate is simply low by design, that belongs in A.**
 
 **Choosing U.** Only fires when the *ordinary attack* does something besides
 damage — returns ammo, heals, slows. Utility that lives on the Super is already
@@ -216,7 +236,7 @@ Seven fighters, all rebalanced to this framework.
 | **Henry** | Heavyweight | High 5750 | Slow 6.3 | Slow 2.2 | V.Short 1.9 | 0.85 | — | 736 | 1620 |
 | **Sanjit** | Assassin | Low 4250 | V.Fast 8.4 | Fast 1.4 | V.Short 1.5 | 1.00 | — | 807 | 1130 (2 × 565) |
 | **Kovacs** | Tank | V.High 6500 | V.Slow 5.6 | Normal 1.8 | Short 2.5 | 0.85 | — | 667 | 1200 |
-| **Leon** | Controller | Low 4250 | Normal 7.0 | Fast 1.4 | Long 5.0 | 1.00 | — | 626 | 876 (6 × 146) |
+| **Leon** | Controller | Low 4250 | Normal 7.0 | Fast 1.4 | Long 5.0 | 1.40 | — | 876 | 1224 (6 × 204) |
 | **Anders** | Skirmisher | Normal 5000 | Normal 7.0 | Slow 2.2 | Long 5.5 | 1.00 | 1.00 | 591 | 1300 |
 
 **Nova is the reference kit** — Normal in all four tiers, so her only modifier
@@ -261,3 +281,31 @@ Sim results are still a floor rather than a ceiling — bots don't dodge, don't
 kite, and never save a Super for the right moment. A kit that looks weak in the
 sim may be fine in a player's hands, but a kit that looks *strong* in the sim is
 genuinely strong.
+
+### Read `hits/atk` before you believe `win%`
+
+The table reports `atk/spawn`, `hits/atk` and `dmg/atk` for exactly one reason:
+**a kit that looks broken is usually not landing its shots, and that is rarely a
+balance problem.** `hits/atk` should land near a kit's projectile count — about
+6 for Leon, 5 for Nova, 1 for a melee swing. Anything near zero means the damage
+never arrived, so the win rate is measuring delivery, not strength.
+
+Three separate bugs hid behind bad win rates during the first rebalance, and all
+three looked exactly like "this kit is undertuned":
+
+1. **Bots aimed where the target already was.** No lead meant a 25 m/s pellet
+   crossing 7 m missed by ~2 m. Only instant-hit kits could ever connect.
+2. **Match-grade aim scatter in the sim.** 3–9° at 7 m is 0.37–1.10 m against a
+   ~0.65 m hitbox, so a bot rolling above ~5° could never land a precision
+   weapon. Wide arcs and big AOEs didn't care — the table ranked *forgiveness*.
+3. **Projectiles tunnelled through targets.** `Area3D` overlap is sampled once
+   per physics tick, and at 10x time scale a pellet advances ~4 m per tick.
+   `projectile.gd` now sweeps a ray over its frame movement instead.
+
+Before that third fix Kovacs sat at 45% wins and Henry at 24%, and both looked
+like obvious overtuning. After it they were 15% and 14% against a 14.3% target,
+with no stat changed. **Fix the instrument before you touch a kit.**
+
+`NS3_SIM_SPEED=<n>` overrides the 10x default. If a result smells like a physics
+artifact, run the same matches at `2` and compare `hits/atk`: real balance
+differences hold across time scales, tick-rate artifacts vanish.
