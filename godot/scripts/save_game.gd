@@ -34,7 +34,7 @@ static var club_chat: Array = []          # [{who, text}, ...]
 static var pass_tier: int = 1
 static var pass_tokens: int = 0
 static var pass_premium: bool = false
-static var selected_kit: String = "Nova"  # always by name, never a kit Dictionary
+static var selected_kit: String = "Tony"  # always by name, never a kit Dictionary
 static var selected_mode: String = "showdown_solo"
 static var player_name: String = "GUEST"
 static var music_on: bool = true
@@ -101,11 +101,11 @@ static func ensure_loaded() -> void:
 	if save_version < 3:
 		for id in unlocked:
 			unlocked[id] = starters.has(str(id))
-		selected_kit = "Nova"
+		selected_kit = "Tony"
 	if Kits.named(selected_kit).name.to_lower() != selected_kit.to_lower():
-		selected_kit = "Nova"  # saved kit no longer exists
+		selected_kit = "Tony"  # saved kit no longer exists
 	if not is_unlocked(selected_kit):
-		selected_kit = "Nova"
+		selected_kit = "Tony"
 	if save_version < SAVE_VERSION:
 		save()
 
@@ -174,7 +174,7 @@ static func reset() -> void:
 	pass_tier = 1
 	pass_tokens = 0
 	pass_premium = false
-	selected_kit = "Nova"
+	selected_kit = "Tony"
 	selected_mode = "showdown_solo"
 	player_name = "GUEST"
 	music_on = true

@@ -317,13 +317,16 @@ func _spawn_lootbox(pos: Vector3, box_name := "") -> void:
 	body.set_meta("health", BOX_HEALTH)
 	body.set_meta("max_health", BOX_HEALTH)   # fighter_bars draws the bar from these
 	body.add_to_group("lootbox")
-	var m := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(1.1, 1.0, 1.1)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.8, 0.6, 0.26)
-	box.material = mat
-	m.mesh = box
+	# Meshy crate model; the collider below stays the authority on its size.
+	var m: Node3D = (load("res://assets/loot_crate.glb") as PackedScene).instantiate()
+	m.scale = Vector3.ONE * 0.58   # model is ~1.9 across; match the 1.1 collider
+	m.rotate_y(randf() * TAU)      # vary the facing so a field of them isn't uniform
+	for mi in m.find_children("*", "MeshInstance3D", true, false):
+		var mesh: Mesh = mi.mesh
+		for si in mesh.get_surface_count():
+			var mat = mesh.surface_get_material(si)
+			if mat is BaseMaterial3D:
+				mat.metallic = 0.0
 	body.add_child(m)
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
