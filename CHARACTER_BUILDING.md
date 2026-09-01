@@ -17,7 +17,7 @@ These are the same for everyone and live in `kits.gd`:
 | Constant | Value | Meaning |
 |---|---|---|
 | `BASE_MAX_HEALTH` | **5000** | Default fighter health. Damage is balanced against this. |
-| `MAX_AMMO` | 3.0 | Ammo pips. Everyone gets three. |
+| `MAX_AMMO` | 3.0 | Default ammo pips; a kit can override with `ammo`. |
 | `AMMO_RECHARGE_SECONDS` | 1.8 | The *Normal* reload tier; per-kit `reload` overrides it. |
 | `MOVE_SPEED` | 7.0 m/s | The *Normal* speed tier; per-kit `move_speed` overrides it. |
 | `SUPER_CHARGE_DAMAGE` | 3500 | Damage dealt to fill a Super (= 0.7 healthbars). |
@@ -237,12 +237,27 @@ Eight fighters, all rebalanced to this framework.
 | **Sanjit** | Assassin | Normal 5000 | V.Fast 8.4 | Fast 1.4 | V.Short 1.8 | 1.15 | — | 879 | 1230 (2 × 615) |
 | **Kovacs** | Tank | V.High 6500 | V.Slow 5.6 | Normal 1.8 | Short 2.5 | 0.85 | — | 667 | 1200 |
 | **Leon** | Controller | Low 4250 | Normal 7.0 | Fast 1.4 | Long 5.0 | 1.40 | — | 876 | 1224 (6 × 204) |
-| **Anders** | Skirmisher | Normal 5000 | Normal 7.0 | Slow 2.2 | Medium 4.5 | n/a | — | 477 meas. | 800 / 1000 / 1200 rally |
+| **Anders** | Skirmisher | High 5750 | Normal 7.0 | Fast 1.4 | Short 3.0 | n/a | — | n/a (1 pip) | 1100 / 1375 / 1650 rally |
 | **Hammy** | Sniper | V.Low 3500 | Normal 7.0 | Slow 2.2 | Long 5.5 | 1.15 | Strong 0.85 | 568 | 1250 |
 
 **Nova is the reference kit** — Normal in all four tiers, so her only modifier
 is the 1.15 for a shotgun that has to close distance. Every other fighter is
 readable as a deviation from her.
+
+**Give a kit fewer pips when it cannot spend them.** Anders holds one sack at a
+time, so his second and third pips could never be used — around 45% of his kicks
+were refused outright, which reads as an unresponsive character rather than a
+design. He now has `"ammo": 1`, and the pip stays empty until the rally ends
+(`Fighter.ammo_locked`), so the reload is the price of *losing* the sack rather
+than a clock ticking during it. Blocked kicks went to zero. If a kit's mechanic
+gates its own fire rate, the magazine should match the mechanic, not the default.
+
+**Watch what a kit turns into in play, then stat it for that.** Anders was built
+as a mid-range skirmisher and is played as a close brawler, because the rally
+pulls him toward wherever the sack is coming down. Rather than fight that, he
+was restatted for the pocket: reach 4.5 -> 3.0 tiles, health Normal -> High, and
+a much heavier landing. He now sits at Henry's cadence — 6.1 attacks a life at
+1466 damage against Henry's 6.8 at 1422.
 
 **An arcing attack has to be timed against how fast people move.** The sack
 first shipped at 8 m/s: a 9 m hop hung for 1.1 seconds, in which a 7 m/s fighter

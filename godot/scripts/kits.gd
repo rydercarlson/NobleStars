@@ -284,37 +284,30 @@ static func leon() -> Dictionary:
 		},
 	}
 
-## Health Normal · Speed Normal · Reload Slow · Range Medium 4.5
-## Skirmisher. A rally kit: one sack, kicked between him and whoever he is
-## fighting. Every touch sends it to the NEAREST fighter, so recovering it is a
-## positioning read rather than a footrace — be the closest when it bounces and
-## it comes back to you for a free kick that hits harder.
+## Health High · Speed Normal · Reload Fast · Range Short 3.0 · ONE ammo
+## Skirmisher who plays like a close brawler, which is how he actually gets
+## used: the rally pulls him toward wherever the sack is coming down, so he
+## fights in the pocket rather than at range. Statted for that — shorter reach,
+## a High healthbar to survive being there, and a much heavier landing.
 ##
-## A=0.85 (Forgiving), which is not what it looks like on paper: because every
-## touch redirects to the NEAREST fighter, a miss converts itself into a hit on
-## somebody else. 43% of sacks find a body. It homes, so it is priced as homing.
+## One ammo, not three. Only one sack exists at a time, so the other two pips
+## could never be spent and ~45% of his kicks were being refused outright. The
+## pip does not start refilling until the rally ends (Fighter.ammo_locked), so
+## the reload is the price of LOSING the sack — keeping it alive is the reward.
 ##
-## The rally makes the per-attack formula a poor fit — one ammo carries up to
-## three touches — so his damage is calibrated against MEASURED eDPS instead.
-## At 800 he realised 632 eDPS, level with Henry while being safely at range;
-## 600 puts him near Tony (427) and Nova (485), where a mid-range kit belongs.
-## Ramped +25% a step: 800 / 1000 / 1200. Higher per landing than a kit with
-## this eDPS would normally carry, because ONE sack exists at a time: while it
-## is alive every kick is refused, so ~45% of his attempts never fire and his
-## throughput is capped by the sack, not by his reload.
-## Trimmed toward the low side on purpose: the sim probably under-rates him,
-## because bots collect rallies passively from the redirect while a player will
-## set them up deliberately. He measured 22.7% wins at 550 against a 14.3%
-## target, so expect to want another cut rather than a buff.
+## Calibrated against measured output, not the per-attack formula: one ammo, a
+## reload lockout and up to three landings per kick leave "damage per attack"
+## with no single meaning.
 static func anders() -> Dictionary:
 	return {
 		"name": "Anders", "color": Color(0.2, 0.88, 0.78),
 		"role": "Skirmisher",
 		"desc": "Keeps a hacky sack alive — every touch kicks it to whoever is closest, and catching it yourself continues the rally for free.",
 		"super_desc": "Pop Off: flicks the sack up and leaps clear, then spikes it back the way he came.",
-		"max_health": HEALTH_NORMAL,
+		"max_health": HEALTH_HIGH,
 		"move_speed": SPEED_NORMAL,
-		"reload": RELOAD_SLOW,
+		"reload": RELOAD_FAST,
+		"ammo": 1,
 		"weapon": {
 			# speed is the ARC's travel rate, not a bullet's. A 9 m kick hangs
 			# ~0.75s: slower than Tony's shell so it reads as a floaty sack, but
@@ -322,8 +315,8 @@ static func anders() -> Dictionary:
 			# a target had walked 8 m by the time it came down and it hit nothing.
 			# aoe is how close a landing has to be to connect: the same
 			# forgiveness a lob gets, for the same reason.
-			"style": Style.KEEP_IT_UP, "pellets": 1, "spread_deg": 0.0, "damage": 800,
-			"range": 4.5 * TILE, "speed": 12.0, "radius": 0.26,
+			"style": Style.KEEP_IT_UP, "pellets": 1, "spread_deg": 0.0, "damage": 1100,
+			"range": 3.0 * TILE, "speed": 12.0, "radius": 0.26,
 			"destroys_walls": false, "knockback": 3.0, "pierces": false,
 			"aoe": 0.95 * TILE, "water_mult": 1.0,
 		},

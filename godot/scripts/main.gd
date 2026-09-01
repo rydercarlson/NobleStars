@@ -520,7 +520,7 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			# ammo-refunding version let it.
 			for n in get_children():
 				if n is HackySack and n.owner_fighter == f:
-					f.ammo = minf(Kits.MAX_AMMO, f.ammo + 1.0)  # kick never happened
+					f.ammo = minf(f.max_ammo, f.ammo + 1.0)   # kick never happened
 					if sim_active:
 						_sim_kit(f.kit.name).s_blocked += 1
 						_sim_kit(f.kit.name).attacks -= 1   # never happened; keep dmg/atk honest
@@ -535,6 +535,7 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			sack.on_enemy_hit = _on_rally_sack_hit
 			sack.on_rally = _on_rally_continued
 			sack.on_land = _on_sack_land
+			sack.on_box_hit = _on_sack_box_hit
 			if sim_active:
 				_sim_kit(f.kit.name).s_launch += 1
 			add_child(sack)
@@ -687,6 +688,15 @@ func _disconnect_lob_land(lob: Lob) -> void:
 		zone.owner_fighter = _live(lob.owner_fighter)
 		zone.position = center
 		add_child(zone)
+
+## A landing that came down on a power cube box. Anders' sack resolves by
+## landing radius rather than by collision, so boxes have to be checked
+## explicitly — they were invisible to it otherwise.
+func _on_sack_box_hit(box: Node, sack: HackySack) -> void:
+	if sim_active and is_instance_valid(sack.owner_fighter):
+		_sim_kit(sack.owner_fighter.kit.name).s_box += 1
+	if is_instance_valid(sack):
+		_damage_lootbox(box, sack.rally_damage())
 
 ## Diagnostics only: where every sack landing ends up.
 func _on_sack_land(struck, sack: HackySack) -> void:
@@ -1065,7 +1075,7 @@ func _sim_kit(kit_name: String) -> Dictionary:
 		sim_stats[kit_name] = {"spawns": 0, "wins": 0, "kills": 0,
 				"damage": 0, "placement_sum": 0, "attacks": 0, "hits": 0,
 				"p_spawn": 0, "p_fighter": 0, "p_scenery": 0,
-				"s_launch": 0, "s_land": 0, "s_hit": 0, "s_catch": 0, "s_blocked": 0}
+				"s_launch": 0, "s_land": 0, "s_hit": 0, "s_catch": 0, "s_blocked": 0, "s_box": 0}
 	return sim_stats[kit_name]
 
 func _sim_match_end() -> void:
@@ -1111,6 +1121,7 @@ func _sim_report() -> void:
 		print("\n[sim] sacks: launched %d (blocked %d) -> landings %d = %d on an enemy, %d caught, %d on floor" \
 				% [sk.s_launch, sk.s_blocked, sk.s_land, sk.s_hit, sk.s_catch,
 					sk.s_land - sk.s_hit - sk.s_catch])
+		print("[sim] sack landings on power cube boxes: %d" % sk.s_box)
 	print("\n[sim] projectile fates (spawned -> fighter / scenery / flew past):")
 	for n in names:
 		var s2: Dictionary = sim_stats[n]

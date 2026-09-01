@@ -10,6 +10,11 @@ var is_player := false
 var max_health := Kits.BASE_MAX_HEALTH
 var health := Kits.BASE_MAX_HEALTH
 var ammo := Kits.MAX_AMMO
+var max_ammo := Kits.MAX_AMMO
+## While true the ammo clock is stopped. Anders holds this for as long as his
+## sack is alive, so his single pip only starts refilling once the rally ends
+## rather than ticking back during it.
+var ammo_locked := false
 var reload := Kits.AMMO_RECHARGE_SECONDS   # seconds per ammo pip; set from the kit
 var super_charge := 0.0
 var cubes := 0
@@ -21,6 +26,15 @@ var dash: Dictionary = {}   # empty = not dashing
 var leap: Dictionary = {}   # empty = grounded; used by jump-smash Supers
 var disconnected_until := -1.0
 
+# Hammy's three-hit rhythm. Keeping it on the fighter makes the trait identical
+# for humans and bots and lets the HUD show the current streak.
+var heat_hits := 0
+var on_fire_until := -1.0
+var burn_until := -1.0
+var burn_tick_at := -1.0
+var burn_damage := 0
+var burn_source: Fighter = null
+
 var _body_mesh: MeshInstance3D
 var _material: StandardMaterial3D
 var _model: Node3D
@@ -31,6 +45,8 @@ var _foot_bones: PackedInt32Array = []
 var _foot_rest_y := 0.0
 var _attack_anim_until := 0.0
 var _pending_popup := 0
+var _heat_glow: MeshInstance3D
+var _burn_glow: MeshInstance3D
 
 
 func is_dead() -> bool:
@@ -61,6 +77,8 @@ func _ready() -> void:
 	max_health = int(kit.get("max_health", Kits.BASE_MAX_HEALTH))
 	health = max_health
 	reload = float(kit.get("reload", Kits.AMMO_RECHARGE_SECONDS))
+	max_ammo = float(kit.get("ammo", Kits.MAX_AMMO))
+	ammo = max_ammo
 	collision_layer = 1 << 2                  # fighters
 	collision_mask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 5)  # walls|water|fighters|boxes
 
@@ -76,6 +94,40 @@ func _ready() -> void:
 		_setup_model()
 	else:
 		_setup_capsule()
+	if bool(kit.get("weapon", {}).get("heat_trait", false)):
+		_setup_heat_glow()
+
+func _setup_heat_glow() -> void:
+	_heat_glow = MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.62
+	mesh.height = 1.75
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.2, 0.01, 0.25)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.12, 0.0) * 1.8
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mesh.material = mat
+	_heat_glow.mesh = mesh
+	_heat_glow.position.y = 0.88
+	_heat_glow.visible = false
+	add_child(_heat_glow)
+
+func _setup_burn_glow() -> void:
+	_burn_glow = MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.54
+	mesh.height = 1.65
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.42, 0.02, 0.20)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.18, 0.01) * 1.4
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mesh.material = mat
+	_burn_glow.mesh = mesh
+	_burn_glow.position.y = 0.82
+	_burn_glow.visible = false
+	add_child(_burn_glow)
 
 
 ## Rigged Meshy character: model stands on y=0 facing -Z, clips per kit.
@@ -170,6 +222,10 @@ func _setup_capsule() -> void:
 
 ## Drives idle/run/attack clips; called by the scene each frame with game time.
 func update_animation(game_now: float) -> void:
+	if _heat_glow:
+		_heat_glow.visible = is_on_fire(game_now)
+	if _burn_glow:
+		_burn_glow.visible = game_now < burn_until
 	if _anim == null or is_dead():
 		return
 	_ground_feet()
@@ -264,6 +320,38 @@ func consume_super() -> bool:
 func charge_super(damage_dealt: int) -> void:
 	super_charge = min(1.0, super_charge + damage_dealt / Kits.SUPER_CHARGE_DAMAGE)
 
+func is_on_fire(game_now: float) -> bool:
+	return game_now < on_fire_until
+
+func register_heat_hit(game_now: float) -> void:
+	if is_on_fire(game_now):
+		return
+	heat_hits += 1
+	if heat_hits >= 3:
+		heat_hits = 0
+		on_fire_until = game_now + 4.0
+		_popup("ON FIRE!", Color(1.0, 0.28, 0.02))
+	else:
+		_popup("HEAT %d/3" % heat_hits, Color(1.0, 0.55, 0.08))
+
+func register_heat_miss(game_now: float) -> void:
+	if is_on_fire(game_now) or heat_hits <= 0:
+		return
+	heat_hits -= 1
+
+func ignite(game_now: float, duration: float, tick_damage: int, source: Fighter) -> void:
+	if _burn_glow == null:
+		_setup_burn_glow()
+	if game_now >= burn_until:
+		burn_damage = tick_damage
+	else:
+		burn_damage = maxi(burn_damage, tick_damage)
+	burn_until = maxf(burn_until, game_now + duration)
+	if burn_tick_at < game_now:
+		burn_tick_at = game_now + 0.5
+	burn_source = source
+	_popup("BURNING", Color(1.0, 0.3, 0.02))
+
 func take_damage(amount: int, now: float) -> void:
 	if is_dead():
 		return
@@ -286,8 +374,8 @@ func collect_cube() -> void:
 	_popup("+%d HP" % Kits.HEALTH_PER_CUBE, Color(0.85, 0.45, 1.0))
 
 func tick(delta: float, now: float) -> void:
-	if ammo < Kits.MAX_AMMO:
-		ammo = min(Kits.MAX_AMMO, ammo + delta / reload)
+	if ammo < max_ammo and not ammo_locked:
+		ammo = min(max_ammo, ammo + delta / reload)
 	if not is_dead() and health < max_health and now - last_damage_at > Kits.REGEN_DELAY:
 		health = min(max_health, health + int(ceil(max_health * Kits.REGEN_RATE_PER_SECOND * delta)))
 	if _pending_popup > 0 and now - last_damage_at > 0.12:
