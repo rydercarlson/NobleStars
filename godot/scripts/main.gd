@@ -412,6 +412,14 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 	f.play_attack_animation(now, is_super)
 	match int(weapon.style):
 		Kits.Style.PELLETS:
+			var shot_weapon := weapon
+			var flaming := bool(weapon.get("heat_trait", false)) and f.is_on_fire(now)
+			if flaming:
+				shot_weapon = weapon.duplicate()
+				shot_weapon.speed = float(weapon.speed) * 1.35
+				shot_weapon["burn_duration"] = 2.0
+				shot_weapon["burn_tick_damage"] = 75
+				shot_weapon.projectile_color = Color(1.0, 0.12, 0.01)
 			var base := atan2(unit.x, unit.z)
 			for p in int(weapon.pellets):
 				var t: float = (float(p) / float(max(1, int(weapon.pellets) - 1)) - 0.5) \
@@ -419,14 +427,20 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 				var ang: float = base + deg_to_rad(weapon.spread_deg) * t
 				var pd := Vector3(sin(ang), 0, cos(ang))
 				var proj := Projectile.new()
-				proj.weapon = weapon
-				proj.damage = int(weapon.damage * f.damage_multiplier())
+				proj.weapon = shot_weapon
+				proj.damage = int(shot_weapon.damage * f.damage_multiplier())
 				proj.owner_fighter = f
 				proj.direction = pd
 				proj.position = f.global_position + pd * 0.8 + Vector3(0, 1.0, 0)
 				proj.origin = proj.position
-				proj.body_entered.connect(_on_projectile_hit.bind(proj))
+				# Ricochets are resolved by Projectile's swept collision, which has the
+				# wall normal. A body_entered callback cannot reflect the shot and can
+				# race the sweep by deleting it at the first wall.
+				if int(shot_weapon.get("bounces", 0)) == 0:
+					proj.body_entered.connect(_on_projectile_hit.bind(proj))
 				proj.on_sweep_hit = _on_projectile_hit
+				if bool(shot_weapon.get("heat_trait", false)):
+					proj.on_finished = _on_heat_shot_finished.bind(f.get_instance_id())
 				if sim_active:
 					_sim_kit(f.kit.name).p_spawn += 1
 				add_child(proj)
@@ -507,17 +521,26 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			for n in get_children():
 				if n is HackySack and n.owner_fighter == f:
 					f.ammo = minf(Kits.MAX_AMMO, f.ammo + 1.0)  # kick never happened
+					if sim_active:
+						_sim_kit(f.kit.name).s_blocked += 1
+						_sim_kit(f.kit.name).attacks -= 1   # never happened; keep dmg/atk honest
 					return
+			var hop_to: float = clamp(dist, Kits.TILE * 1.5, weapon.range)
 			var sack := HackySack.new()
 			sack.weapon = weapon
 			sack.base_damage = int(weapon.damage * f.damage_multiplier())
 			sack.owner_fighter = f
 			sack.game = self
-			sack.direction = unit
 			sack.position = f.global_position + unit * 0.8 + Vector3(0, 1.0, 0)
 			sack.on_enemy_hit = _on_rally_sack_hit
 			sack.on_rally = _on_rally_continued
+			sack.on_land = _on_sack_land
+			if sim_active:
+				_sim_kit(f.kit.name).s_launch += 1
 			add_child(sack)
+			# After add_child: the arc needs the node in the tree to sweep for
+			# walls and to place its landing ring.
+			sack.launch_at(f.global_position + unit * hop_to)
 		Kits.Style.POP_OFF:
 			# Pops the sack up and leaps clear along the aim; the spike fires
 			# back down the same line on landing (see _update_leaps). Consumes
@@ -588,9 +611,13 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 		if body == proj.owner_fighter or body.is_dead() or proj.already_hit.has(body):
 			return
 		proj.already_hit.append(body)
+		proj.hit_fighter = true
 		if sim_active and is_instance_valid(proj.owner_fighter):
 			_sim_kit(proj.owner_fighter.kit.name).p_fighter += 1
 		deal_damage(proj.damage, body, _live(proj.owner_fighter), proj.direction, proj.weapon.knockback)
+		if authoritative and proj.weapon.has("burn_duration") and not body.is_dead():
+			body.ignite(now, float(proj.weapon.burn_duration),
+					int(proj.weapon.burn_tick_damage), _live(proj.owner_fighter))
 		if not proj.weapon.pierces:
 			proj.queue_free()
 	elif body.is_in_group("lootbox"):
@@ -606,6 +633,28 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 		if sim_active and is_instance_valid(proj.owner_fighter):
 			_sim_kit(proj.owner_fighter.kit.name).p_scenery += 1
 		proj.queue_free()
+
+func _on_heat_shot_finished(hit_fighter: bool, fighter_id: int) -> void:
+	if not authoritative:
+		return
+	var shooter := instance_from_id(fighter_id)
+	if shooter is Fighter and is_instance_valid(shooter) and not shooter.is_dead():
+		if hit_fighter:
+			shooter.register_heat_hit(now)
+		else:
+			shooter.register_heat_miss(now)
+
+func _update_burns() -> void:
+	if not authoritative:
+		return
+	for f in fighters:
+		if not is_instance_valid(f) or f.is_dead():
+			continue
+		while f.burn_tick_at > 0.0 and f.burn_tick_at <= now and f.burn_tick_at <= f.burn_until:
+			f.burn_tick_at += 0.5
+			deal_damage(f.burn_damage, f, _live(f.burn_source))
+			if f.is_dead():
+				break
 
 ## Leon's Disconnect lands in two parts: a one-off burst (damage, knockback and
 ## the full silence on everyone caught in it) and the field it leaves behind,
@@ -639,13 +688,24 @@ func _disconnect_lob_land(lob: Lob) -> void:
 		zone.position = center
 		add_child(zone)
 
+## Diagnostics only: where every sack landing ends up.
+func _on_sack_land(struck, sack: HackySack) -> void:
+	if not sim_active or not is_instance_valid(sack.owner_fighter):
+		return
+	var k := _sim_kit(sack.owner_fighter.kit.name)
+	k.s_land += 1
+	if struck == sack.owner_fighter:
+		k.s_catch += 1
+	elif struck != null:
+		k.s_hit += 1
+
 ## An enemy caught by the rally. The sack redirects itself afterwards, so this
 ## only has to resolve damage.
 func _on_rally_sack_hit(target: Fighter, sack: HackySack) -> void:
 	if not is_instance_valid(sack) or target.is_dead():
 		return
 	deal_damage(sack.rally_damage(), target, _live(sack.owner_fighter),
-			sack.direction, sack.weapon.knockback)
+			sack.travel_dir(), sack.weapon.knockback)
 
 ## Anders got back under it. Free kick, no ammo touched — the rally IS the
 ## reward for reading where it would land.
@@ -1004,7 +1064,8 @@ func _sim_kit(kit_name: String) -> Dictionary:
 	if not sim_stats.has(kit_name):
 		sim_stats[kit_name] = {"spawns": 0, "wins": 0, "kills": 0,
 				"damage": 0, "placement_sum": 0, "attacks": 0, "hits": 0,
-				"p_spawn": 0, "p_fighter": 0, "p_scenery": 0}
+				"p_spawn": 0, "p_fighter": 0, "p_scenery": 0,
+				"s_launch": 0, "s_land": 0, "s_hit": 0, "s_catch": 0, "s_blocked": 0}
 	return sim_stats[kit_name]
 
 func _sim_match_end() -> void:
@@ -1043,6 +1104,13 @@ func _sim_report() -> void:
 				float(s.kills) / spawns, float(s.damage) / spawns,
 				float(s.attacks) / spawns, float(s.hits) / attacks,
 				float(s.damage) / attacks])
+	for n in names:
+		var sk: Dictionary = sim_stats[n]
+		if sk.s_launch == 0:
+			continue
+		print("\n[sim] sacks: launched %d (blocked %d) -> landings %d = %d on an enemy, %d caught, %d on floor" \
+				% [sk.s_launch, sk.s_blocked, sk.s_land, sk.s_hit, sk.s_catch,
+					sk.s_land - sk.s_hit - sk.s_catch])
 	print("\n[sim] projectile fates (spawned -> fighter / scenery / flew past):")
 	for n in names:
 		var s2: Dictionary = sim_stats[n]
@@ -1116,9 +1184,9 @@ func _update_aim_indicator() -> void:
 	var origin := player.global_position + Vector3(0, 0.08, 0)
 	var dir := Vector3(stick.value.x, 0, stick.value.y).normalized()
 	var style := int(weapon.style)
+	var bouncing := int(weapon.get("bounces", 0)) > 0
 	var targeted := style == Kits.Style.LOB or style == Kits.Style.JUMP_SMASH \
-			or style == Kits.Style.DISCONNECT
-	var bouncing := style == Kits.Style.KEEP_IT_UP
+			or style == Kits.Style.DISCONNECT or style == Kits.Style.KEEP_IT_UP
 	var cone := style == Kits.Style.MELEE or style == Kits.Style.SHOCKWAVE \
 			or style == Kits.Style.BUTTONS \
 			or (style == Kits.Style.PELLETS and int(weapon.pellets) > 1 \
@@ -1128,7 +1196,12 @@ func _update_aim_indicator() -> void:
 
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	im.surface_set_color(color)
-	if targeted:
+	if bouncing:
+		for segment in _aim_bounce_segments(origin, dir, float(weapon.range),
+				int(weapon.bounces)):
+			_aim_add_segment(im, segment[0], segment[1],
+					maxf(float(weapon.radius), 0.16), color)
+	elif targeted:
 		# Targeted attacks use an impact-zone marker rather than a misleading
 		# cone. Orbit attacks show the area around the fighter instead.
 		var center := origin + dir * target_dist
@@ -1139,9 +1212,6 @@ func _update_aim_indicator() -> void:
 			im.surface_add_vertex(center)
 			im.surface_add_vertex(center + Vector3(cos(a0), 0, sin(a0)) * radius)
 			im.surface_add_vertex(center + Vector3(cos(a1), 0, sin(a1)) * radius)
-	elif bouncing:
-		for segment in _aim_bounce_segments(origin, dir, float(weapon.range), int(weapon.bounces)):
-			_aim_add_segment(im, segment[0], segment[1], maxf(float(weapon.radius), 0.16), color)
 	elif cone:
 		# Cone matching the attack's spread and range.
 		var half := deg_to_rad(float(weapon.spread_deg)) / 2.0
@@ -1198,8 +1268,7 @@ func _aim_bounce_segments(origin: Vector3, direction: Vector3,
 	var remaining := total_distance
 	for _bounce in bounces + 1:
 		var finish := start + heading * remaining
-		var query := PhysicsRayQueryParameters3D.create(start, finish, 1) # walls only
-		query.exclude = [player.get_rid()]
+		var query := PhysicsRayQueryParameters3D.create(start, finish, 1)
 		var hit := get_world_3d().direct_space_state.intersect_ray(query)
 		if hit.is_empty():
 			segments.append([start, finish])
@@ -1209,7 +1278,7 @@ func _aim_bounce_segments(origin: Vector3, direction: Vector3,
 		remaining -= start.distance_to(impact)
 		if remaining <= 0.05:
 			break
-		heading = HackySack.reflected_direction(heading, hit.normal)
+		heading = heading.bounce(hit.normal).normalized()
 		start = impact + heading * 0.05
 	return segments
 
@@ -1258,6 +1327,7 @@ func _run_playing(delta: float) -> void:
 	_update_dashes(delta)
 	_update_leaps(delta)
 	_update_disconnect_zones()
+	_update_burns()
 	for f in fighters:
 		f.tick(delta, now)
 
@@ -1546,7 +1616,9 @@ func _net_send_snapshot() -> void:
 			states.append([])
 		else:
 			states.append([f.position.x, f.position.z, f.rotation.y,
-					f.health, f.max_health, f.ammo, f.super_charge, f.cubes])
+					f.health, f.max_health, f.ammo, f.super_charge, f.cubes,
+					f.heat_hits, maxf(0.0, f.on_fire_until - now),
+					maxf(0.0, f.burn_until - now)])
 	_net_snapshot.rpc(int(phase), gas.inset if gas else -1, fighters.size(), states)
 
 ## Net results overlay: unlike _end_match this never flips the phase — the
@@ -1671,6 +1743,12 @@ func _net_snapshot(phase_h: int, inset: int, left: int, states: Array) -> void:
 		f.ammo = float(s[5])
 		f.super_charge = float(s[6])
 		f.cubes = int(s[7])
+		if s.size() >= 11:
+			f.heat_hits = int(s[8])
+			f.on_fire_until = now + float(s[9])
+			f.burn_until = now + float(s[10])
+			if float(s[10]) > 0.0 and f._burn_glow == null:
+				f._setup_burn_glow()
 
 @rpc("authority", "call_remote", "reliable")
 func _net_attack(idx: int, use_super: bool, dir: Vector3, dist: float) -> void:

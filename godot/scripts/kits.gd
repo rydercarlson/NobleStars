@@ -50,7 +50,7 @@ const MAX_SUPER_RANGE_TILES := 6.5
 enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG, SHOCKWAVE, JUMP_SMASH, BUTTONS, DISCONNECT, KEEP_IT_UP, POP_OFF }
 
 static func all() -> Array:
-	return [nova(), tony(), henry(), sanjit(), kovacs(), leon(), anders()]
+	return [nova(), tony(), henry(), sanjit(), kovacs(), leon(), anders(), hammy()]
 
 static func named(kit_name: String) -> Dictionary:
 	for k in all():
@@ -298,7 +298,10 @@ static func leon() -> Dictionary:
 ## three touches — so his damage is calibrated against MEASURED eDPS instead.
 ## At 800 he realised 632 eDPS, level with Henry while being safely at range;
 ## 600 puts him near Tony (427) and Nova (485), where a mid-range kit belongs.
-## Ramped +25% a step: 500 / 625 / 750, so a perfect rally is 1875.
+## Ramped +25% a step: 800 / 1000 / 1200. Higher per landing than a kit with
+## this eDPS would normally carry, because ONE sack exists at a time: while it
+## is alive every kick is refused, so ~45% of his attempts never fire and his
+## throughput is capped by the sack, not by his reload.
 ## Trimmed toward the low side on purpose: the sim probably under-rates him,
 ## because bots collect rallies passively from the redirect while a player will
 ## set them up deliberately. He measured 22.7% wins at 550 against a 14.3%
@@ -313,10 +316,16 @@ static func anders() -> Dictionary:
 		"move_speed": SPEED_NORMAL,
 		"reload": RELOAD_SLOW,
 		"weapon": {
-			"style": Style.KEEP_IT_UP, "pellets": 1, "spread_deg": 0.0, "damage": 500,
-			"range": 4.5 * TILE, "speed": 18.0, "radius": 0.26,
+			# speed is the ARC's travel rate, not a bullet's. A 9 m kick hangs
+			# ~0.75s: slower than Tony's shell so it reads as a floaty sack, but
+			# not so slow the landing spot goes stale before it arrives — at 8.0
+			# a target had walked 8 m by the time it came down and it hit nothing.
+			# aoe is how close a landing has to be to connect: the same
+			# forgiveness a lob gets, for the same reason.
+			"style": Style.KEEP_IT_UP, "pellets": 1, "spread_deg": 0.0, "damage": 800,
+			"range": 4.5 * TILE, "speed": 12.0, "radius": 0.26,
 			"destroys_walls": false, "knockback": 3.0, "pierces": false,
-			"aoe": 0.0, "water_mult": 1.0,
+			"aoe": 0.95 * TILE, "water_mult": 1.0,
 		},
 		# The escape is the utility, so 1.4x rather than 1.8x. `range` is how far
 		# he leaps; the spike travels back along the leap at weapon range.
@@ -325,5 +334,38 @@ static func anders() -> Dictionary:
 			"range": 3.5 * TILE, "speed": 22.0, "radius": 0.34,
 			"destroys_walls": false, "knockback": 12.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0, "spike_range": 5.0 * TILE,
+		},
+	}
+
+## Health Very Low · Speed Normal · Reload Slow · Range Long 5.5
+## Sniper: one small, fast basketball at the screen-range cap. Consecutive
+## fighter hits light him On Fire; that strong basic-attack utility is U=0.85.
+## Formula gives 1422; 1250 is the measured trim for his unusually long uptime.
+static func hammy() -> Dictionary:
+	return {
+		"name": "Hammy", "color": Color(1.0, 0.36, 0.08),
+		"role": "Sniper",
+		"desc": "Sinks long-range three-pointers; three consecutive hits set his shots On Fire.",
+		"super_desc": "Bank Is Open: fires a huge basketball that gains power on every wall bounce and sets enemies on fire.",
+		"max_health": HEALTH_VERY_LOW,
+		"move_speed": SPEED_NORMAL,
+		"reload": RELOAD_SLOW,
+		"weapon": {
+			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1250,
+			"range": 5.5 * TILE, "speed": 29.0, "radius": 0.24,
+			"destroys_walls": false, "knockback": 0.0, "pierces": false,
+			"aoe": 0.0, "water_mult": 1.0, "heat_trait": true,
+			"projectile_color": Color(1.0, 0.34, 0.04),
+		},
+		# The direct hit is deliberately modest: banking is the point. Each wall
+		# adds 25%, so three clean banks ramp 1600 -> 3125 before the fire damage.
+		"super": {
+			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1600,
+			"range": 6.5 * TILE, "speed": 24.0, "radius": 0.46,
+			"destroys_walls": false, "knockback": 5.0, "pierces": false,
+			"aoe": 0.0, "water_mult": 1.0, "bounces": 3,
+			"bounce_damage_mult": 1.25, "bounce_speed_mult": 1.08,
+			"burn_duration": 3.0, "burn_tick_damage": 100,
+			"projectile_color": Color(1.0, 0.20, 0.01),
 		},
 	}
