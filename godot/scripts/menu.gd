@@ -7,6 +7,8 @@ var screens: Dictionary = {}
 var stage: MenuStage
 var lobby: LobbyScreen
 var _navy: ColorRect
+var frame: Control   # 16:9 letterbox everything lives in — the lobby art and
+                     # its fractional anchors only line up at the art's aspect
 
 func _ready() -> void:
 	SaveGame.ensure_loaded()
@@ -37,6 +39,16 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred("res://game.tscn")
 		return
 
+	# Anything outside the 16:9 frame is plain dark letterbox.
+	var bars := ColorRect.new()
+	bars.color = Color(0.04, 0.05, 0.09)
+	bars.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(bars)
+	frame = Control.new()
+	add_child(frame)
+	get_viewport().size_changed.connect(_update_frame)
+	_update_frame()
+
 	# The painted assembly-hall artwork is the lobby's backdrop; the flat navy
 	# sits above it for every other screen, which was designed against it.
 	var art := TextureRect.new()
@@ -44,14 +56,14 @@ func _ready() -> void:
 	art.stretch_mode = TextureRect.STRETCH_SCALE
 	art.set_anchors_preset(Control.PRESET_FULL_RECT)
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(art)
+	frame.add_child(art)
 	_navy = ColorRect.new()
 	_navy.color = UIKit.NAVY
 	_navy.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(_navy)
+	frame.add_child(_navy)
 
 	stage = MenuStage.new()
-	add_child(stage)
+	frame.add_child(stage)
 	place_stage_center()
 
 	lobby = LobbyScreen.new()
@@ -70,7 +82,7 @@ func _add_screen(screen_name: String, screen: Control) -> void:
 	screen.set("menu", self)
 	screen.set_anchors_preset(Control.PRESET_FULL_RECT)
 	screen.visible = false
-	add_child(screen)
+	frame.add_child(screen)
 	screens[screen_name] = screen
 
 func show_screen(screen_name: String) -> void:
@@ -109,3 +121,17 @@ func place_stage_left() -> void:
 	stage.offset_right = 60 + MenuStage.STAGE_SIZE.x
 	stage.offset_top = -MenuStage.STAGE_SIZE.y / 2
 	stage.offset_bottom = MenuStage.STAGE_SIZE.y / 2
+
+## Fit a centred 16:9 frame in the window; bars show on any other aspect, so
+## the art, the stage, and every fractional anchor stay exactly in place.
+func _update_frame() -> void:
+	if frame == null:
+		return
+	var vs := Vector2(get_viewport().get_visible_rect().size)
+	var fw := vs.x
+	var fh := fw * 9.0 / 16.0
+	if fh > vs.y:
+		fh = vs.y
+		fw = fh * 16.0 / 9.0
+	frame.position = Vector2((vs.x - fw) / 2.0, (vs.y - fh) / 2.0)
+	frame.size = Vector2(fw, fh)
