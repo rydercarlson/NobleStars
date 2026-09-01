@@ -1,10 +1,11 @@
 class_name LobbyScreen
 extends Control
-## Home screen, drawn by the painted assembly-hall artwork: the shell's lobby
-## backdrop is the art with its buttons removed (assets/menu/bg.png), and each
-## button is its own texture (assets/menu/btn_*.png) placed back at its exact
-## crop rect — so idle, the screen recomposes the original painting, and a
-## pressed button can genuinely depress. Values the art can't bake — player
+## Home screen built from the Nobles Brawl UI asset pack: assets/menu/bg.png
+## is the clean auditorium scene and each chip is its own alpha-cut texture
+## (assets/menu/btn_*.png, processed from the pack's @2x set — panels freed of
+## baked scene, halos defringed, edges bled for clean GPU filtering). Every
+## rect below matches its texture's aspect exactly, so chips render undistorted
+## and the click target equals the art. Values the art can't bake — player
 ## name, trophies, coins, selected fighter, an off-default mode — are overlays.
 
 var menu: MenuShell
@@ -21,25 +22,25 @@ var _toast_label: Label
 var _toast_tween: Tween
 
 func _ready() -> void:
-	# The art's buttons, restored at their crop rects as pressable textures.
-	_art_button("guest", 0.031, 0.062, 0.157, 0.140, func() -> void: menu.show_screen("settings"))
-	_art_button("season", 0.179, 0.055, 0.347, 0.151, func() -> void: news_popup.visible = true)
-	_art_button("menu", 0.914, 0.058, 0.970, 0.130, func() -> void: menu.show_screen("settings"))
-	_art_button("shop", 0.023, 0.213, 0.108, 0.310, func() -> void: menu.show_screen("shop"))
-	_art_button("brawlers", 0.023, 0.342, 0.108, 0.444, func() -> void: menu.show_screen("fighters"))
-	_art_button("nobles_pass", 0.023, 0.455, 0.108, 0.593, func() -> void: menu.show_screen("road"))
-	_art_button("news", 0.910, 0.215, 0.992, 0.317, func() -> void: news_popup.visible = true)
-	_art_button("friends", 0.910, 0.342, 0.992, 0.444, func() -> void: menu.show_screen("friends"))
-	_art_button("club", 0.910, 0.470, 0.992, 0.572, func() -> void: _show_toast("Club — coming soon"))
-	_art_button("inbox", 0.910, 0.597, 0.992, 0.699, func() -> void: _show_toast("Inbox — coming soon"))
-	_art_button("showdown", 0.429, 0.842, 0.683, 0.954, func() -> void: menu.show_screen("modes"))
-	_art_button("play", 0.701, 0.838, 0.916, 0.959, func() -> void: _play())
+	# The pack's chips, each at an aspect-true rect.
+	_art_button("guest", 0.0401, 0.0620, 0.1479, 0.1400, func() -> void: menu.show_screen("settings"))
+	_art_button("season", 0.1835, 0.0550, 0.3425, 0.1510, func() -> void: news_popup.visible = true)
+	_art_button("menu", 0.9107, 0.0580, 0.9733, 0.1300, func() -> void: menu.show_screen("settings"))
+	_art_button("shop", 0.0308, 0.2130, 0.1002, 0.3100, func() -> void: menu.show_screen("shop"))
+	_art_button("brawlers", 0.0289, 0.3420, 0.1021, 0.4440, func() -> void: menu.show_screen("fighters"))
+	_art_button("nobles_pass", 0.0230, 0.4712, 0.1080, 0.5768, func() -> void: menu.show_screen("road"))
+	_art_button("news", 0.9166, 0.2150, 0.9854, 0.3170, func() -> void: news_popup.visible = true)
+	_art_button("friends", 0.9158, 0.3420, 0.9862, 0.4440, func() -> void: menu.show_screen("friends"))
+	_art_button("club", 0.9154, 0.4700, 0.9866, 0.5720, func() -> void: _show_toast("Club — coming soon"))
+	_art_button("inbox", 0.9132, 0.5970, 0.9888, 0.6990, func() -> void: _show_toast("Inbox — coming soon"))
+	_art_button("showdown", 0.4340, 0.8420, 0.6780, 0.9540, func() -> void: menu.show_screen("modes"))
+	_art_button("play", 0.7132, 0.8380, 0.9038, 0.9590, func() -> void: _play())
 
 	# Player name over the art's GUEST chip text plate.
 	var name_wrap := PanelContainer.new()
 	name_wrap.add_theme_stylebox_override("panel", UIKit.flat(UIKit.NAVY_DEEP, 10))
 	name_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_anchors(name_wrap, 0.072, 0.074, 0.152, 0.128)
+	_anchors(name_wrap, 0.0875, 0.0823, 0.1436, 0.1213)
 	name_label = UIKit.label("", 18)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -109,7 +110,7 @@ func _art_button(btn_name: String, l: float, t: float, r: float, b: float,
 	var btn := TextureButton.new()
 	btn.texture_normal = load("res://assets/menu/btn_%s.png" % btn_name)
 	btn.ignore_texture_size = true
-	btn.stretch_mode = TextureButton.STRETCH_SCALE
+	btn.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	_anchors(btn, l, t, r, b)
 	btn.resized.connect(func() -> void: btn.pivot_offset = btn.size / 2.0)
 	btn.button_down.connect(func() -> void:
