@@ -142,7 +142,9 @@ export class BrawlerView {
     // builder stays as the fallback for models that lack one.
     const baked = gltf.animations.find((a) => a.name === 'Idle');
     const idle = baked || buildIdleClip(model, gltf.animations, { stance: brawler.stance || 'relaxed', ...(brawler.idle || {}) });
-    this.idleAction = this.mixer.clipAction(idle); this.idleAction.play();
+    this.idleAction = this.mixer.clipAction(idle);
+    this.idleAction.setLoop(THREE.LoopRepeat, Infinity);
+    this.idleAction.play();
     this.current = this.idleAction;
     // Per-brawler personality on top of the shared breath cycle: a small
     // additive head/neck wander driven by the brawler's idle seed.
@@ -157,7 +159,10 @@ export class BrawlerView {
     }
     // baked clips
     this.actions = {};
-    for (const clip of gltf.animations) { const a = this.mixer.clipAction(clip); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; this.actions[clip.name] = a; }
+    for (const clip of gltf.animations) {
+      if (clip === idle) continue; // a baked Idle IS this same action — leave it looping
+      const a = this.mixer.clipAction(clip); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; this.actions[clip.name] = a;
+    }
     this.mixer.addEventListener('finished', (e) => { if (e.action !== this.idleAction) this._toIdle(0.35); });
     // entrance pop
     this.group.scale.setScalar(0.001); this.popT = 0;
