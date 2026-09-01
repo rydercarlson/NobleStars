@@ -328,16 +328,23 @@ func _spawn_cube(pos: Vector3, cube_id := -1) -> void:
 	area.collision_mask = 1 << 2
 	area.position = pos + Vector3(0, 0.5, 0)
 	area.add_to_group("cube")
-	var m := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(0.5, 0.5, 0.5)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.75, 0.3, 0.9)
-	mat.emission_enabled = true
-	mat.emission = Color(0.4, 0.1, 0.5)
-	box.material = mat
-	m.mesh = box
+	# Meshy power-cube token, spinning Brawl-style with a soft bob.
+	var m: Node3D = (load("res://assets/power_cube.glb") as PackedScene).instantiate()
+	m.scale = Vector3.ONE * 0.3
+	for mi in m.find_children("*", "MeshInstance3D", true, false):
+		var mesh: Mesh = mi.mesh
+		for si in mesh.get_surface_count():
+			var mat = mesh.surface_get_material(si)
+			if mat is BaseMaterial3D:
+				mat.metallic = 0.0
 	area.add_child(m)
+	var spin := area.create_tween().set_loops()
+	spin.tween_property(m, "rotation:y", TAU, 2.6).as_relative()
+	var bob := area.create_tween().set_loops()
+	bob.tween_property(m, "position:y", 0.09, 1.1).as_relative() \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	bob.tween_property(m, "position:y", -0.09, 1.1).as_relative() \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	var col := CollisionShape3D.new()
 	var shape := SphereShape3D.new()
 	shape.radius = 0.7
