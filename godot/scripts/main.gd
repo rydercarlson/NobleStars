@@ -5,6 +5,8 @@ extends Node3D
 
 enum Phase { COUNTDOWN, PLAYING, ENDED }
 
+const BOX_HEALTH := 900   # loot box hit points; also the bar's full width
+
 var arena: Arena
 var gas: GasRing
 var cam: Camera3D
@@ -126,7 +128,13 @@ func _ready() -> void:
 			_shot_times.append(float(t))
 
 	if sim_active:
-		Engine.time_scale = 10.0
+		# NS3_SIM_SPEED overrides the 10x default. Turn it down when a result
+		# looks like a physics artifact rather than balance: fast-moving Area3D
+		# projectiles get fewer overlap ticks per metre the higher this goes, so
+		# comparing hits/atk at 10x against 2x separates "the kit misses" from
+		# "the sim never registered the hit".
+		var speed_env := OS.get_environment("NS3_SIM_SPEED")
+		Engine.time_scale = float(speed_env) if speed_env != "" else 10.0
 		Engine.max_physics_steps_per_frame = 64
 
 	if net_host:
@@ -303,7 +311,8 @@ func _spawn_lootbox(pos: Vector3, box_name := "") -> void:
 		body.name = box_name
 	body.collision_layer = 1 << 5
 	body.position = pos + Vector3(0, 0.5, 0)
-	body.set_meta("health", 900)
+	body.set_meta("health", BOX_HEALTH)
+	body.set_meta("max_health", BOX_HEALTH)   # fighter_bars draws the bar from these
 	body.add_to_group("lootbox")
 	var m := MeshInstance3D.new()
 	var box := BoxMesh.new()
@@ -328,16 +337,23 @@ func _spawn_cube(pos: Vector3, cube_id := -1) -> void:
 	area.collision_mask = 1 << 2
 	area.position = pos + Vector3(0, 0.5, 0)
 	area.add_to_group("cube")
-	var m := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(0.5, 0.5, 0.5)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.75, 0.3, 0.9)
-	mat.emission_enabled = true
-	mat.emission = Color(0.4, 0.1, 0.5)
-	box.material = mat
-	m.mesh = box
+	# Meshy power-cube token, spinning Brawl-style about Y with a soft bob.
+	var m: Node3D = (load("res://assets/power_cube.glb") as PackedScene).instantiate()
+	m.scale = Vector3.ONE * 0.3
+	for mi in m.find_children("*", "MeshInstance3D", true, false):
+		var mesh: Mesh = mi.mesh
+		for si in mesh.get_surface_count():
+			var mat = mesh.surface_get_material(si)
+			if mat is BaseMaterial3D:
+				mat.metallic = 0.0
 	area.add_child(m)
+	var spin := area.create_tween().set_loops()
+	spin.tween_property(m, "rotation:y", TAU, 2.6).as_relative()
+	var bob := area.create_tween().set_loops()
+	bob.tween_property(m, "position:y", 0.09, 1.1).as_relative() \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	bob.tween_property(m, "position:y", -0.09, 1.1).as_relative() \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	var col := CollisionShape3D.new()
 	var shape := SphereShape3D.new()
 	shape.radius = 0.7
@@ -410,6 +426,7 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 				proj.position = f.global_position + pd * 0.8 + Vector3(0, 1.0, 0)
 				proj.origin = proj.position
 				proj.body_entered.connect(_on_projectile_hit.bind(proj))
+				proj.on_sweep_hit = _on_projectile_hit
 				add_child(proj)
 		Kits.Style.LOB:
 			var throw_dist: float = clamp(dist, Kits.TILE * 1.5, weapon.range)
@@ -549,6 +566,7 @@ func _spawn_button_shot(f: Fighter, weapon: Dictionary, unit: Vector3,
 	proj.position = f.global_position + unit * 0.8 + Vector3(0, 1.0, 0)
 	proj.origin = proj.position
 	proj.body_entered.connect(_on_projectile_hit.bind(proj))
+	proj.on_sweep_hit = _on_projectile_hit
 	add_child(proj)
 
 func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
@@ -750,6 +768,8 @@ func _damage_lootbox(box: Node, amount: int) -> void:
 		return
 	var hp: int = box.get_meta("health") - amount
 	box.set_meta("health", hp)
+	if hp > 0 and net_host:
+		_net_box_damaged.rpc(String(box.name), hp)   # keeps client bars honest
 	if hp <= 0:
 		var pos: Vector3 = box.global_position - Vector3(0, 0.5, 0)
 		_spawn_cube(pos, _cube_seq)
@@ -838,6 +858,37 @@ func nearest_visible_enemy(viewer: Fighter, within: float, through_walls := fals
 			best = f
 			best_d = d
 	return best
+
+## Loot boxes are aimable like fighters — same reach and wall check. Bushes
+## don't hide them: a box you can see is a box you can shoot.
+func nearest_visible_lootbox(viewer: Fighter, within: float,
+		through_walls := false) -> Node3D:
+	var best: Node3D = null
+	var best_d := INF
+	for box in get_tree().get_nodes_in_group("lootbox"):
+		if not is_instance_valid(box):
+			continue
+		var d: float = viewer.global_position.distance_to(box.global_position)
+		if d < within and d < best_d and (through_walls
+				or has_line_of_sight(viewer.global_position, box.global_position)):
+			best = box
+			best_d = d
+	return best
+
+## Lobbed attacks arc over walls, so they target through them.
+func _lobbed(weapon: Dictionary) -> bool:
+	var style := int(weapon.style)
+	return style == Kits.Style.LOB or style == Kits.Style.DISCONNECT
+
+## What a tap fires at: the nearest visible enemy, or a loot box when no enemy
+## is in range, so tapping in a quiet corner opens boxes instead of firing at
+## nothing. Reach is 1.1x the weapon's range, matching the enemy check.
+func auto_aim_target(viewer: Fighter, weapon: Dictionary) -> Node3D:
+	var reach: float = weapon.range * 1.1
+	var enemy := nearest_visible_enemy(viewer, reach, _lobbed(weapon))
+	if enemy:
+		return enemy
+	return nearest_visible_lootbox(viewer, reach, _lobbed(weapon))
 
 func nearest_loot(pos: Vector3):
 	var best = null
@@ -1187,12 +1238,11 @@ func _run_playing(delta: float) -> void:
 			and is_instance_valid(player) and not player.is_dead():
 		_last_auto_fire = now
 		var weapon: Dictionary = player.kit["super"] if player.is_super_ready() else player.kit.weapon
-		var enemy := nearest_visible_enemy(player, weapon.range * 1.1,
-				int(weapon.style) == Kits.Style.LOB or int(weapon.style) == Kits.Style.DISCONNECT)
+		var target := auto_aim_target(player, weapon)   # boxes included
 		var dir := player.facing
 		var dist: float = weapon.range
-		if enemy:
-			dir = enemy.global_position - player.global_position
+		if target:
+			dir = target.global_position - player.global_position
 			dist = dir.length()
 		_fire_player(weapon, dir, dist)
 
@@ -1270,10 +1320,12 @@ func _release_fire(stick_value: Vector2, use_super: bool) -> void:
 		_auto_aim_fire(weapon, use_super)
 
 func _auto_aim_fire(weapon: Dictionary, use_super: bool) -> void:
-	var enemy := nearest_visible_enemy(player, weapon.range * 1.1,
-			int(weapon.style) == Kits.Style.LOB or int(weapon.style) == Kits.Style.DISCONNECT)
-	if enemy:
-		var v := enemy.global_position - player.global_position
+	# A Super only auto-aims at fighters — burning the charge on a loot box is
+	# never what the tap meant.
+	var target: Node3D = nearest_visible_enemy(player, weapon.range * 1.1, _lobbed(weapon)) \
+			if use_super else auto_aim_target(player, weapon)
+	if target:
+		var v := target.global_position - player.global_position
 		_fire_player(weapon, v, v.length())
 	elif not use_super:
 		_fire_player(weapon, player.facing, weapon.range)
@@ -1623,6 +1675,15 @@ func _net_match_over(idx: int) -> void:
 			_net_show_results(1, true)
 		elif results.visible:
 			results_title.text += "\n%s wins!" % w.display_name
+
+@rpc("authority", "call_remote", "reliable")
+func _net_box_damaged(box_name: String, hp: int) -> void:
+	if net_host:
+		return
+	for box in get_tree().get_nodes_in_group("lootbox"):
+		if String(box.name) == box_name:
+			box.set_meta("health", hp)
+			break
 
 @rpc("authority", "call_remote", "reliable")
 func _net_box_broken(box_name: String, cube_id: int, pos: Vector3) -> void:

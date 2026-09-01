@@ -10,6 +10,9 @@ var origin := Vector3.ZERO
 var already_hit: Array = []
 var button_text := ""
 var button_color := Color.WHITE
+## Set by the main scene to its _on_projectile_hit. The swept ray below reports
+## through this rather than through body_entered; see _physics_process.
+var on_sweep_hit := Callable()
 var _flight_time := 0.0
 
 func _ready() -> void:
@@ -50,6 +53,29 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_flight_time += delta
 	var traveled: float = _flight_time * float(weapon.speed)
-	global_position = origin + direction * traveled
+	var next_pos := origin + direction * traveled
+	# Area3D overlap is sampled once per physics tick, so a fast projectile can
+	# jump clean past a fighter between ticks and never report the hit. A ray
+	# over the full frame movement makes every shot deterministic, the same fix
+	# HackySack already uses. This is worst under NS3_SIM, where 10x time scale
+	# advances a 25 m/s pellet ~4 m per tick against a ~0.6 m hitbox (it made
+	# every pellet kit read as broken in the balance table), but a 42 m/s Super
+	# can skip past a target's edge at normal speed too.
+	var query := PhysicsRayQueryParameters3D.create(global_position, next_pos, collision_mask)
+	var skip: Array[RID] = []
+	if is_instance_valid(owner_fighter):
+		skip.append(owner_fighter.get_rid())
+	for b in already_hit:      # a piercing shot must not re-hit what it passed
+		if is_instance_valid(b) and b is CollisionObject3D:
+			skip.append(b.get_rid())
+	query.exclude = skip
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		global_position = next_pos
+	else:
+		# A piercing shot keeps its momentum; anything else stops where it hit.
+		global_position = next_pos if weapon.pierces else hit.position
+		if on_sweep_hit.is_valid():
+			on_sweep_hit.call(hit.collider, self)
 	if traveled > weapon.range:
 		queue_free()
