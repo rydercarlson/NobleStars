@@ -2,16 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d3aytig5mrnhi"
-path="res://.godot/imported/menu_bg.png-a1fdac9fcdcd0ac7a9c9f2164d95ed62.ctex"
+uid="uid://cif20t03sc8yb"
+path="res://.godot/imported/loot_crate_Baked_BaseColor.png-ef40557bc6032055412fd24268a5b749.ctex"
 metadata={
 "vram_texture": false
+}
+generator_parameters={
+"md5": "77a2a533d1a09a49a88d6be5dfc174b6"
 }
 
 [deps]
 
-source_file="res://assets/menu_bg.png"
-dest_files=["res://.godot/imported/menu_bg.png-a1fdac9fcdcd0ac7a9c9f2164d95ed62.ctex"]
+source_file="res://assets/loot_crate_Baked_BaseColor.png"
+dest_files=["res://.godot/imported/loot_crate_Baked_BaseColor.png-ef40557bc6032055412fd24268a5b749.ctex"]
 
 [params]
 
@@ -23,7 +26,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=false
+mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

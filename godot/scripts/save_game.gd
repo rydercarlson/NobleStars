@@ -37,7 +37,7 @@ static var club_chat: Array = []          # [{who, text}, ...]
 static var pass_tier: int = 1
 static var pass_tokens: int = 0
 static var pass_premium: bool = false
-static var selected_kit: String = "Nova"  # always by name, never a kit Dictionary
+static var selected_kit: String = "Tony"  # always by name, never a kit Dictionary
 static var selected_mode: String = "showdown_solo"
 static var player_name: String = "GUEST"
 static var music_on: bool = true
@@ -59,9 +59,11 @@ static func ensure_loaded() -> void:
 	if OS.get_environment("NS3_RESET_SAVE") != "":
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 		_grant_start()
+		_ensure_selected_unlocked()
 		return
 	if not FileAccess.file_exists(SAVE_PATH):
 		_grant_start()
+		_ensure_selected_unlocked()
 		return
 	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if file == null:
@@ -107,11 +109,8 @@ static func ensure_loaded() -> void:
 	if save_version < 3:
 		for id in unlocked:
 			unlocked[id] = starters.has(str(id))
-		selected_kit = "Nova"
-	if Kits.named(selected_kit).name.to_lower() != selected_kit.to_lower():
-		selected_kit = "Nova"  # saved kit no longer exists
-	if not is_unlocked(selected_kit):
-		selected_kit = "Nova"
+		selected_kit = "Tony"
+	_ensure_selected_unlocked()
 	if save_version < SAVE_VERSION:
 		save()
 
@@ -128,6 +127,20 @@ static func _merge_bools(dst: Dictionary, src: Variant) -> void:
 	var d: Dictionary = src
 	for k in d:
 		dst[str(k)] = bool(d[k])
+
+## Keeps `selected_kit` on a fighter that exists and is actually owned. The
+## fallback has to be resolved, never a hardcoded name: whoever it named would
+## itself be locked on a fresh save, which is how the lobby ended up opening on
+## a padlocked Tony while Nova — the only starter — sat unselected.
+static func _ensure_selected_unlocked() -> void:
+	if Kits.named(selected_kit).name.to_lower() == selected_kit.to_lower() \
+			and is_unlocked(selected_kit):
+		return
+	for k in Kits.all():
+		if is_unlocked(str(k.name)):
+			selected_kit = str(k.name)
+			return
+	selected_kit = str(Kits.all()[0].name)  # nothing owned: fail to the roster head
 
 static func _grant_start() -> void:
 	coins = maxi(coins, START_COINS)
@@ -186,7 +199,7 @@ static func reset() -> void:
 	pass_tier = 1
 	pass_tokens = 0
 	pass_premium = false
-	selected_kit = "Nova"
+	selected_kit = "Tony"
 	selected_mode = "showdown_solo"
 	player_name = "GUEST"
 	music_on = true
