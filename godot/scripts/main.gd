@@ -41,6 +41,9 @@ var aim_mesh: MeshInstance3D
 const CAMERA_OFFSET := Vector3(0, 14.0, 9.2)
 const CAMERA_ORTHO_SIZE := 12.9
 const TAP_THRESHOLD := 0.3
+## How far Pop Off's spike will snap onto an enemy who drifted off the spot
+## Anders jumped away from.
+const SPIKE_SNAP := 3.2
 
 # Debug hooks
 var god_mode := OS.get_environment("NS3_GODMODE") != ""
@@ -362,11 +365,17 @@ func _spawn_cube(pos: Vector3, cube_id := -1) -> void:
 	# Pickup resolves host-side only; clients just render until told it's gone.
 	if authoritative:
 		area.body_entered.connect(func(body: Node3D) -> void:
-			if body is Fighter and not body.is_dead() and is_instance_valid(area):
-				body.collect_cube()
-				if net_host:
-					_net_cube_gone.rpc(String(area.name), net_fighters.find(body))
-				area.queue_free())
+			if not body is Fighter or body.is_dead() or not is_instance_valid(area) \
+					or area.is_queued_for_deletion() or area.get_meta("claimed", false):
+				return
+			# queue_free() is deferred until the end of the frame. Mark the pickup
+			# first so two overlapping fighters/body_entered signals cannot both
+			# collect this same cube during that window.
+			area.set_meta("claimed", true)
+			area.queue_free()
+			body.collect_cube()
+			if net_host:
+				_net_cube_gone.rpc(String(area.name), net_fighters.find(body)))
 	add_child(area)
 
 # MARK: combat
@@ -546,11 +555,22 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			# Pops the sack up and leaps clear along the aim; the spike fires
 			# back down the same line on landing (see _update_leaps). Consumes
 			# whatever rally was in flight — it is "the" sack.
+			if sim_active:
+				_sim_kit(f.kit.name).s_super += 1
+				if f.ammo_locked:
+					_sim_kit(f.kit.name).s_lock += 1
 			if authoritative:
+				# A live rally is CASHED IN rather than thrown away: the spike
+				# lands for whatever that sack had climbed to. Half of all Pop
+				# Offs were fired mid-rally, so consuming one for nothing made
+				# the Super a punishment for running the kit's own engine.
+				var cash_in := 1.0
 				for n in get_children():
 					if n is HackySack and n.owner_fighter == f:
+						cash_in = float(n.rally_damage()) / maxf(1.0, float(n.base_damage))
 						n.queue_free()
 				f.begin_leap(weapon, unit, float(weapon.range))
+				f.leap["spike_mult"] = cash_in
 
 func _spawn_button_burst(f: Fighter, weapon: Dictionary, unit: Vector3) -> void:
 	var labels := ["A", "B", "X", "Y", "LB", "RB"]
@@ -727,20 +747,44 @@ func _on_rally_continued(sack: HackySack) -> void:
 
 ## Pop Off's returning kick: a fast piercing sack fired back toward where he
 ## jumped from, knocking whoever dived him away rather than into him.
-func _pop_off_spike(f: Fighter, weapon: Dictionary, dir: Vector3) -> void:
+## Pop Off's returning kick. It arcs down onto the ground he vacated and blasts
+## a radius there, so it connects with whoever chased him instead of needing
+## them to still be standing on one line. Snaps onto an enemy near that spot if
+## one drifted, which keeps it reliable without making it home.
+func _pop_off_spike(f: Fighter, weapon: Dictionary, spot: Vector3, mult: float) -> void:
 	f.play_attack_animation(now, true)
-	var proj := Projectile.new()
-	proj.weapon = weapon
-	proj.damage = int(weapon.damage * f.damage_multiplier())
-	proj.owner_fighter = f
-	proj.direction = dir
-	proj.position = f.global_position + dir * 0.8 + Vector3(0, 1.0, 0)
-	proj.origin = proj.position
-	proj.body_entered.connect(_on_projectile_hit.bind(proj))
-	proj.on_sweep_hit = _on_projectile_hit
-	if sim_active:
-		_sim_kit(f.kit.name).p_spawn += 1
-	add_child(proj)
+	var target := spot
+	var best := SPIKE_SNAP
+	for other in fighters:
+		if other == f or not is_instance_valid(other) or other.is_dead():
+			continue
+		var d := other.global_position.distance_to(spot)
+		if d < best:
+			best = d
+			target = other.global_position
+	var spike := Lob.new()
+	spike.weapon = weapon
+	spike.damage = int(weapon.damage * f.damage_multiplier() * mult)
+	spike.owner_fighter = f
+	spike.start_pos = f.global_position + Vector3(0, 1.2, 0)
+	spike.target_pos = target
+	spike.on_land = _pop_off_land
+	add_child(spike)
+
+## Everyone caught in the spike is thrown outward from the impact, which is what
+## makes it a peel: the diver ends up further from Anders, not on top of him.
+func _pop_off_land(lob: Lob) -> void:
+	var center: Vector3 = lob.target_pos
+	var radius: float = float(lob.weapon.aoe) + 0.5
+	for f in fighters:
+		if not is_instance_valid(f) or f == lob.owner_fighter or f.is_dead():
+			continue
+		var away := f.global_position - center
+		away.y = 0.0
+		if away.length() > radius:
+			continue
+		var push: Vector3 = away.normalized() if away.length() > 0.05 else Vector3.FORWARD
+		deal_damage(lob.damage, f, _live(lob.owner_fighter), push, lob.weapon.knockback)
 
 func _on_boomerang_hit(body: Node3D, boom: Boomerang) -> void:
 	if not is_instance_valid(boom):
@@ -851,19 +895,27 @@ func _ground_smash(f: Fighter, weapon: Dictionary, center: Vector3) -> void:
 			_damage_lootbox(box, dmg)
 
 func _damage_lootbox(box: Node, amount: int) -> void:
-	if not authoritative or not is_instance_valid(box):
+	if not authoritative or not is_instance_valid(box) or box.is_queued_for_deletion() \
+			or box.get_meta("broken", false):
 		return
 	var hp: int = box.get_meta("health") - amount
 	box.set_meta("health", hp)
 	if hp > 0 and net_host:
 		_net_box_damaged.rpc(String(box.name), hp)   # keeps client bars honest
 	if hp <= 0:
+		# A projectile's sweep and Area3D signal (or several AOE callbacks) can
+		# report the fatal hit in the same physics frame. queue_free() does not
+		# remove the box until that frame ends, so make destruction one-shot
+		# before spawning its drop.
+		box.set_meta("broken", true)
+		box.remove_from_group("lootbox")
 		var pos: Vector3 = box.global_position - Vector3(0, 0.5, 0)
+		var box_name := String(box.name)
+		box.queue_free()
 		_spawn_cube(pos, _cube_seq)
 		if net_host:
-			_net_box_broken.rpc(String(box.name), _cube_seq, pos)
+			_net_box_broken.rpc(box_name, _cube_seq, pos)
 		_cube_seq += 1
-		box.queue_free()
 
 ## Standing in a Disconnect field keeps the silence topped up to a short tail,
 ## so it lifts a beat after stepping out. apply_disconnect only ever extends,
@@ -917,11 +969,11 @@ func _update_leaps(delta: float) -> void:
 			f.global_position.y = 0.0
 			f.leap = {}
 			if int(leap.weapon.style) == Kits.Style.POP_OFF:
-				# Spike it back down the line he just leapt along, so aiming the
-				# escape is the same act as aiming the counter-attack.
-				var back: Vector3 = (start - landing)
-				back.y = 0.0
-				_pop_off_spike(f, leap.weapon, back.normalized() if back.length() > 0.01 else f.facing)
+				# Spiked at the SPOT he jumped away from, not along a line back
+				# toward it. The leap takes half a second, in which whoever
+				# dived him walks several metres off any fixed vector — aiming a
+				# thin projectile down it was very nearly unlandable.
+				_pop_off_spike(f, leap.weapon, start, float(leap.get("spike_mult", 1.0)))
 			else:
 				_ground_smash(f, leap.weapon, f.global_position)
 
@@ -1062,7 +1114,8 @@ func _end_match(rank: int, victory: bool) -> void:
 	results_title.add_theme_color_override("font_color",
 		Color(1.0, 0.85, 0.2) if victory else Color(0.95, 0.4, 0.35))
 	var award: Dictionary = SaveGame.award_match(player.kit.name, rank)
-	results_award.text = "TROPHIES %+d      COINS +%d" % [award.trophies, award.coins]
+	results_award.text = "TROPHIES %+d      COINS +%d      PASS +%d" % [
+		award.trophies, award.coins, award.tokens]
 	results.visible = true
 
 func _update_players_label() -> void:
@@ -1075,7 +1128,7 @@ func _sim_kit(kit_name: String) -> Dictionary:
 		sim_stats[kit_name] = {"spawns": 0, "wins": 0, "kills": 0,
 				"damage": 0, "placement_sum": 0, "attacks": 0, "hits": 0,
 				"p_spawn": 0, "p_fighter": 0, "p_scenery": 0,
-				"s_launch": 0, "s_land": 0, "s_hit": 0, "s_catch": 0, "s_blocked": 0, "s_box": 0}
+				"s_launch": 0, "s_land": 0, "s_hit": 0, "s_catch": 0, "s_blocked": 0, "s_box": 0, "s_super": 0, "s_lock": 0}
 	return sim_stats[kit_name]
 
 func _sim_match_end() -> void:
@@ -1122,6 +1175,7 @@ func _sim_report() -> void:
 				% [sk.s_launch, sk.s_blocked, sk.s_land, sk.s_hit, sk.s_catch,
 					sk.s_land - sk.s_hit - sk.s_catch])
 		print("[sim] sack landings on power cube boxes: %d" % sk.s_box)
+		print("[sim] Pop Off used %d times (%d while ammo was still locked)" % [sk.s_super, sk.s_lock])
 	print("\n[sim] projectile fates (spawned -> fighter / scenery / flew past):")
 	for n in names:
 		var s2: Dictionary = sim_stats[n]
@@ -1644,7 +1698,8 @@ func _net_show_results(rank: int, victory: bool) -> void:
 	results_title.add_theme_color_override("font_color",
 		Color(1.0, 0.85, 0.2) if victory else Color(0.95, 0.4, 0.35))
 	var award: Dictionary = SaveGame.award_match(_my_kit_name, rank)
-	results_award.text = "TROPHIES %+d      COINS +%d" % [award.trophies, award.coins]
+	results_award.text = "TROPHIES %+d      COINS +%d      PASS +%d" % [
+		award.trophies, award.coins, award.tokens]
 	results.visible = true
 
 ## Host: one fighter (or none, if the gas closed) remains — end the match.

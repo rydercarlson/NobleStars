@@ -259,6 +259,19 @@ was restatted for the pocket: reach 4.5 -> 3.0 tiles, health Normal -> High, and
 a much heavier landing. He now sits at Henry's cadence — 6.1 attacks a life at
 1466 damage against Henry's 6.8 at 1422.
 
+**A Super aimed as an escape needs its own bot rule.** Pop Off spikes the ground
+Anders jumped *away* from, so its aim is the leap, not the target. Bots aim
+every attack at whoever they are fighting, which made them leap onto an enemy
+and spike empty floor seven metres behind — the Super had never once connected
+in a sim. `bot_brain` now inverts the aim for that style. Any Super whose aim
+means something other than "at the enemy" needs the same treatment.
+
+**Never make a Super punish the mechanic it belongs to.** Pop Off consumes the
+sack, and half of all uses were fired mid-rally — so the Super's most common
+outcome was destroying the thing the kit exists to keep alive. It now cashes the
+rally in: the spike lands for whatever multiplier that sack had climbed to, so
+popping at rally 3 is a payoff rather than a loss.
+
 **An arcing attack has to be timed against how fast people move.** The sack
 first shipped at 8 m/s: a 9 m hop hung for 1.1 seconds, in which a 7 m/s fighter
 walks 7.9 m, so the landing spot was stale before it arrived and it hit almost

@@ -239,8 +239,10 @@ func show_screen(name: String) -> void:
 			push_screen(ModesScreen.new())
 		"shop":
 			push_screen(ShopScreen.new())
-		"pass", "road":
+		"pass":
 			push_screen(PassScreen.new())
+		"road", "trophy-road":
+			push_screen(TrophyRoadScreen.new())
 		"news":
 			push_screen(NewsScreen.new())
 		"friends":

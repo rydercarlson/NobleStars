@@ -321,12 +321,15 @@ static func anders() -> Dictionary:
 			"aoe": 0.95 * TILE, "water_mult": 1.0,
 		},
 		# The escape is the utility, so 1.4x rather than 1.8x. `range` is how far
-		# he leaps; the spike travels back along the leap at weapon range.
+		# he leaps. The spike arcs down onto the ground he vacated and blasts
+		# `aoe` there — a spot, not a line, because the leap takes half a second
+		# and a thin projectile fired down a fixed vector could not catch anyone
+		# who had moved. speed is the spike's dive rate, so it lands fast.
 		"super": {
 			"style": Style.POP_OFF, "pellets": 1, "spread_deg": 0.0, "damage": 1800,
 			"range": 3.5 * TILE, "speed": 22.0, "radius": 0.34,
 			"destroys_walls": false, "knockback": 12.0, "pierces": true,
-			"aoe": 0.0, "water_mult": 1.0, "spike_range": 5.0 * TILE,
+			"aoe": 1.2 * TILE, "water_mult": 1.0,
 		},
 	}
 

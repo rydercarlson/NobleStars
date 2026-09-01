@@ -42,7 +42,7 @@ func _build_profile() -> void:
 	_place(b, 40, 44)
 	b.pressed.connect(func() -> void:
 		menu.sfx("click")
-		MenuPopups.profile(menu))
+		menu.push_screen(TrophyRoadScreen.new()))
 	var row := _inner_row(b, 14, 14, 20)
 	row.add_child(MenuUI.icon("shield", 84))
 	var lines := MenuUI.vbox(2)

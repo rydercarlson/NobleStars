@@ -48,6 +48,7 @@ static func _read(path: String) -> Dictionary:
 ## everything the game actually simulates.
 static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary:
 	var weapon: Dictionary = kit.get("weapon", {})
+	var hint_value: Variant = entry.get("unlockHint", "")
 	var out: Dictionary = {
 		"id": id,
 		"kit_name": str(kit.name),
@@ -57,7 +58,7 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 		"role": str(entry.get("role", kit.get("role", ""))),
 		"description": str(entry.get("description", kit.get("desc", ""))),
 		"pins": int(entry.get("pins", 0)),
-		"unlock_hint": str(entry.get("unlockHint", "")),
+		"unlock_hint": "" if hint_value == null else str(hint_value),
 		"color": kit.get("color", Color.WHITE),
 		"has_model": kit.has("model"),
 		"stats": {
@@ -78,6 +79,8 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 		"name": str(sup.get("name", "Super")),
 		"text": str(sup.get("text", kit.get("super_desc", ""))),
 	}
+	if out.unlock_hint == "" and not starting_brawlers().has(id):
+		out.unlock_hint = "Found in Brawler Drops"
 	return out
 
 static func brawler(id: String) -> Dictionary:
@@ -116,6 +119,14 @@ static func mode(id: String) -> Dictionary:
 static func season() -> Dictionary:
 	ensure_loaded()
 	return game.get("season", {"number": 1, "name": "SEASON", "tokensPerTier": 500, "maxTier": 60, "endsInDays": 30})
+
+static func trophy_road() -> Array:
+	ensure_loaded()
+	return game.get("trophyRoad", [])
+
+static func starting_brawlers() -> Array:
+	ensure_loaded()
+	return game.get("startingBrawlers", ["nova"])
 
 ## Only Showdown is built; every other mode selects fine but says so on PLAY.
 static func mode_playable(id: String) -> bool:

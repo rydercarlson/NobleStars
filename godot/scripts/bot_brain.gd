@@ -88,6 +88,11 @@ func decide(now: float, game) -> Dictionary:
 			var base := _dir_to(aim)
 			if base == Vector3.ZERO:   # aim point landed on top of us
 				base = _dir_to(_target.global_position)
+			# Pop Off is an escape: the spike comes down on the ground he jumped
+			# AWAY from, so its aim is the leap, not the target. A bot pointing
+			# it at an enemy leaps onto them and spikes empty floor behind it.
+			if int(weapon.style) == Kits.Style.POP_OFF:
+				base = -base
 			if base != Vector3.ZERO:
 				var scatter: float = _aim_error_sim if game.sim_active else _aim_error_deg
 				var err := deg_to_rad(randf_range(-scatter, scatter))

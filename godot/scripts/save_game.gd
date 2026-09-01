@@ -8,7 +8,7 @@ class_name SaveGame
 ## playing instead of a "collect tokens" button.
 
 const SAVE_PATH := "user://save.json"
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
 
 ## Showdown placement rewards, rank 1..10.
 const TROPHY_TABLE: Array[int] = [8, 6, 5, 4, 3, 1, 0, 0, -1, -2]
@@ -34,7 +34,7 @@ static var club_chat: Array = []          # [{who, text}, ...]
 static var pass_tier: int = 1
 static var pass_tokens: int = 0
 static var pass_premium: bool = false
-static var selected_kit: String = "Tony"  # always by name, never a kit Dictionary
+static var selected_kit: String = "Nova"  # always by name, never a kit Dictionary
 static var selected_mode: String = "showdown_solo"
 static var player_name: String = "GUEST"
 static var music_on: bool = true
@@ -47,10 +47,12 @@ static func ensure_loaded() -> void:
 		return
 	loaded = true
 	MenuData.ensure_loaded()
+	var starters: Array = MenuData.starting_brawlers()
 	for k in Kits.all():
 		trophies[k.name] = 0
-		unlocked[str(k.name).to_lower()] = true
-		power[str(k.name).to_lower()] = 1
+		var id: String = str(k.name).to_lower()
+		unlocked[id] = starters.has(id)
+		power[id] = 1
 	if OS.get_environment("NS3_RESET_SAVE") != "":
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
 		_grant_start()
@@ -65,6 +67,7 @@ static func ensure_loaded() -> void:
 	if not parsed is Dictionary:
 		return
 	var data: Dictionary = parsed
+	var save_version: int = int(data.get("version", 1))
 	coins = int(data.get("coins", 0))
 	gems = int(data.get("gems", 0))
 	star_points = int(data.get("star_points", 0))
@@ -89,12 +92,22 @@ static func ensure_loaded() -> void:
 	if chat is Array:
 		club_chat = chat
 	# v1 saves predate the menu economy and used the engine's mode id.
-	if int(data.get("version", 1)) < 2:
+	if save_version < 2:
 		_grant_start()
 		if selected_mode == "showdown":
 			selected_mode = "showdown_solo"
+	# Before Trophy Road, native saves gave every fighter away at startup.
+	# Migrate once so those saves participate in the new unlock progression.
+	if save_version < 3:
+		for id in unlocked:
+			unlocked[id] = starters.has(str(id))
+		selected_kit = "Nova"
 	if Kits.named(selected_kit).name.to_lower() != selected_kit.to_lower():
-		selected_kit = "Tony"  # saved kit no longer exists
+		selected_kit = "Nova"  # saved kit no longer exists
+	if not is_unlocked(selected_kit):
+		selected_kit = "Nova"
+	if save_version < SAVE_VERSION:
+		save()
 
 static func _merge_ints(dst: Dictionary, src: Variant) -> void:
 	if not src is Dictionary:
@@ -161,7 +174,7 @@ static func reset() -> void:
 	pass_tier = 1
 	pass_tokens = 0
 	pass_premium = false
-	selected_kit = "Tony"
+	selected_kit = "Nova"
 	selected_mode = "showdown_solo"
 	player_name = "GUEST"
 	music_on = true
