@@ -37,9 +37,15 @@ only and is not tracked here.
       and readable wall silhouettes at the top-down camera angle.
 - [ ] **Camera framing.** Fighters read very small at the current height —
       revisit the zoom/tilt so character models are actually legible.
-- [x] **Power cubes are the Meshy token again.** `power_cube.glb` was recovered
-      off the abandoned lanes-Leon line; cubes now spin about Y on a 2.6s loop
-      with a soft sine bob instead of being a purple emissive box.
+- [x] **Power cubes are the Meshy token again.** Re-landed from `72d806f`:
+      `_spawn_cube` instances the token model, spinning about Y on a 2.6s loop
+      with a soft sine bob (looped tweens) and the runtime metallic clamp the
+      character models get, instead of a purple emissive box. The net-aware
+      pickup path is untouched.
+- [x] **Loot boxes are aimable and wear health bars.** Tap-to-fire falls back to
+      the nearest visible box when no enemy is in range (Supers never do), and
+      `fighter_bars.gd` draws each box a half-scale health bar; box damage
+      replicates so the bars stay honest in wifi play.
 - [ ] **No impact VFX.** Shots, melee arcs, and shockwaves have no hit particles
       or muzzle flash; only the damage popup sells a hit.
 - [ ] **Water and bush tiles are untextured colour blocks**, and a modelled

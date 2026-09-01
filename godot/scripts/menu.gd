@@ -6,6 +6,7 @@ extends Control
 var screens: Dictionary = {}
 var stage: MenuStage
 var lobby: LobbyScreen
+var _navy: ColorRect
 
 func _ready() -> void:
 	SaveGame.ensure_loaded()
@@ -36,10 +37,18 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred("res://game.tscn")
 		return
 
-	var bg := ColorRect.new()
-	bg.color = UIKit.NAVY
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	# The painted assembly-hall artwork is the lobby's backdrop; the flat navy
+	# sits above it for every other screen, which was designed against it.
+	var art := TextureRect.new()
+	art.texture = load("res://assets/menu_bg.png")
+	art.stretch_mode = TextureRect.STRETCH_SCALE
+	art.set_anchors_preset(Control.PRESET_FULL_RECT)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(art)
+	_navy = ColorRect.new()
+	_navy.color = UIKit.NAVY
+	_navy.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_navy)
 
 	stage = MenuStage.new()
 	add_child(stage)
@@ -69,6 +78,7 @@ func show_screen(screen_name: String) -> void:
 		s.visible = false
 	var screen: Control = screens[screen_name]
 	screen.visible = true
+	_navy.visible = screen_name != "lobby"
 	stage.visible = screen_name == "lobby"
 	if screen_name == "lobby":
 		place_stage_center()
@@ -76,15 +86,18 @@ func show_screen(screen_name: String) -> void:
 	if screen.has_method("refresh"):
 		screen.refresh()
 
+## Centered on the artwork's stage: the camera projects the fighter's feet
+## ~84% down the viewport, so a 0.40 vertical anchor plants them on the
+## painted boards (~0.70 of screen height).
 func place_stage_center() -> void:
 	stage.anchor_left = 0.5
 	stage.anchor_right = 0.5
-	stage.anchor_top = 0.5
-	stage.anchor_bottom = 0.5
+	stage.anchor_top = 0.40
+	stage.anchor_bottom = 0.40
 	stage.offset_left = -MenuStage.STAGE_SIZE.x / 2
 	stage.offset_right = MenuStage.STAGE_SIZE.x / 2
-	stage.offset_top = -MenuStage.STAGE_SIZE.y / 2 - 20
-	stage.offset_bottom = MenuStage.STAGE_SIZE.y / 2 - 20
+	stage.offset_top = -MenuStage.STAGE_SIZE.y / 2
+	stage.offset_bottom = MenuStage.STAGE_SIZE.y / 2
 
 ## Fighter-detail view parks the stage on the left half.
 func place_stage_left() -> void:
