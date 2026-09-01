@@ -37,6 +37,10 @@ only and is not tracked here.
       and readable wall silhouettes at the top-down camera angle.
 - [ ] **Camera framing.** Fighters read very small at the current height —
       revisit the zoom/tilt so character models are actually legible.
+- [ ] **`power_cube.glb` is stranded on the abandoned lanes-Leon line.** Power
+      cubes still render as a drawn token; the spinning cube model exists at
+      `git show 72d806f:godot/assets/power_cube.glb` if it's wanted (that commit
+      stays reachable through the merge).
 - [ ] **No impact VFX.** Shots, melee arcs, and shockwaves have no hit particles
       or muzzle flash; only the damage popup sells a hit.
 - [ ] **Water and bush tiles are untextured colour blocks**, and a modelled

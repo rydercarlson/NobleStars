@@ -48,6 +48,17 @@ const LEAP_FLIGHT := 0.48   # Fighter.begin_leap duration; JUMP_SMASH has no spe
 
 var _lead_skill := randf_range(LEAD_MATCH_MIN, LEAD_MATCH_MAX)
 
+## Aim scatter has to be tightened for the sim for the same reason lead does.
+## A fighter is only ~0.65 m of hittable width, so at a 7 m engagement the match
+## spread of 3-9 degrees is 0.37-1.10 m of error: a bot that rolls above ~5 deg
+## can never land a precision weapon for its entire life. Wide melee arcs, big
+## AOEs and bouncing projectiles don't care, so leaving match scatter in the sim
+## ranks kits by how forgiving they are rather than by how strong they are.
+const AIM_ERROR_SIM_MIN := 0.5
+const AIM_ERROR_SIM_MAX := 2.0
+
+var _aim_error_sim := randf_range(AIM_ERROR_SIM_MIN, AIM_ERROR_SIM_MAX)
+
 func _init(f: Fighter) -> void:
 	fighter = f
 
@@ -75,7 +86,8 @@ func decide(now: float, game) -> Dictionary:
 			if base == Vector3.ZERO:   # aim point landed on top of us
 				base = _dir_to(_target.global_position)
 			if base != Vector3.ZERO:
-				var err := deg_to_rad(randf_range(-_aim_error_deg, _aim_error_deg))
+				var scatter: float = _aim_error_sim if game.sim_active else _aim_error_deg
+				var err := deg_to_rad(randf_range(-scatter, scatter))
 				d.fire_dir = base.rotated(Vector3.UP, err)
 				# Thrown styles land where fire_dist says, so it has to be the
 				# distance to the lead point, not to the target.

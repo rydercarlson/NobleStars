@@ -484,7 +484,7 @@ def add_idle(j, blob, log, duration=4.0, keys=17):
 
 
 ATTACKISH = ('attack', 'slash', 'thrust', 'punch', 'swing', 'smash', 'sweep',
-             'hit', 'kick', 'shoot', 'cast')
+             'hit', 'kick', 'shoot', 'cast', 'stomp', 'slam', 'throw')
 
 
 def dirlerp(d0, d1, u):
@@ -561,6 +561,84 @@ def add_attack(j, blob, log, fps=30):
         "shipped in the export)")
 
 
+def split_held_item(j, blob, log, hand_side):
+    """Split a hand-held item (a staff, a racket) into its own skinned node
+    named "held_item" so the game can hide it while a thrown version flies.
+
+    The item is found geometrically: vertices dominated by the <side>Hand
+    joint further from the fist than the mitt reaches, clustered around the
+    item's own PCA axis. Triangles fully inside that set move to a second
+    mesh that shares the skin and vertex data; boundary triangles stay with
+    the body so the fist remains sealed.
+    """
+    names = [n.get('name') for n in j['nodes']]
+    skin = j['skins'][0]
+    jn = {names[x]: k for k, x in enumerate(skin['joints'])}
+    hand = hand_side.capitalize() + 'Hand'
+    if hand not in jn:
+        log(f"no {hand} joint, cannot split held item"); return
+
+    prim = j['meshes'][0]['primitives'][0]
+    def acc_read(ai):
+        a = j['accessors'][ai]; bv = j['bufferViews'][a['bufferView']]
+        off = bv.get('byteOffset', 0) + a.get('byteOffset', 0)
+        dt = np.dtype('<' + CT[a['componentType']])
+        return np.frombuffer(blob, dt, a['count'] * NC[a['type']],
+                             off).reshape(a['count'], NC[a['type']])
+    v = np.asarray(acc_read(prim['attributes']['POSITION']), np.float64)
+    jj = acc_read(prim['attributes']['JOINTS_0']).astype(int)
+    ww = np.asarray(acc_read(prim['attributes']['WEIGHTS_0']), np.float64)
+    tris = acc_read(prim['indices']).reshape(-1, 3).astype(np.int64)
+
+    ibm = np.asarray(acc_read(skin['inverseBindMatrices']),
+                     np.float64).reshape(-1, 4, 4).transpose(0, 2, 1)
+    hand_pos = np.linalg.inv(ibm[jn[hand]])[:3, 3]
+
+    dom = jj[np.arange(len(jj)), ww.argmax(1)]
+    dist = np.linalg.norm(v - hand_pos, axis=1)
+    cand = (dom == jn[hand]) & (dist > 0.14)
+    if cand.sum() < 40:
+        log(f"no held item found on {hand} ({int(cand.sum())} candidate verts)")
+        return
+    c = v[cand].mean(0)
+    axis = np.linalg.svd(v[cand] - c)[2][0]
+    radial = np.linalg.norm((v - c) - np.outer((v - c) @ axis, axis), axis=1)
+    item = (dom == jn[hand]) & (dist > 0.14) & (radial < 0.10)
+
+    inside = item[tris].sum(1)
+    item_tris = tris[inside == 3]
+    body_tris = tris[inside < 3]
+    if not len(item_tris):
+        log("held-item split found no whole triangles, skipping"); return
+
+    def add_index_acc(arr):
+        arr = np.ascontiguousarray(arr.reshape(-1), dtype='<u4')
+        while len(blob) % 4: blob.append(0)
+        off = len(blob); blob.extend(arr.tobytes())
+        j['bufferViews'].append({'buffer': 0, 'byteOffset': off,
+                                 'byteLength': arr.nbytes})
+        j['accessors'].append({'bufferView': len(j['bufferViews']) - 1,
+                               'componentType': 5125, 'count': int(arr.size),
+                               'type': 'SCALAR'})
+        return len(j['accessors']) - 1
+
+    prim['indices'] = add_index_acc(body_tris)          # body keeps mesh 0
+    item_prim = dict(prim)
+    item_prim['indices'] = add_index_acc(item_tris)
+    j['meshes'].append({'name': 'held_item', 'primitives': [item_prim]})
+
+    mesh_node = next(i for i, n in enumerate(j['nodes']) if 'mesh' in n)
+    node = {'name': 'held_item', 'mesh': len(j['meshes']) - 1}
+    if 'skin' in j['nodes'][mesh_node]:
+        node['skin'] = j['nodes'][mesh_node]['skin']
+    j['nodes'].append(node)
+    parent = next(i for i, n in enumerate(j['nodes'])
+                  if mesh_node in n.get('children', []))
+    j['nodes'][parent]['children'].append(len(j['nodes']) - 1)
+    log(f"split {len(item_tris)} triangles off {hand} into a 'held_item' "
+        f"node ({len(body_tris)} stay with the body)")
+
+
 def repack(j, blob, log):
     """Rebuild the binary chunk, dropping bufferViews nothing references."""
     used = set()
@@ -599,6 +677,9 @@ def main():
     ap.add_argument('-o', '--output')
     ap.add_argument('--no-idle', action='store_true')
     ap.add_argument('--no-attack', action='store_true')
+    ap.add_argument('--split-held-item', choices=['left', 'right'],
+                    help="split the item in this hand into a hideable "
+                         "'held_item' node")
     args = ap.parse_args()
     out = args.output or args.input
 
@@ -617,6 +698,8 @@ def main():
         add_idle(j, blob, log)
     if not args.no_attack and j.get('skins'):
         add_attack(j, blob, log)
+    if args.split_held_item and j.get('skins'):
+        split_held_item(j, blob, log, args.split_held_item)
     blob = repack(j, blob, log)
     save(out, j, blob)
     after = os.path.getsize(out)

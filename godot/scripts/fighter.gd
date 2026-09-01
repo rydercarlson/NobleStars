@@ -25,6 +25,7 @@ var _body_mesh: MeshInstance3D
 var _material: StandardMaterial3D
 var _model: Node3D
 var _anim: AnimationPlayer
+var _held_item: Node3D   # e.g. Sanjit's staff — hidden while his Super flies
 var _skel: Skeleton3D
 var _foot_bones: PackedInt32Array = []
 var _foot_rest_y := 0.0
@@ -90,6 +91,7 @@ func _setup_model() -> void:
 			var mat = mesh.surface_get_material(s)
 			if mat is BaseMaterial3D:
 				mat.metallic = 0.0
+	_held_item = _model.find_child("held_item", true, false)
 	_anim = _model.find_child("AnimationPlayer", true, false)
 	if _anim:
 		var clips: Dictionary = kit.clips
@@ -135,6 +137,11 @@ func _ground_feet() -> void:
 	if _skel == null:
 		return
 	_model.position.y = maxf(0.0, _foot_rest_y - _lowest_foot_y())
+
+## Show/hide a model's held item (Sanjit's staff) while a thrown copy flies.
+func set_held_item_visible(shown: bool) -> void:
+	if _held_item:
+		_held_item.visible = shown
 
 ## Placeholder capsule for kits without a model yet.
 func _setup_capsule() -> void:

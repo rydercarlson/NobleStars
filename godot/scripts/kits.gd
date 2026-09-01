@@ -136,7 +136,13 @@ static func sanjit() -> Dictionary:
 		"super_desc": "Hurls his staff over walls; it boomerangs back, hitting both ways.",
 		"model": "res://assets/sanjit.glb",
 		"clips": {"idle": "Idle", "run": "Running", "attack": "Double_Combo_Attack",
-				  "attack_speed": 4.5},
+				  "attack_speed": 4.5,
+				  # The Super plays the real throw: Crouch_Charge_and_Throw is
+				  # 7.7s of crouch-charge-release; seeking to 5.2s at 4x shows
+				  # the coil, the release (~0.1s in, matching the boomerang
+				  # spawn), and the follow-through in ~0.6s.
+				  "super": "Crouch_Charge_and_Throw", "super_speed": 4.0,
+				  "super_seek": 5.2},
 		"max_health": HEALTH_LOW,
 		"move_speed": SPEED_VERY_FAST,
 		"reload": RELOAD_FAST,

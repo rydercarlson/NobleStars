@@ -375,6 +375,7 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 		attacker.charge_super(amount)
 		if sim_active:
 			_sim_kit(attacker.kit.name).damage += amount
+			_sim_kit(attacker.kit.name).hits += 1
 	if target.is_dead():
 		if sim_active and attacker != null:
 			_sim_kit(attacker.kit.name).kills += 1
@@ -383,6 +384,8 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	if f.is_disconnected(now):
 		return
+	if sim_active:
+		_sim_kit(f.kit.name).attacks += 1
 	var is_super: bool = weapon == f.kit.get("super", {})
 	if net_host:   # echo to clients so they see the shot/swing
 		var idx := net_fighters.find(f)
@@ -462,6 +465,7 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			boom.origin = boom.position
 			boom.body_entered.connect(_on_boomerang_hit.bind(boom))
 			add_child(boom)
+			f.set_held_item_visible(false)   # the staff is in the air now
 		Kits.Style.JUMP_SMASH:
 			f.begin_leap(weapon, unit, dist)
 		Kits.Style.BUTTONS:
@@ -924,7 +928,7 @@ func _update_players_label() -> void:
 func _sim_kit(kit_name: String) -> Dictionary:
 	if not sim_stats.has(kit_name):
 		sim_stats[kit_name] = {"spawns": 0, "wins": 0, "kills": 0,
-				"damage": 0, "placement_sum": 0}
+				"damage": 0, "placement_sum": 0, "attacks": 0, "hits": 0}
 	return sim_stats[kit_name]
 
 func _sim_match_end() -> void:
@@ -946,16 +950,23 @@ func _sim_match_end() -> void:
 
 func _sim_report() -> void:
 	print("\n[sim] results over %d matches:" % _sim_done)
-	print("%-8s %7s %5s %6s %9s %7s %10s" \
-			% ["kit", "spawns", "wins", "win%", "avg place", "kills", "dmg/spawn"])
+	# atk/spawn and hits/atk separate "does this kit get to shoot" from "does the
+	# shot connect": a multi-projectile kit should land close to its pellet count
+	# per trigger pull, and anything near 1.0 is missing with most of its burst.
+	print("%-8s %7s %5s %6s %9s %7s %10s %9s %8s %8s" \
+			% ["kit", "spawns", "wins", "win%", "avg place", "kills", "dmg/spawn",
+				"atk/spawn", "hits/atk", "dmg/atk"])
 	var names := sim_stats.keys()
 	names.sort()
 	for n in names:
 		var s: Dictionary = sim_stats[n]
 		var spawns: int = max(1, s.spawns)
-		print("%-8s %7d %5d %5.1f%% %9.2f %7.2f %10.0f" % [n, s.spawns, s.wins,
+		var attacks: int = max(1, s.attacks)
+		print("%-8s %7d %5d %5.1f%% %9.2f %7.2f %10.0f %9.2f %8.2f %8.0f" % [n, s.spawns, s.wins,
 				100.0 * s.wins / spawns, float(s.placement_sum) / spawns,
-				float(s.kills) / spawns, float(s.damage) / spawns])
+				float(s.kills) / spawns, float(s.damage) / spawns,
+				float(s.attacks) / spawns, float(s.hits) / attacks,
+				float(s.damage) / attacks])
 
 # MARK: loop
 
