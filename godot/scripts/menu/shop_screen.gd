@@ -6,12 +6,14 @@ extends MenuScreen
 
 const KIND_ICON := {
 	"coins": "coin", "gems": "gem", "power_points": "power_point",
-	"star_drop": "star_drop", "gadget": "token", "skin": "star_drop",
-	"pin": "token", "bundle": "star_drop",
+	"star_drop": "star_drop", "gadget": "gadget", "skin": "star_drop",
+	"pin": "rank_badge", "bundle": "star_drop",
+	"dawg_treat": "dawg_treat", "bling": "bling", "brawler": "brawlers",
 }
 const KIND_LABEL := {
 	"coins": "Coins", "gems": "Gems", "power_points": "Power Points",
 	"star_drop": "Star Drop", "gadget": "Gadget", "skin": "Skin", "pin": "Pin",
+	"dawg_treat": "Dawg Treat", "bling": "Bling", "brawler": "Brawler",
 }
 
 func _build() -> void:
@@ -33,6 +35,24 @@ func _build() -> void:
 	for item in shop.get("daily", []):
 		daily.add_child(_daily_card(item))
 	stagger_children(daily)
+
+	var skins_data: Array = shop.get("skins", [])
+	if not skins_data.is_empty():
+		column.add_child(_heading("Skins"))
+		var skins: GridContainer = MenuUI.grid(5)
+		column.add_child(skins)
+		for skin in skins_data:
+			skins.add_child(_skin_card(skin))
+		stagger_children(skins)
+
+	var resources_data: Array = shop.get("resources", [])
+	if not resources_data.is_empty():
+		column.add_child(_heading("Resources"))
+		var resources: GridContainer = MenuUI.grid(6)
+		column.add_child(resources)
+		for item in resources_data:
+			resources.add_child(_resource_card(item))
+		stagger_children(resources)
 
 	column.add_child(_heading("Gems"))
 	var gems: GridContainer = MenuUI.grid(4)
@@ -152,6 +172,78 @@ func _daily_card(item: Dictionary) -> Panel:
 		_buy(item, button, func() -> void: _apply_item(item))))
 	return card
 
+# MARK: skins
+
+## Skin card: the brawler's portrait over the skin's accent, priced in Bling.
+func _skin_card(skin: Dictionary) -> Panel:
+	var card: Panel = _card(330)
+	var accent: Color = MenuUI.hex(skin.get("accent"), MenuUI.YELLOW)
+	var tint := TextureRect.new()
+	tint.texture = MenuUI.fade_texture()
+	tint.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tint.stretch_mode = TextureRect.STRETCH_SCALE
+	tint.modulate = Color(accent.r, accent.g, accent.b, 0.38)
+	tint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tint.offset_bottom = -7
+	tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(tint)
+
+	var column := MenuUI.vbox(6)
+	MenuUI.card_body(card, 16).add_child(column)
+	var brawler_id: String = str(skin.get("brawler", ""))
+	var art_holder := CenterContainer.new()
+	art_holder.custom_minimum_size = Vector2(0, 132)
+	column.add_child(art_holder)
+	var art := TextureRect.new()
+	art.texture = MenuData.portrait(brawler_id)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.custom_minimum_size = Vector2(132, 132)
+	art_holder.add_child(art)
+
+	var name_label: Label = MenuUI.wrap(MenuUI.display(str(skin.get("name", "")), 26, MenuUI.TEXT, 5))
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(name_label)
+	# rarity_of() keys off the dict's own "rarity" field, so the skin entry works
+	var rarity: Dictionary = MenuData.rarity_of(skin)
+	var rarity_label: Label = MenuUI.body(str(rarity.get("label", "")).to_upper(), 19,
+			MenuUI.hex(rarity.get("color"), MenuUI.TEXT_DIM))
+	rarity_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(rarity_label)
+	column.add_child(MenuUI.spacer())
+	column.add_child(_price_button(skin, func(button: Button) -> void:
+		_buy(skin, button, func() -> void: _apply_item(skin))))
+	return card
+
+# MARK: resources
+
+## Resource card: a stack of coins, power points or treats bought with gems.
+func _resource_card(item: Dictionary) -> Panel:
+	var card: Panel = _card(300)
+	var column := MenuUI.vbox(6)
+	MenuUI.card_body(card, 16).add_child(column)
+	var kind: String = str(item.get("kind", "coins"))
+	var art := CenterContainer.new()
+	art.custom_minimum_size = Vector2(0, 112)
+	column.add_child(art)
+	art.add_child(MenuUI.icon(str(KIND_ICON.get(kind, "token")), 108))
+
+	var amount: Label = MenuUI.display(MenuUI.fmt(int(item.get("amount", 1))), 34, MenuUI.TEXT, 6)
+	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(amount)
+	var what: String = str(item.get("label", KIND_LABEL.get(kind, kind))).to_upper()
+	var what_label: Label = MenuUI.wrap(MenuUI.body(what, 19, MenuUI.TEXT_DIM))
+	what_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(what_label)
+	if str(item.get("value", "")) != "":
+		var bonus: Label = MenuUI.display(str(item.value), 20, MenuUI.GREEN, 4)
+		bonus.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		column.add_child(bonus)
+	column.add_child(MenuUI.spacer())
+	column.add_child(_price_button(item, func(button: Button) -> void:
+		_buy(item, button, func() -> void: _apply_item(item))))
+	return card
+
 func _gem_card(pack: Dictionary) -> Panel:
 	var card: Panel = _card(240)
 	var column := MenuUI.vbox(8)
@@ -191,11 +283,13 @@ func _price_button(item: Dictionary, on_buy: Callable) -> Button:
 	var currency: String = str(item.get("currency", "coins"))
 	var free: bool = currency == "free"
 	var variant: String = "green" if free else ("blue" if currency == "gems" else "yellow")
+	# Bling is the skin currency; it has its own icon rather than the coin.
+	const CURRENCY_ICON := {"gems": "gem", "bling": "bling", "coins": "coin"}
 	var label: String = str(item.get("label", "FREE")) if free \
 			else MenuUI.fmt(int(item.get("price", 0)))
 	var button: Button = MenuUI.button(label, variant, 30)
 	if not free:
-		button.icon = MenuUI.icon_texture("gem" if currency == "gems" else "coin")
+		button.icon = MenuUI.icon_texture(str(CURRENCY_ICON.get(currency, "coin")))
 		button.expand_icon = true
 		button.add_theme_constant_override("icon_max_width", 34)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL

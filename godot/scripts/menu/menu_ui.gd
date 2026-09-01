@@ -34,6 +34,7 @@ const FONT_BODY := "res://assets/menu/fonts/Nunito-800.woff2"
 const FONT_BODY_700 := "res://assets/menu/fonts/Nunito-700.woff2"
 const ICON_DIR := "res://assets/menu/svg/"
 const PNG_ICON_DIR := "res://assets/menu/icons/"
+const TREAT_DIR := "res://assets/menu/treats/"
 
 ## Icons that live as @2x PNGs rather than generated SVGs.
 const PNG_ICONS := {
@@ -121,10 +122,13 @@ static func icon_texture(icon_name: String) -> Texture2D:
 	elif not ResourceLoader.exists(path):
 		# The v0.5 art pack arrived as WebP under icons/; resolve by name so the
 		# mode, currency, gear and rank icons are addressable without a mapping.
+		# The treat tiers live in their own directory, so try that too.
 		var stem: String = str(WEBP_ICONS.get(icon_name, icon_name))
-		var webp: String = PNG_ICON_DIR + stem + ".webp"
-		if ResourceLoader.exists(webp):
-			path = webp
+		for candidate: String in [PNG_ICON_DIR + stem + ".webp",
+				TREAT_DIR + stem + ".webp"]:
+			if ResourceLoader.exists(candidate):
+				path = candidate
+				break
 	var tex: Texture2D = load(path) if ResourceLoader.exists(path) else null
 	_icons[icon_name] = tex
 	return tex

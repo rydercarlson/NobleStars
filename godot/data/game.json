@@ -4,9 +4,12 @@
   "name": "BACK TO SCHOOL",
   "endsInDays": 27,
   "tier": 9,
-  "maxTier": 60,
+  "maxTier": 40,
   "tokens": 340,
-  "tokensPerTier": 500
+  "tokensPerTier": 500,
+  "xpPerTier": 200,
+  "heroBrawler": "leon",
+  "heroSkin": "Homecoming Leon"
  },
  "startingBrawlers": [
   "nova"
@@ -197,6 +200,102 @@
     "amount": 360,
     "price": "$19.99"
    }
+  ],
+  "skins": [
+   {
+    "id": "s1",
+    "name": "Homecoming Leon",
+    "brawler": "leon",
+    "price": 900,
+    "currency": "bling",
+    "rarity": "rare",
+    "accent": "#ffc21a"
+   },
+   {
+    "id": "s2",
+    "name": "Field Day Tony",
+    "brawler": "tony",
+    "price": 900,
+    "currency": "bling",
+    "rarity": "rare",
+    "accent": "#57c81e"
+   },
+   {
+    "id": "s3",
+    "name": "Black Belt Sanjit",
+    "brawler": "sanjit",
+    "price": 1500,
+    "currency": "bling",
+    "rarity": "super_rare",
+    "accent": "#1d2030"
+   },
+   {
+    "id": "s4",
+    "name": "Varsity Kovacs",
+    "brawler": "kovacs",
+    "price": 1500,
+    "currency": "bling",
+    "rarity": "super_rare",
+    "accent": "#1f4fdc"
+   },
+   {
+    "id": "s5",
+    "name": "Lifeguard Henry",
+    "brawler": "henry",
+    "price": 2500,
+    "currency": "bling",
+    "rarity": "epic",
+    "accent": "#ea3b3b"
+   }
+  ],
+  "resources": [
+   {
+    "id": "r1",
+    "kind": "coins",
+    "amount": 500,
+    "price": 40,
+    "currency": "gems"
+   },
+   {
+    "id": "r2",
+    "kind": "coins",
+    "amount": 1500,
+    "price": 100,
+    "currency": "gems",
+    "value": "+25%"
+   },
+   {
+    "id": "r3",
+    "kind": "power_points",
+    "amount": 200,
+    "price": 40,
+    "currency": "gems"
+   },
+   {
+    "id": "r4",
+    "kind": "power_points",
+    "amount": 600,
+    "price": 100,
+    "currency": "gems",
+    "value": "+25%"
+   },
+   {
+    "id": "r5",
+    "kind": "dawg_treat",
+    "amount": 1,
+    "price": 30,
+    "currency": "gems",
+    "minTier": 1
+   },
+   {
+    "id": "r6",
+    "kind": "dawg_treat",
+    "amount": 1,
+    "price": 120,
+    "currency": "gems",
+    "minTier": 3,
+    "label": "MEGA TREAT"
+   }
   ]
  },
  "news": [
@@ -371,7 +470,8 @@
    },
    "premium": {
     "kind": "skin",
-    "name": "Homecoming Leon"
+    "name": "Homecoming Leon",
+    "brawler": "leon"
    }
   },
   {
@@ -388,7 +488,7 @@
   {
    "tier": 3,
    "free": {
-    "kind": "star_drop",
+    "kind": "dawg_treat",
     "amount": 1
    },
    "premium": {
@@ -403,8 +503,8 @@
     "amount": 150
    },
    "premium": {
-    "kind": "pin",
-    "name": "Leon Pin"
+    "kind": "dawg_treat",
+    "amount": 2
    }
   },
   {
@@ -414,15 +514,26 @@
     "amount": 50
    },
    "premium": {
-    "kind": "star_drop",
-    "amount": 2
+    "kind": "power_points",
+    "amount": 100
    }
   },
   {
    "tier": 6,
    "free": {
-    "kind": "coins",
-    "amount": 200
+    "kind": "bling",
+    "amount": 100
+   },
+   "premium": {
+    "kind": "bling",
+    "amount": 250
+   }
+  },
+  {
+   "tier": 7,
+   "free": {
+    "kind": "dawg_treat",
+    "amount": 1
    },
    "premium": {
     "kind": "gems",
@@ -430,21 +541,10 @@
    }
   },
   {
-   "tier": 7,
-   "free": {
-    "kind": "star_drop",
-    "amount": 1
-   },
-   "premium": {
-    "kind": "coins",
-    "amount": 750
-   }
-  },
-  {
    "tier": 8,
    "free": {
-    "kind": "power_points",
-    "amount": 75
+    "kind": "coins",
+    "amount": 200
    },
    "premium": {
     "kind": "pin",
@@ -455,77 +555,356 @@
    "tier": 9,
    "free": {
     "kind": "coins",
-    "amount": 250
+    "amount": 100
    },
    "premium": {
-    "kind": "star_drop",
-    "amount": 2
+    "kind": "pin",
+    "name": "Leon Pin"
    }
   },
   {
    "tier": 10,
    "free": {
-    "kind": "star_drop",
-    "amount": 2
+    "kind": "power_points",
+    "amount": 25
    },
    "premium": {
     "kind": "skin",
-    "name": "Field Day Tony"
+    "name": "Field Day Tony",
+    "brawler": "tony"
    }
   },
   {
    "tier": 11,
    "free": {
-    "kind": "coins",
-    "amount": 200
+    "kind": "dawg_treat",
+    "amount": 1
    },
    "premium": {
-    "kind": "gems",
-    "amount": 40
+    "kind": "coins",
+    "amount": 500
    }
   },
   {
    "tier": 12,
    "free": {
-    "kind": "power_points",
-    "amount": 100
+    "kind": "coins",
+    "amount": 150
    },
    "premium": {
-    "kind": "coins",
-    "amount": 1000
+    "kind": "dawg_treat",
+    "amount": 2
    }
   },
   {
    "tier": 13,
    "free": {
-    "kind": "star_drop",
-    "amount": 1
+    "kind": "power_points",
+    "amount": 50
    },
    "premium": {
-    "kind": "pin",
-    "name": "Tony Pin"
+    "kind": "power_points",
+    "amount": 100
    }
   },
   {
    "tier": 14,
    "free": {
-    "kind": "coins",
-    "amount": 300
+    "kind": "bling",
+    "amount": 100
    },
    "premium": {
-    "kind": "star_drop",
-    "amount": 3
+    "kind": "bling",
+    "amount": 250
    }
   },
   {
    "tier": 15,
    "free": {
-    "kind": "power_points",
-    "amount": 100
+    "kind": "dawg_treat",
+    "amount": 1
    },
    "premium": {
     "kind": "gems",
+    "amount": 30
+   }
+  },
+  {
+   "tier": 16,
+   "free": {
+    "kind": "coins",
+    "amount": 200
+   },
+   "premium": {
+    "kind": "pin",
+    "name": "Sanjit Pin"
+   }
+  },
+  {
+   "tier": 17,
+   "free": {
+    "kind": "coins",
+    "amount": 100
+   },
+   "premium": {
+    "kind": "pin",
+    "name": "Leon Pin"
+   }
+  },
+  {
+   "tier": 18,
+   "free": {
+    "kind": "power_points",
+    "amount": 25
+   },
+   "premium": {
+    "kind": "gems",
+    "amount": 20
+   }
+  },
+  {
+   "tier": 19,
+   "free": {
+    "kind": "dawg_treat",
+    "amount": 1
+   },
+   "premium": {
+    "kind": "coins",
+    "amount": 500
+   }
+  },
+  {
+   "tier": 20,
+   "free": {
+    "kind": "dawg_treat",
+    "amount": 2,
+    "minTier": 3
+   },
+   "premium": {
+    "kind": "dawg_treat",
+    "amount": 2
+   }
+  },
+  {
+   "tier": 21,
+   "free": {
+    "kind": "power_points",
     "amount": 50
+   },
+   "premium": {
+    "kind": "power_points",
+    "amount": 100
+   }
+  },
+  {
+   "tier": 22,
+   "free": {
+    "kind": "bling",
+    "amount": 100
+   },
+   "premium": {
+    "kind": "bling",
+    "amount": 250
+   }
+  },
+  {
+   "tier": 23,
+   "free": {
+    "kind": "dawg_treat",
+    "amount": 1
+   },
+   "premium": {
+    "kind": "gems",
+    "amount": 30
+   }
+  },
+  {
+   "tier": 24,
+   "free": {
+    "kind": "coins",
+    "amount": 200
+   },
+   "premium": {
+    "kind": "pin",
+    "name": "Sanjit Pin"
+   }
+  },
+  {
+   "tier": 25,
+   "free": {
+    "kind": "coins",
+    "amount": 100
+   },
+   "premium": {
+    "kind": "pin",
+    "name": "Leon Pin"
+   }
+  },
+  {
+   "tier": 26,
+   "free": {
+    "kind": "power_points",
+    "amount": 25
+   },
+   "premium": {
+    "kind": "gems",
+    "amount": 20
+   }
+  },
+  {
+   "tier": 27,
+   "free": {
+    "kind": "dawg_treat",
+    "amount": 1
+   },
+   "premium": {
+    "kind": "coins",
+    "amount": 500
+   }
+  },
+  {
+   "tier": 28,
+   "free": {
+    "kind": "coins",
+    "amount": 150
+   },
+   "premium": {
+    "kind": "dawg_treat",
+    "amount": 2
+   }
+  },
+  {
+   "tier": 29,
+   "free": {
+    "kind": "power_points",
+    "amount": 50
+   },
+   "premium": {
+    "kind": "power_points",
+    "amount": 100
+   }
+  },
+  {
+   "tier": 30,
+   "free": {
+    "kind": "brawler",
+    "id": "henry"
+   },
+   "premium": {
+    "kind": "dawg_treat",
+    "amount": 3,
+    "minTier": 5
+   }
+  },
+  {
+   "tier": 31,
+   "free": {
+    "kind": "dawg_treat",
+    "amount": 1
+   },
+   "premium": {
+    "kind": "gems",
+    "amount": 30
+   }
+  },
+  {
+   "tier": 32,
+   "free": {
+    "kind": "coins",
+    "amount": 200
+   },
+   "premium": {
+    "kind": "pin",
+    "name": "Sanjit Pin"
+   }
+  },
+  {
+   "tier": 33,
+   "free": {
+    "kind": "coins",
+    "amount": 100
+   },
+   "premium": {
+    "kind": "pin",
+    "name": "Leon Pin"
+   }
+  },
+  {
+   "tier": 34,
+   "free": {
+    "kind": "power_points",
+    "amount": 25
+   },
+   "premium": {
+    "kind": "gems",
+    "amount": 20
+   }
+  },
+  {
+   "tier": 35,
+   "free": {
+    "kind": "dawg_treat",
+    "amount": 1
+   },
+   "premium": {
+    "kind": "coins",
+    "amount": 500
+   }
+  },
+  {
+   "tier": 36,
+   "free": {
+    "kind": "coins",
+    "amount": 150
+   },
+   "premium": {
+    "kind": "dawg_treat",
+    "amount": 2
+   }
+  },
+  {
+   "tier": 37,
+   "free": {
+    "kind": "power_points",
+    "amount": 50
+   },
+   "premium": {
+    "kind": "power_points",
+    "amount": 100
+   }
+  },
+  {
+   "tier": 38,
+   "free": {
+    "kind": "bling",
+    "amount": 100
+   },
+   "premium": {
+    "kind": "bling",
+    "amount": 250
+   }
+  },
+  {
+   "tier": 39,
+   "free": {
+    "kind": "dawg_treat",
+    "amount": 1
+   },
+   "premium": {
+    "kind": "gems",
+    "amount": 30
+   }
+  },
+  {
+   "tier": 40,
+   "free": {
+    "kind": "coins",
+    "amount": 1000
+   },
+   "premium": {
+    "kind": "skin",
+    "name": "Varsity Kovacs",
+    "brawler": "kovacs"
    }
   }
  ],

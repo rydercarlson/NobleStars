@@ -232,6 +232,14 @@ func _reward_icon(reward: Dictionary) -> String:
 			return "star_drop"
 		"skin":
 			return "brawlers"
+		"dawg_treat":
+			return "dawg_treat"
+		"bling":
+			return "bling"
+		"brawler":
+			return "brawlers"
+		"pin":
+			return "rank_badge"
 	return "token"
 
 func _reward_name(reward: Dictionary) -> String:
@@ -246,7 +254,15 @@ func _reward_name(reward: Dictionary) -> String:
 			return "Power Points"
 		"star_drop":
 			return "Star Drop"
-	return str(reward.get("kind", "")).replace("_", " ")
+		"dawg_treat":
+			return "Dawg Treat"
+		"bling":
+			return "Bling"
+		"brawler":
+			return "Brawler"
+		"pin":
+			return "Pin"
+	return str(reward.get("kind", "")).replace("_", " ").capitalize()
 
 func _scroll_to_current() -> void:
 	await get_tree().process_frame
