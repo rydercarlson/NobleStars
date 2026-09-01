@@ -234,7 +234,7 @@ func _label(pos: Vector2, size: int, align: int) -> Label:
 func start_match() -> void:
 	for c in get_children():
 		if c is Arena or c is GasRing or c is Fighter or c is Projectile or c is Lob or c is Boomerang \
-				or c is HackySack or c is OrbitingSack:
+				or c is HackySack:
 			c.queue_free()
 	for c in get_tree().get_nodes_in_group("lootbox") + get_tree().get_nodes_in_group("cube"):
 		c.queue_free()
@@ -500,35 +500,33 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			controller.is_controller = true
 			controller.on_land = _disconnect_lob_land
 			add_child(controller)
-		Kits.Style.HACKY_SACK:
-			# Never more sacks aloft than he has ammo pips. Recovery refunds the
-			# ammo that paid for a sack, so without a ceiling the count only
-			# ever climbs. Hand the pip back: the kick never happened.
-			var aloft := 0
+		Kits.Style.KEEP_IT_UP:
+			# One sack, always. A rally continues the existing sack rather than
+			# spawning another, so the count can never climb the way the old
+			# ammo-refunding version let it.
 			for n in get_children():
 				if n is HackySack and n.owner_fighter == f:
-					aloft += 1
-			if aloft >= int(Kits.MAX_AMMO):
-				f.ammo = minf(Kits.MAX_AMMO, f.ammo + 1.0)
-				return
+					f.ammo = minf(Kits.MAX_AMMO, f.ammo + 1.0)  # kick never happened
+					return
 			var sack := HackySack.new()
 			sack.weapon = weapon
-			sack.damage = int(weapon.damage * f.damage_multiplier())
+			sack.base_damage = int(weapon.damage * f.damage_multiplier())
 			sack.owner_fighter = f
+			sack.game = self
 			sack.direction = unit
-			sack.bounces_left = int(weapon.bounces)
-			sack.position = f.global_position + unit * 0.8 + Vector3(0, 0.8, 0)
-			sack.on_body_hit = _on_hacky_sack_hit
-			sack.on_pickup = _recover_hacky_sack
+			sack.position = f.global_position + unit * 0.8 + Vector3(0, 1.0, 0)
+			sack.on_enemy_hit = _on_rally_sack_hit
+			sack.on_rally = _on_rally_continued
 			add_child(sack)
-		Kits.Style.ORBIT_SACK:
-			var orbit := OrbitingSack.new()
-			orbit.game = self
-			orbit.owner_fighter = f
-			orbit.weapon = weapon
-			orbit.damage = int(weapon.damage * f.damage_multiplier())
-			orbit.on_hit = _on_orbiting_sack_hit
-			add_child(orbit)
+		Kits.Style.POP_OFF:
+			# Pops the sack up and leaps clear along the aim; the spike fires
+			# back down the same line on landing (see _update_leaps). Consumes
+			# whatever rally was in flight — it is "the" sack.
+			if authoritative:
+				for n in get_children():
+					if n is HackySack and n.owner_fighter == f:
+						n.queue_free()
+				f.begin_leap(weapon, unit, float(weapon.range))
 
 func _spawn_button_burst(f: Fighter, weapon: Dictionary, unit: Vector3) -> void:
 	var labels := ["A", "B", "X", "Y", "LB", "RB"]
@@ -641,44 +639,38 @@ func _disconnect_lob_land(lob: Lob) -> void:
 		zone.position = center
 		add_child(zone)
 
-func _on_hacky_sack_hit(body: Node3D, sack: HackySack) -> void:
-	if not is_instance_valid(sack) or body == sack.owner_fighter or not sack.can_bounce_from(body):
+## An enemy caught by the rally. The sack redirects itself afterwards, so this
+## only has to resolve damage.
+func _on_rally_sack_hit(target: Fighter, sack: HackySack) -> void:
+	if not is_instance_valid(sack) or target.is_dead():
 		return
-	if body is Fighter:
-		if body.is_dead():
-			return
-		sack.connected = true
-		deal_damage(sack.damage, body, _live(sack.owner_fighter), sack.direction, sack.weapon.knockback)
-	elif body.is_in_group("lootbox"):
-		sack.connected = true
-		_damage_lootbox(body, sack.damage)
-	elif body.is_in_group("water"):
-		return
-	sack.bounce_from(body.global_position, sack.last_hit_normal)
+	deal_damage(sack.rally_damage(), target, _live(sack.owner_fighter),
+			sack.direction, sack.weapon.knockback)
 
-func _recover_hacky_sack(sack: HackySack) -> void:
+## Anders got back under it. Free kick, no ammo touched — the rally IS the
+## reward for reading where it would land.
+func _on_rally_continued(sack: HackySack) -> void:
 	if not is_instance_valid(sack) or not is_instance_valid(sack.owner_fighter):
 		return
-	var owner: Fighter = sack.owner_fighter
-	# A sack kicked into empty air comes back as nothing. Refunding ammo on
-	# every recovery made shots free, which erased his Slow reload tier and let
-	# him keep eight sacks in the air at once.
-	if not sack.connected:
-		return
-	if owner.ammo < Kits.MAX_AMMO:
-		owner.ammo = minf(Kits.MAX_AMMO, owner.ammo + 1.0)
-		owner._popup("+1 AMMO", Color(0.3, 0.95, 0.85))
-	else:
-		var heal := mini(480, owner.max_health - owner.health)   # ~10% of base health
-		owner.health += heal
-		owner._popup("+%d HP" % heal, Color(0.35, 1.0, 0.5))
+	sack.owner_fighter.play_attack_animation(now)
+	sack.owner_fighter._popup("RALLY %d" % sack.rally, Color(1.0, 0.78, 0.3))
 
-func _on_orbiting_sack_hit(target: Fighter, orbit: OrbitingSack) -> void:
-	if not is_instance_valid(orbit) or target.is_dead():
-		return
-	var push := target.global_position - orbit.owner_fighter.global_position
-	push.y = 0
-	deal_damage(orbit.damage, target, _live(orbit.owner_fighter), push.normalized(), orbit.weapon.knockback)
+## Pop Off's returning kick: a fast piercing sack fired back toward where he
+## jumped from, knocking whoever dived him away rather than into him.
+func _pop_off_spike(f: Fighter, weapon: Dictionary, dir: Vector3) -> void:
+	f.play_attack_animation(now, true)
+	var proj := Projectile.new()
+	proj.weapon = weapon
+	proj.damage = int(weapon.damage * f.damage_multiplier())
+	proj.owner_fighter = f
+	proj.direction = dir
+	proj.position = f.global_position + dir * 0.8 + Vector3(0, 1.0, 0)
+	proj.origin = proj.position
+	proj.body_entered.connect(_on_projectile_hit.bind(proj))
+	proj.on_sweep_hit = _on_projectile_hit
+	if sim_active:
+		_sim_kit(f.kit.name).p_spawn += 1
+	add_child(proj)
 
 func _on_boomerang_hit(body: Node3D, boom: Boomerang) -> void:
 	if not is_instance_valid(boom):
@@ -854,7 +846,14 @@ func _update_leaps(delta: float) -> void:
 		if p >= 1.0:
 			f.global_position.y = 0.0
 			f.leap = {}
-			_ground_smash(f, leap.weapon, f.global_position)
+			if int(leap.weapon.style) == Kits.Style.POP_OFF:
+				# Spike it back down the line he just leapt along, so aiming the
+				# escape is the same act as aiming the counter-attack.
+				var back: Vector3 = (start - landing)
+				back.y = 0.0
+				_pop_off_spike(f, leap.weapon, back.normalized() if back.length() > 0.01 else f.facing)
+			else:
+				_ground_smash(f, leap.weapon, f.global_position)
 
 # MARK: senses
 
@@ -1119,8 +1118,7 @@ func _update_aim_indicator() -> void:
 	var style := int(weapon.style)
 	var targeted := style == Kits.Style.LOB or style == Kits.Style.JUMP_SMASH \
 			or style == Kits.Style.DISCONNECT
-	var orbiting := style == Kits.Style.ORBIT_SACK
-	var bouncing := style == Kits.Style.HACKY_SACK
+	var bouncing := style == Kits.Style.KEEP_IT_UP
 	var cone := style == Kits.Style.MELEE or style == Kits.Style.SHOCKWAVE \
 			or style == Kits.Style.BUTTONS \
 			or (style == Kits.Style.PELLETS and int(weapon.pellets) > 1 \
@@ -1130,11 +1128,11 @@ func _update_aim_indicator() -> void:
 
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	im.surface_set_color(color)
-	if targeted or orbiting:
+	if targeted:
 		# Targeted attacks use an impact-zone marker rather than a misleading
 		# cone. Orbit attacks show the area around the fighter instead.
-		var center := origin if orbiting else origin + dir * target_dist
-		var radius: float = weapon.range if orbiting else weapon.aoe
+		var center := origin + dir * target_dist
+		var radius: float = weapon.aoe
 		for i in 24:
 			var a0 := TAU * i / 24.0
 			var a1 := TAU * (i + 1) / 24.0
@@ -1454,7 +1452,7 @@ func _start_from_roster(roster: Array) -> void:
 	_match_ready = false
 	for c in get_children():
 		if c is Arena or c is GasRing or c is Fighter or c is Projectile or c is Lob or c is Boomerang \
-				or c is HackySack or c is OrbitingSack:
+				or c is HackySack:
 			c.queue_free()
 	for c in get_tree().get_nodes_in_group("lootbox") + get_tree().get_nodes_in_group("cube"):
 		c.queue_free()

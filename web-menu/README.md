@@ -7,13 +7,17 @@ A fully interactive, Brawl Stars-style home menu for **Nobles Brawl**. Plain HTM
 ## Run it
 
 ```bash
-# any static server works — the menu is just files
-npx serve .            # then open http://localhost:3000
-# or
-python3 -m http.server 8080   # http://localhost:8080
+npm install
+npm start              # then open http://localhost:3000
 ```
 
-Opening `index.html` straight from disk will **not** work (ES modules + fetch need http). GitHub Pages works out of the box: Settings → Pages → deploy from `main` / root.
+`npm start` runs the local menu launcher. When matchmaking completes it starts
+the Godot project with the chosen brawler and mode. Set `NOBLES_GODOT_BIN` if
+Godot is not installed at `/Applications/Godot.app` or available as `godot4`.
+Use `npm run start:static` for a menu-only server; PLAY will explain that the
+native launcher is unavailable. Opening `index.html` straight from disk will
+not work (ES modules + fetch need HTTP). GitHub Pages can host the menu, but a
+web page cannot launch the native Godot game on a player's computer.
 
 ## What's in the menu
 
@@ -25,7 +29,7 @@ Opening `index.html` straight from disk will **not** work (ES modules + fetch ne
 | **Nobles Pass** | Season header, free / premium lanes, claimable tiers, premium unlock, token progress. |
 | **News / Friends / Club / Inbox** | Cards, online friends with invites, club roster + working chat, mail with claimable rewards and unread badges. |
 | **Choose Event** | All modes with Nobles-themed maps → detail → select (updates the home mode plate). |
-| **PLAY** | Matchmaking lobby that fills with players, MATCH FOUND, hand-off screen to the (future) battle scene, simulated result with trophies/coins/tokens. |
+| **PLAY** | Matchmaking lobby that fills with players, then launches the Godot Solo Showdown match with the selected brawler. |
 | **Menu / Profile** | Settings (music, SFX, hints, reset), player name change, stats. |
 
 State (currencies, unlocks, claims, name, settings) persists in `localStorage`. Reset it from Settings → Reset progress.

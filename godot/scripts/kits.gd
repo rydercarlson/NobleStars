@@ -47,7 +47,7 @@ const MOVE_SPEED := SPEED_NORMAL               # default; kits override via "mov
 const MAX_WEAPON_RANGE_TILES := 5.5
 const MAX_SUPER_RANGE_TILES := 6.5
 
-enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG, SHOCKWAVE, JUMP_SMASH, BUTTONS, DISCONNECT, HACKY_SACK, ORBIT_SACK }
+enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG, SHOCKWAVE, JUMP_SMASH, BUTTONS, DISCONNECT, KEEP_IT_UP, POP_OFF }
 
 static func all() -> Array:
 	return [nova(), tony(), henry(), sanjit(), kovacs(), leon(), anders()]
@@ -284,41 +284,46 @@ static func leon() -> Dictionary:
 		},
 	}
 
-## Health Normal · Speed Normal · Reload Slow · Range Long 5.5
-## Skirmisher: kicks a slow sack out at range and gets it back for ammo or HP.
-## A=1.00, not 0.85 — piercing and bouncing are worth nothing if the first hit
-## misses, and at 16 m/s his sack is the slowest projectile in the game, so it
-## is no easier to land than anyone else's. U is deliberately NOT applied even
-## though the return is now reliable: he was the weakest kit by a wide margin
-## (2.7% wins over 120 sim matches), so the recovery rides free until a sim
-## says it needs paying for.
-## 1250 × 1.222(R) × 0.85(G) × 1.00(M) × 1.00(S) × 1.00(A) × 1.00(U) = 1299
+## Health Normal · Speed Normal · Reload Slow · Range Medium 4.5
+## Skirmisher. A rally kit: one sack, kicked between him and whoever he is
+## fighting. Every touch sends it to the NEAREST fighter, so recovering it is a
+## positioning read rather than a footrace — be the closest when it bounces and
+## it comes back to you for a free kick that hits harder.
+##
+## A=0.85 (Forgiving), which is not what it looks like on paper: because every
+## touch redirects to the NEAREST fighter, a miss converts itself into a hit on
+## somebody else. 43% of sacks find a body. It homes, so it is priced as homing.
+##
+## The rally makes the per-attack formula a poor fit — one ammo carries up to
+## three touches — so his damage is calibrated against MEASURED eDPS instead.
+## At 800 he realised 632 eDPS, level with Henry while being safely at range;
+## 600 puts him near Tony (427) and Nova (485), where a mid-range kit belongs.
+## Ramped +25% a step: 500 / 625 / 750, so a perfect rally is 1875.
+## Trimmed toward the low side on purpose: the sim probably under-rates him,
+## because bots collect rallies passively from the redirect while a player will
+## set them up deliberately. He measured 22.7% wins at 550 against a 14.3%
+## target, so expect to want another cut rather than a buff.
 static func anders() -> Dictionary:
 	return {
 		"name": "Anders", "color": Color(0.2, 0.88, 0.78),
 		"role": "Skirmisher",
-		"desc": "Kicks a bouncing hacky sack, then recovers it for ammo or health.",
-		"super_desc": "Around the World: a spinning sack knocks enemies out of his space.",
+		"desc": "Keeps a hacky sack alive — every touch kicks it to whoever is closest, and catching it yourself continues the rally for free.",
+		"super_desc": "Pop Off: flicks the sack up and leaps clear, then spikes it back the way he came.",
 		"max_health": HEALTH_NORMAL,
 		"move_speed": SPEED_NORMAL,
 		"reload": RELOAD_SLOW,
 		"weapon": {
-			"style": Style.HACKY_SACK, "pellets": 1, "spread_deg": 0.0, "damage": 1300,
-			"range": 5.5 * TILE, "speed": 16.0, "radius": 0.26,
-			"destroys_walls": false, "knockback": 3.0, "pierces": true,
-			"aoe": 0.0, "water_mult": 1.0, "bounces": 3,
+			"style": Style.KEEP_IT_UP, "pellets": 1, "spread_deg": 0.0, "damage": 500,
+			"range": 4.5 * TILE, "speed": 18.0, "radius": 0.26,
+			"destroys_walls": false, "knockback": 3.0, "pierces": false,
+			"aoe": 0.0, "water_mult": 1.0,
 		},
-		# Bodyguard ring. orbit_radius is how far out the sack circles; `range`
-		# stays the reach that tells a bot when popping it is worth it. They were
-		# the same field before, which put the ring 6 m out — a 2 m band that
-		# could not touch anyone actually diving him.
-		# 2.4x total (3120) spread over the passes a target eats before the
-		# knockback throws them clear: ~2-3 typical, 5 hard-capped by hit_cooldown.
+		# The escape is the utility, so 1.4x rather than 1.8x. `range` is how far
+		# he leaps; the spike travels back along the leap at weapon range.
 		"super": {
-			"style": Style.ORBIT_SACK, "pellets": 1, "spread_deg": 360.0, "damage": 700,
-			"range": 3.0 * TILE, "speed": 0.0, "radius": 0.5,
-			"destroys_walls": false, "knockback": 8.0, "pierces": true,
-			"aoe": 0.0, "water_mult": 1.0, "duration": 3.0,
-			"orbit_radius": 0.9 * TILE, "hit_cooldown": 0.55,
+			"style": Style.POP_OFF, "pellets": 1, "spread_deg": 0.0, "damage": 1800,
+			"range": 3.5 * TILE, "speed": 22.0, "radius": 0.34,
+			"destroys_walls": false, "knockback": 12.0, "pierces": true,
+			"aoe": 0.0, "water_mult": 1.0, "spike_range": 5.0 * TILE,
 		},
 	}

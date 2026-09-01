@@ -40,11 +40,15 @@ Stars-style interactive home (auditorium stage, live 3D brawlers with baked
 idles, roster/shop/pass/social screens) built as plain HTML/JS + three.js. It
 supersedes the in-engine Godot lobby as the menu of record: the Godot lobby
 stays as the functional in-game entry point, but menu look, structure, and
-roster presentation are authored there. Run it with any static server:
+roster presentation are authored there. Run the local launcher so PLAY can
+hand off to Godot:
 
 ```sh
-cd web-menu && python3 -m http.server 8080   # http://localhost:8080
+cd web-menu && npm install && npm start   # http://localhost:3000
 ```
+
+Solo Showdown is wired through today. The other web-menu events remain previews
+until their Godot game modes are implemented.
 
 ## Development
 

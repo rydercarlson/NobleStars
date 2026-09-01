@@ -35,7 +35,7 @@ func _ready() -> void:
 	elif OS.get_environment("NS3_KIT") != "" or OS.get_environment("NS3_AUTOFIRE") != "" \
 			or OS.get_environment("NS3_SIM") != "":
 		Session.kit = Kits.named(OS.get_environment("NS3_KIT"))
-		Session.mode = "showdown"
+		Session.mode = OS.get_environment("NS3_MODE") if OS.get_environment("NS3_MODE") != "" else "showdown"
 		get_tree().change_scene_to_file.call_deferred("res://game.tscn")
 		return
 

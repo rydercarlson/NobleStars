@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs><radialGradient id="c" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#fff2a8"/><stop offset=".5" stop-color="#ffc21a"/><stop offset="1" stop-color="#d47d00"/></radialGradient></defs>
+  <circle cx="32" cy="32" r="28" fill="url(#c)" stroke="#5a3200" stroke-width="3"/>
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#b86a00" stroke-width="3"/>
+  <text x="32" y="42" font-family="Lilita One, Arial Black, sans-serif" font-size="28" text-anchor="middle" fill="#8a4c00">$</text>
+  <ellipse cx="22" cy="18" rx="7" ry="4" fill="#fff" opacity=".55" transform="rotate(-30 22 18)"/>
+</svg>

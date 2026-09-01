@@ -232,7 +232,19 @@ func end_dash() -> void:
 	collision_mask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 5)
 
 func begin_leap(weapon: Dictionary, direction: Vector3, distance: float) -> void:
-	var landing := global_position + direction.normalized() * clampf(distance, Kits.TILE, weapon.range)
+	var dir := direction.normalized()
+	var landing := global_position + dir * clampf(distance, Kits.TILE, weapon.range)
+	# Sweep for terrain first. Kovacs leaps forward into open ground and got
+	# away without this, but Pop Off leaps BACKWARD to escape a diver, so the
+	# aim points at whatever is behind him — landing inside a wall is the
+	# common case there, not the edge case.
+	var q := PhysicsRayQueryParameters3D.create(
+			global_position + Vector3(0, 0.8, 0), landing + Vector3(0, 0.8, 0), 1)
+	q.exclude = [get_rid()]
+	var blocked := get_world_3d().direct_space_state.intersect_ray(q)
+	if not blocked.is_empty():
+		var stop: Vector3 = blocked.position - Vector3(0, 0.8, 0) - dir * 0.6
+		landing = stop if stop.distance_to(global_position) > 0.3 else global_position
 	leap = {"weapon": weapon, "start": global_position, "landing": landing, "elapsed": 0.0,
 			"duration": 0.48}
 	face_direction(direction)

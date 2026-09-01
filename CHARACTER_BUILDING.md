@@ -237,11 +237,19 @@ Seven fighters, all rebalanced to this framework.
 | **Sanjit** | Assassin | Normal 5000 | V.Fast 8.4 | Fast 1.4 | V.Short 1.8 | 1.15 | — | 879 | 1230 (2 × 615) |
 | **Kovacs** | Tank | V.High 6500 | V.Slow 5.6 | Normal 1.8 | Short 2.5 | 0.85 | — | 667 | 1200 |
 | **Leon** | Controller | Low 4250 | Normal 7.0 | Fast 1.4 | Long 5.0 | 1.40 | — | 876 | 1224 (6 × 204) |
-| **Anders** | Skirmisher | Normal 5000 | Normal 7.0 | Slow 2.2 | Long 5.5 | 1.00 | 1.00 | 591 | 1300 |
+| **Anders** | Skirmisher | Normal 5000 | Normal 7.0 | Slow 2.2 | Medium 4.5 | 0.85 | — | ~470 meas. | 500 / 625 / 750 rally |
 
 **Nova is the reference kit** — Normal in all four tiers, so her only modifier
 is the 1.15 for a shotgun that has to close distance. Every other fighter is
 readable as a deviation from her.
+
+**A rally kit does not fit the per-attack formula.** Anders spends one ammo on a
+sack that can touch three times, so `damage_per_attack` has no single meaning.
+He is calibrated against *measured* eDPS (`dmg/atk ÷ reload`) relative to the
+roster instead, and his A is 0.85 rather than the 1.15 the paper design implies:
+every touch redirects to the nearest fighter, so a miss converts itself into a
+hit on somebody else. Just over half his sacks find a body — it homes, so it is
+priced as homing. When a kit's attack has state, calibrate, don't compute.
 
 **Don't stack A and U on the same kit without proof.** Anders originally took
 both discounts (0.85 × 0.85 = 0.72) and finished a 120-match sim at 2.7% wins.

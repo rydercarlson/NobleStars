@@ -4,7 +4,8 @@
   "private": true,
   "description": "Nobles Brawl — Brawl Stars-style interactive menu (static, no build step)",
   "scripts": {
-    "start": "npx -y serve -l 3000 .",
+    "start": "node tools/launcher.mjs",
+    "start:static": "npx -y serve -l 3000 .",
     "optimize": "gltf-transform optimize --texture-size 2048 --texture-compress webp --compress false --simplify false --flatten false --join false",
     "portraits": "node tools/portraits.mjs",
     "screenshots": "node tools/screenshots.mjs",

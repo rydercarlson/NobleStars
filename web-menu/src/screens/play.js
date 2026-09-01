@@ -1,6 +1,6 @@
-// MODE SELECT + MATCHMAKING (lobby -> searching -> match found -> "coming soon" battle stub)
+// MODE SELECT + MATCHMAKING (lobby -> searching -> match found -> Godot)
 
-import { h, icon, fmt, openScreen, topbar, toast, stagger, burst, popup } from '../ui.js';
+import { h, icon, openScreen, topbar, toast, stagger } from '../ui.js';
 import { state, save, emit } from '../state.js';
 import { url } from '../assets.js';
 import { game, currentBrawler, currentMode, lighten } from '../main.js';
@@ -71,50 +71,48 @@ export function matchmaking() {
       title.replaceWith(h('div.found.t.outline', {}, 'MATCH FOUND!'));
       timer.textContent = 'Loading ' + m.map + '…'; cancel.remove();
       slots.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }], { duration: 400 });
-      setTimeout(() => { if (!cancelled && document.body.contains(el)) { api.close(); battleStub(m); } }, 1800);
+      setTimeout(async () => {
+        if (cancelled || !document.body.contains(el)) return;
+        timer.textContent = 'Starting Godot…';
+        const result = await launchGodot(m);
+        if (cancelled || !document.body.contains(el)) return;
+        api.close();
+        if (result.ok) toast(`${currentBrawler().name} is entering ${m.map}`, { iconName: m.icon });
+        else launchError(m, result.error);
+      }, 1800);
     };
     setTimeout(fill, 500);
   }, { name: 'matchmaking' });
 }
 
-function battleStub(m) {
+async function launchGodot(m) {
+  try {
+    const response = await fetch('/api/play', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ brawler: currentBrawler().id, mode: m.id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    return { ok: response.ok && result.ok, error: result.error || `Launcher returned ${response.status}` };
+  } catch (error) {
+    return { ok: false, error: 'The Godot launcher is not connected. Start the menu with npm start.' };
+  }
+}
+
+function launchError(m, message) {
   openScreen((el, api) => {
     const content = h('div.content.center');
     const box = h('div.plate', { style: { width: '900px', padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px', textAlign: 'center' } },
       icon(m.icon, ''), h('div.t.outline', { style: { font: '70px/1 var(--font-display)' } }, m.map.toUpperCase()),
-      h('div', { style: { font: '800 26px/1.4 var(--font-body)', color: '#d8def0' } }, 'The battle scene is the next thing to build. This menu hands off here with the selected mode, map and brawler:'),
+      h('div.t.outline.thin', { style: { font: '42px/1 var(--font-display)', color: 'var(--red)' } }, 'COULD NOT START MATCH'),
+      h('div', { style: { font: '800 26px/1.4 var(--font-body)', color: '#d8def0' } }, message),
       h('div', { style: { display: 'flex', gap: '20px', alignItems: 'center', margin: '10px 0' } },
         h('div', { style: { width: '120px', height: '120px', borderRadius: '18px', border: '3px solid var(--line)', overflow: 'hidden', background: '#10131f' } }, h('img', { src: url(currentBrawler().portrait), style: { width: '130%', margin: '10% 0 0 -15%' } })),
         h('div', { style: { textAlign: 'left' } }, h('div.t.outline.thin', { style: { font: '40px/1 var(--font-display)' } }, currentBrawler().name), h('div', { style: { font: '800 22px var(--font-body)', color: 'var(--text-dim)' } }, `${m.name} · ${m.sub}`))),
-      h('div', { style: { display: 'flex', gap: '16px' } },
-        h('button.btn.yellow.big', { onClick: () => { // simulate a result
-          const won = Math.random() < 0.6; const dt = won ? 8 : -4; const coins = won ? 40 : 10;
-          state.trophies = Math.max(0, state.trophies + dt); state.coins += coins; state.matches++;
-          const bt = state.brawlerTrophies[currentBrawler().id] ?? currentBrawler().trophies; state.brawlerTrophies[currentBrawler().id] = Math.max(0, bt + dt);
-          state.passTokens += 100; const s = game.data.season; while (state.passTokens >= s.tokensPerTier && state.passTier < s.maxTier) { state.passTokens -= s.tokensPerTier; state.passTier++; }
-          save(); emit('currency', {}); emit('profile');
-          api.close(); results(won, dt, coins);
-        } }, 'SIMULATE RESULT'),
-        h('button.btn.grey', { onClick: () => api.close() }, 'BACK TO MENU')));
+      h('button.btn.grey', { onClick: () => api.close() }, 'BACK TO MENU'));
     box.querySelector('img').style.height = '140px';
     content.append(box); el.append(content);
   }, { name: 'battle', popup: true });
-}
-
-function results(won, dt, coins) {
-  openScreen((el, api) => {
-    const content = h('div.content.center');
-    const box = h('div.plate', { style: { width: '760px', padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' } },
-      h('div.t.outline', { style: { font: '110px/1 var(--font-display)', color: won ? 'var(--green)' : 'var(--red)' } }, won ? 'VICTORY!' : 'DEFEAT'),
-      h('div', { style: { display: 'flex', gap: '30px' } },
-        h('div.reward-pill', icon('trophy'), (dt >= 0 ? '+' : '') + dt),
-        h('div.reward-pill', icon('coin'), '+' + coins),
-        h('div.reward-pill', icon('token'), '+100')),
-      h('button.btn.yellow.big', { onClick: () => api.close(), style: { marginTop: '14px' } }, 'CONTINUE'));
-    content.append(box); el.append(content);
-    setTimeout(() => { const r = box.getBoundingClientRect(); burst(960, 380, won ? 'trophy' : 'token', 20); }, 200);
-    sfx(won ? 'found' : 'error');
-  }, { name: 'results', popup: true });
 }
 
 function shuffle(a) { const b = [...a]; for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; }
