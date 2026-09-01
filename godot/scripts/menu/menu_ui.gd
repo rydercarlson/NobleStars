@@ -43,6 +43,11 @@ const PNG_ICONS := {
 	"new_badge": "new_badge",
 }
 
+## Icons whose WebP file under icons/ is not simply "<name>.webp".
+const WEBP_ICONS := {
+	"dawg_treat": "dawg_treat_icon",
+}
+
 static var _fonts: Dictionary = {}
 static var _plates: Dictionary = {}
 static var _icons: Dictionary = {}
@@ -113,6 +118,13 @@ static func icon_texture(icon_name: String) -> Texture2D:
 	var path: String = ICON_DIR + icon_name + ".svg"
 	if PNG_ICONS.has(icon_name):
 		path = PNG_ICON_DIR + str(PNG_ICONS[icon_name]) + ".png"
+	elif not ResourceLoader.exists(path):
+		# The v0.5 art pack arrived as WebP under icons/; resolve by name so the
+		# mode, currency, gear and rank icons are addressable without a mapping.
+		var stem: String = str(WEBP_ICONS.get(icon_name, icon_name))
+		var webp: String = PNG_ICON_DIR + stem + ".webp"
+		if ResourceLoader.exists(webp):
+			path = webp
 	var tex: Texture2D = load(path) if ResourceLoader.exists(path) else null
 	_icons[icon_name] = tex
 	return tex

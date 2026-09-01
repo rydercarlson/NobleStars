@@ -81,8 +81,16 @@ func _rail() -> Control:
 	rail.add_child(line)
 	return rail
 
-func _milestone(reward: Dictionary, total: int) -> VBoxContainer:
-	var goal: int = int(reward.get("trophies", 0))
+## A milestone's payload. Entries are `{trophies, reward: {kind, ...}}`; the
+## older flat `{trophies, kind, ...}` shape is still accepted so a save or a
+## hand-edited game.json from before the split keeps working.
+static func _payload(entry: Dictionary) -> Dictionary:
+	var nested: Variant = entry.get("reward")
+	return nested if nested is Dictionary else entry
+
+func _milestone(entry: Dictionary, total: int) -> VBoxContainer:
+	var goal: int = int(entry.get("trophies", 0))
+	var reward: Dictionary = _payload(entry)
 	var claim_id := "road:%d" % goal
 	var reached: bool = total >= goal
 	var claimed: bool = SaveGame.is_claimed(claim_id)
@@ -115,6 +123,10 @@ func _milestone(reward: Dictionary, total: int) -> VBoxContainer:
 	var name: Label = MenuUI.wrap(MenuUI.display(_reward_name(reward), 28,
 			MenuUI.TEXT if reached else MenuUI.TEXT_DIM, 3))
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# Reserve two lines so a wrapping name ("50 POWER POINTS") does not make its
+	# card taller than its neighbours and leave the row ragged.
+	name.custom_minimum_size = Vector2(0, 74)
+	name.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	contents.add_child(name)
 	contents.add_child(MenuUI.spacer())
 
@@ -170,6 +182,12 @@ func _reward_icon(reward: Dictionary) -> String:
 			return "brawlers"
 		"brawler_drop":
 			return "brawlers"
+		"power_points":
+			return "power_point"
+		"dawg_treat":
+			return "dawg_treat"
+		"bling":
+			return "bling"
 	return "trophy"
 
 func _reward_name(reward: Dictionary) -> String:
@@ -186,6 +204,12 @@ func _reward_name(reward: Dictionary) -> String:
 			return "%s GEMS" % MenuUI.fmt(amount)
 		"star_drop":
 			return "%s STAR DROP%s" % [MenuUI.fmt(amount), "S" if amount != 1 else ""]
+		"power_points":
+			return "%s POWER POINTS" % MenuUI.fmt(amount)
+		"bling":
+			return "%s BLING" % MenuUI.fmt(amount)
+		"dawg_treat":
+			return "%s DAWG TREAT%s" % [MenuUI.fmt(amount), "S" if amount != 1 else ""]
 	return str(reward.get("name", kind)).replace("_", " ").to_upper()
 
 func _claim(claim_id: String, reward: Dictionary, button: Control) -> void:
@@ -195,12 +219,17 @@ func _claim(claim_id: String, reward: Dictionary, button: Control) -> void:
 	var kind: String = str(reward.get("kind", "coins"))
 	var amount: int = int(reward.get("amount", 1))
 	var unlocked_brawler: Dictionary = {}
-	if kind == "coins" or kind == "gems":
+	var unlock_title := "Brawler Drop"
+	if kind in ["coins", "gems", "power_points", "bling", "dawg_treat"]:
 		SaveGame.grant(kind, amount)
 		menu.refresh_currencies()
 	elif kind == "brawler":
-		SaveGame.unlock(str(reward.get("id", "")))
+		var unlock_id: String = str(reward.get("id", ""))
+		SaveGame.unlock(unlock_id)
 		SaveGame.save()
+		# A named road unlock earns the same reveal a random drop gets.
+		unlocked_brawler = MenuData.brawler(unlock_id)
+		unlock_title = "Brawler Unlocked"
 	elif kind == "brawler_drop":
 		unlocked_brawler = _unlock_random_brawler()
 		SaveGame.save()
@@ -219,7 +248,7 @@ func _claim(claim_id: String, reward: Dictionary, button: Control) -> void:
 	var drops: int = amount if kind == "star_drop" else 0
 	_reopen()
 	if not unlocked_brawler.is_empty():
-		_show_brawler_unlock(unlocked_brawler)
+		_show_brawler_unlock(unlocked_brawler, unlock_title)
 	for i in drops:
 		get_tree().create_timer(0.35 + i * 0.12).timeout.connect(func() -> void:
 			ShopScreen.open_star_drop(menu))
@@ -250,8 +279,8 @@ func _unlock_random_brawler() -> Dictionary:
 	SaveGame.unlock(str(pick.get("id", "")))
 	return pick
 
-func _show_brawler_unlock(brawler: Dictionary) -> void:
-	var popup: MenuPopup = menu.popup("Brawler Drop", 720)
+func _show_brawler_unlock(brawler: Dictionary, title: String = "Brawler Drop") -> void:
+	var popup: MenuPopup = menu.popup(title, 720)
 	var column := MenuUI.vbox(10)
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	popup.body_box.add_child(column)

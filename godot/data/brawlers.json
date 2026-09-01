@@ -38,7 +38,11 @@
    "trophies": 412,
    "rank": 12,
    "power": 7,
-   "pins": 4
+   "pins": 4,
+   "gadget": "Extra Clip",
+   "gear": "Hall Pass",
+   "hypercharge": "Fire Drill",
+   "starPower": "Class Clown"
   },
   {
    "id": "sanjit",
@@ -78,7 +82,11 @@
    "trophies": 305,
    "rank": 10,
    "power": 5,
-   "pins": 2
+   "pins": 2,
+   "gadget": "Belt Test",
+   "gear": "Warm-Up",
+   "hypercharge": "Black Belt",
+   "starPower": "Dojo Discipline"
   },
   {
    "id": "tony",
@@ -116,7 +124,11 @@
    "trophies": 188,
    "rank": 8,
    "power": 4,
-   "pins": 1
+   "pins": 1,
+   "gadget": "Second Serve",
+   "gear": "Sweatband",
+   "hypercharge": "Grand Slam",
+   "starPower": "Match Point"
   },
   {
    "id": "kovacs",
@@ -156,7 +168,11 @@
    "rank": 1,
    "power": 1,
    "pins": 0,
-   "unlockHint": "Found in Star Drops"
+   "unlockHint": "Found in Star Drops",
+   "gadget": "Protein Shake",
+   "gear": "Weight Belt",
+   "hypercharge": "Max Rep",
+   "starPower": "Gym Rat"
   },
   {
    "id": "henry",
@@ -195,7 +211,11 @@
    "rank": 1,
    "power": 1,
    "pins": 0,
-   "unlockHint": "Nobles Pass \u00b7 Tier 30"
+   "unlockHint": "Nobles Pass \u00b7 Tier 30",
+   "gadget": "Trail Mix",
+   "gear": "Hiking Boots",
+   "hypercharge": "Wilderness Week",
+   "starPower": "Survivor"
   }
  ],
  "rarities": {

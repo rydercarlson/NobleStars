@@ -23,6 +23,9 @@ static var loaded := false
 static var coins: int = 0
 static var gems: int = 0
 static var star_points: int = 0
+static var power_points: int = 0
+static var bling: int = 0
+static var dawg_treats: int = 0
 static var level: int = 6
 static var matches: int = 0
 static var trophies: Dictionary = {}      # kit name -> int
@@ -71,6 +74,9 @@ static func ensure_loaded() -> void:
 	coins = int(data.get("coins", 0))
 	gems = int(data.get("gems", 0))
 	star_points = int(data.get("star_points", 0))
+	power_points = int(data.get("power_points", 0))
+	bling = int(data.get("bling", 0))
+	dawg_treats = int(data.get("dawg_treats", 0))
 	level = int(data.get("level", level))
 	matches = int(data.get("matches", 0))
 	selected_kit = str(data.get("selected_kit", selected_kit))
@@ -138,6 +144,9 @@ static func save() -> void:
 		"coins": coins,
 		"gems": gems,
 		"star_points": star_points,
+		"power_points": power_points,
+		"bling": bling,
+		"dawg_treats": dawg_treats,
 		"level": level,
 		"matches": matches,
 		"trophies": trophies,
@@ -164,6 +173,9 @@ static func reset() -> void:
 	coins = 0
 	gems = 0
 	star_points = 0
+	power_points = 0
+	bling = 0
+	dawg_treats = 0
 	matches = 0
 	trophies = {}
 	power = {}
@@ -260,6 +272,12 @@ static func grant(kind: String, amount: int) -> void:
 			gems += amount
 		"star_points":
 			star_points += amount
+		"power_points":
+			power_points += amount
+		"bling":
+			bling += amount
+		"dawg_treat":
+			dawg_treats += amount
 	save()
 
 ## Adds pass tokens, rolling tiers over. Returns how many tiers were gained.
