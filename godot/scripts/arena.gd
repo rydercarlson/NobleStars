@@ -1,40 +1,62 @@
 class_name Arena
 extends Node3D
-## Builds the 3D arena from the same ASCII map as the 2D game and answers
-## tile queries. Row 0 of the ASCII art is the map's -Z (far) edge.
+## Builds the 3D arena from an ASCII map and answers tile queries. Row 0 of
+## the ASCII art is the map's -Z (far) edge.
+##
+## The map is 33x33 — a Brawl Stars Showdown map rescaled to our fighters.
+## Theirs is 60x60 tiles with a brawler about a tile wide; ours is 33x33 with a
+## 1.10 m fighter on 2 m tiles, so both arenas are 60 body-widths across, and at
+## SPEED_NORMAL crossing one takes the same ~24 s it does there.
+##
+## Terrain has exact 4-fold rotational symmetry about the centre tile: features
+## are authored in one quadrant and rotated, so no spawn has a better draw than
+## any other, but the angles are chiral rather than mirrored so it reads as a
+## pinwheel instead of a kaleidoscope. Concentric bush rings break line of
+## sight, their gaps offset ring to ring; ponds sit in the four cardinal lanes
+## so the straight run at the centre keep costs you a detour. The keep itself
+## is a walled 7x7 with four 3-tile gates holding five of the seventeen power
+## cubes, and the gas ring closes onto it.
+##
+## Every gap is sized for a 1.10 m fighter (Kits.FIGHTER_RADIUS) and the
+## generator refuses to emit a map with a cul-de-sac or a pocket sealed behind
+## a single tile — being cornered in Showdown should be a mistake you made, not
+## one the map made for you. Retune it in Tools/gen_showdown_map.py and
+## regenerate with `python3 Tools/gen_showdown_map.py --write`.
 
 const MAP := """
-##############################
-#............................#
-#.S....bbb..........bb.....S.#
-#......bbb....##....bb.......#
-#..##..bbb....##.........##..#
-#..##.........##....X....##..#
-#.......X................##..#
-#.............bb.............#
-#...~~~.......bb....####.....#
-#...~~~~......bb....#........#
-#.S.~~~~............#..X...S.#
-#....~~........X....#........#
-#..........................b.#
-#.....##...........##......b.#
-#.....##....bbbb...##......b.#
-#.S...##....bbbb...##........#
-#...........bbbb.......X...S.#
-#..X.........................#
-#........####................#
-#...bb......#.......~~~~.....#
-#...bb..X...#......~~~~~~....#
-#...bb......#.......~~~~.....#
-#.S..........................#
-#............##......bbb...S.#
-#....bb......##......bbb.....#
-#....bb......##..X...bbb.....#
-#....bb......................#
-#.S......X.........X.....S...#
-#............................#
-#............................#
-##############################
+#################################
+#..#.bb...............##..bb....#
+#..#bb.S##.....S......##.S.bbb..#
+#.bb.....X....b#b##..........b###
+#.b..~~....bbbbbb##bbb....~~..b.#
+#bb.~####.bb..~~.~~..Xbb...#~.bb#
+#b..~..##.#...#...~##..b...#~..b#
+#.............#...........##....#
+#............bb...bb###...##..#.#
+###..bb.....bb#...bb###......X#.#
+###S.b..##bbb....##.bXb...#b..S.#
+#...bX..##Xb.##..##..bb....bb...#
+#...b.#.##b..##.......bb....b...#
+#...b.#.bb...##...####.bb...b...#
+#..##~~.bb##.#X...X###.#b##~bb..#
+#..##~....##...~.~.........~b#..#
+#..bb...........X...........bb..#
+#..#b~.........~.~...##....~##..#
+#..bb~##b#.###X...X#.##bb.~~##..#
+#...b...bb.####...##...bb.#.b...#
+#...b....bb.......##..b##.#.b...#
+#...bb....bb..##..##.bX##..Xb.S.#
+#.S..b#...bXb.##....bbb##..b..###
+#.#X......###bb...#bb.....bb..###
+#.#..##...###bb...bb............#
+#....##...........#.............#
+#b..~#...b..##~...#...#.##..~..b#
+#bb.~#...bbX..~~.~~..bb.####~.bb#
+#.b..~~....bbb##bbbbbb....~~..b.#
+###b....S.....##S#b....XS....bb.#
+#..bbb...##............##..bb#..#
+#....bb..##...............bb.#..#
+#################################
 """
 
 var rows: Array[String] = []

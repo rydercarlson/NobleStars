@@ -16,6 +16,10 @@ var max_ammo := Kits.MAX_AMMO
 ## rather than ticking back during it.
 var ammo_locked := false
 var reload := Kits.AMMO_RECHARGE_SECONDS   # seconds per ammo pip; set from the kit
+## Minimum gap between two attacks, derived from `reload`. Without it a whole
+## magazine leaves the barrel in one flick — see SHOT_FEEL.md section 8.
+var attack_cooldown := Kits.attack_cooldown_for(Kits.AMMO_RECHARGE_SECONDS)
+var next_attack_at := -1.0
 var super_charge := 0.0
 var cubes := 0
 var last_damage_at := -100.0
@@ -77,6 +81,7 @@ func _ready() -> void:
 	max_health = int(kit.get("max_health", Kits.BASE_MAX_HEALTH))
 	health = max_health
 	reload = float(kit.get("reload", Kits.AMMO_RECHARGE_SECONDS))
+	attack_cooldown = Kits.attack_cooldown_for(reload)
 	max_ammo = float(kit.get("ammo", Kits.MAX_AMMO))
 	ammo = max_ammo
 	collision_layer = 1 << 2                  # fighters
@@ -84,7 +89,7 @@ func _ready() -> void:
 
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
-	cap.radius = 0.45
+	cap.radius = Kits.FIGHTER_RADIUS
 	cap.height = 1.6
 	col.shape = cap
 	col.position.y = 0.8
@@ -134,6 +139,9 @@ func _setup_burn_glow() -> void:
 func _setup_model() -> void:
 	var scene: PackedScene = load(kit.model)
 	_model = scene.instantiate()
+	# The GLBs were sized against the old 0.45 m capsule; scale them in step so
+	# the silhouette still matches what projectiles actually collide with.
+	_model.scale = Vector3.ONE * Kits.MODEL_SCALE
 	add_child(_model)
 	# Meshy exports metallicFactor=1.0; full metal renders black without
 	# reflection probes, so clamp it on every imported surface.
@@ -188,7 +196,9 @@ func _lowest_foot_y() -> float:
 func _ground_feet() -> void:
 	if _skel == null:
 		return
-	_model.position.y = maxf(0.0, _foot_rest_y - _lowest_foot_y())
+	# The sink is measured in the model's own space, but position is the
+	# parent's, so it has to be scaled by MODEL_SCALE to land on the floor.
+	_model.position.y = maxf(0.0, (_foot_rest_y - _lowest_foot_y()) * _model.scale.y)
 
 ## Show/hide a model's held item (Sanjit's staff) while a thrown copy flies.
 func set_held_item_visible(shown: bool) -> void:
@@ -199,7 +209,7 @@ func set_held_item_visible(shown: bool) -> void:
 func _setup_capsule() -> void:
 	_body_mesh = MeshInstance3D.new()
 	var mesh := CapsuleMesh.new()
-	mesh.radius = 0.45
+	mesh.radius = Kits.FIGHTER_RADIUS
 	mesh.height = 1.6
 	_material = StandardMaterial3D.new()
 	_material.albedo_color = kit.color
@@ -217,7 +227,7 @@ func _setup_capsule() -> void:
 	nose_mat.albedo_color = Color(0.95, 0.95, 0.95)
 	nose_mesh.material = nose_mat
 	nose.mesh = nose_mesh
-	nose.position = Vector3(0, 1.15, -0.42)
+	nose.position = Vector3(0, 1.15, -(Kits.FIGHTER_RADIUS + 0.03))
 	add_child(nose)
 
 ## Drives idle/run/attack clips; called by the scene each frame with game time.
@@ -234,6 +244,14 @@ func update_animation(game_now: float) -> void:
 	var clips: Dictionary = kit.clips
 	var moving := velocity.length() > 0.5
 	var want: String = clips.run if moving else clips.idle
+	# Match the stride to the actual ground speed, or the feet skate. The
+	# reference is RUN_CLIP_SPEED — the speed the clips were tuned against —
+	# NOT the current Normal tier. Referencing SPEED_NORMAL would always give
+	# 1.0 at normal pace, so the legs would churn at their old 7 m/s rate while
+	# the body covered far less ground, which reads as sluggish however fast
+	# the speed constant says the fighter is moving.
+	_anim.speed_scale = clampf(velocity.length() / Kits.RUN_CLIP_SPEED, 0.35, 1.6) \
+			if moving else 1.0
 	if _anim.current_animation != want:
 		_anim.play(want, 0.15)
 
@@ -248,6 +266,10 @@ func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 	var speed: float = clips.get("super_speed", clips.get("attack_speed", 1.0)) if is_super \
 			else clips.get("attack_speed", 1.0)
 	var seek_to: float = clips.get("super_seek", 0.0) if is_super else clips.get("attack_seek", 0.0)
+	# The movement stride scale must not multiply into the attack clip — its
+	# timings are tuned frame-by-frame against `speed`, and `_attack_anim_until`
+	# below is computed from `speed` alone.
+	_anim.speed_scale = 1.0
 	_anim.play(clip_name, 0.05, speed)
 	if seek_to > 0.0:
 		_anim.seek(seek_to, true)
@@ -305,10 +327,16 @@ func begin_leap(weapon: Dictionary, direction: Vector3, distance: float) -> void
 			"duration": 0.48}
 	face_direction(direction)
 
-func consume_ammo() -> bool:
-	if ammo < 1.0:
+## Spends one ammo pip if the fighter has one AND the attack cooldown has
+## elapsed. Gating here rather than at each caller covers the player, the bots
+## and the net path in one place. The Super deliberately does not go through
+## this — it is charge-gated, so making it wait on the cooldown would eat a
+## tapped Super after a basic attack.
+func consume_ammo(game_now: float) -> bool:
+	if ammo < 1.0 or game_now < next_attack_at:
 		return false
 	ammo -= 1.0
+	next_attack_at = game_now + attack_cooldown
 	return true
 
 func consume_super() -> bool:

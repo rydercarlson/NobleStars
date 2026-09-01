@@ -6,6 +6,9 @@ extends Node3D
 enum Phase { COUNTDOWN, PLAYING, ENDED }
 
 const BOX_HEALTH := 900   # loot box hit points; also the bar's full width
+# Loading the 3D pickup on the fatal-hit frame caused a large synchronous disk
+# and texture decode spike. Keep it resident before the match starts instead.
+const POWER_CUBE_SCENE: PackedScene = preload("res://assets/power_cube.glb")
 
 var arena: Arena
 var gas: GasRing
@@ -341,7 +344,7 @@ func _spawn_cube(pos: Vector3, cube_id := -1) -> void:
 	area.position = pos + Vector3(0, 0.5, 0)
 	area.add_to_group("cube")
 	# Meshy power-cube token, spinning Brawl-style about Y with a soft bob.
-	var m: Node3D = (load("res://assets/power_cube.glb") as PackedScene).instantiate()
+	var m: Node3D = POWER_CUBE_SCENE.instantiate()
 	m.scale = Vector3.ONE * 0.3
 	for mi in m.find_children("*", "MeshInstance3D", true, false):
 		var mesh: Mesh = mi.mesh
@@ -430,29 +433,24 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 				shot_weapon["burn_tick_damage"] = 75
 				shot_weapon.projectile_color = Color(1.0, 0.12, 0.01)
 			var base := atan2(unit.x, unit.z)
+			# `unload` staggers a multi-projectile attack so it reads as a stream
+			# rather than a fan appearing all at once (Brawl Stars spaces its
+			# stream attacks 0.2-0.3s). A shotgun leaves it at 0 and fires the
+			# whole spread on one frame, which is what Shelly does.
+			var unload: float = float(weapon.get("unload", 0.0))
+			var fid := f.get_instance_id()
 			for p in int(weapon.pellets):
 				var t: float = (float(p) / float(max(1, int(weapon.pellets) - 1)) - 0.5) \
 					if int(weapon.pellets) > 1 else 0.0
 				var ang: float = base + deg_to_rad(weapon.spread_deg) * t
-				var pd := Vector3(sin(ang), 0, cos(ang))
-				var proj := Projectile.new()
-				proj.weapon = shot_weapon
-				proj.damage = int(shot_weapon.damage * f.damage_multiplier())
-				proj.owner_fighter = f
-				proj.direction = pd
-				proj.position = f.global_position + pd * 0.8 + Vector3(0, 1.0, 0)
-				proj.origin = proj.position
-				# Ricochets are resolved by Projectile's swept collision, which has the
-				# wall normal. A body_entered callback cannot reflect the shot and can
-				# race the sweep by deleting it at the first wall.
-				if int(shot_weapon.get("bounces", 0)) == 0:
-					proj.body_entered.connect(_on_projectile_hit.bind(proj))
-				proj.on_sweep_hit = _on_projectile_hit
-				if bool(shot_weapon.get("heat_trait", false)):
-					proj.on_finished = _on_heat_shot_finished.bind(f.get_instance_id())
-				if sim_active:
-					_sim_kit(f.kit.name).p_spawn += 1
-				add_child(proj)
+				if unload <= 0.0 or p == 0:
+					_spawn_pellet(f, shot_weapon, ang)
+				else:
+					# By id, not reference: the fighter can die mid-unload.
+					get_tree().create_timer(unload * p).timeout.connect(func() -> void:
+						var fx := instance_from_id(fid)
+						if phase == Phase.PLAYING and fx is Fighter and not fx.is_dead():
+							_spawn_pellet(fx, shot_weapon, ang))
 		Kits.Style.LOB:
 			var throw_dist: float = clamp(dist, Kits.TILE * 1.5, weapon.range)
 			var lob := Lob.new()
@@ -572,25 +570,52 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 				f.begin_leap(weapon, unit, float(weapon.range))
 				f.leap["spike_mult"] = cash_in
 
+## One pellet, launched along an absolute world heading. Split out of
+## perform_attack so that a staggered `unload` can fire the later pellets from
+## the fighter's CURRENT position while keeping the aim it was given — a moving
+## shooter trails its stream behind it instead of dragging the whole spread.
+func _spawn_pellet(f: Fighter, weapon: Dictionary, ang: float) -> void:
+	var pd := Vector3(sin(ang), 0, cos(ang))
+	var proj := Projectile.new()
+	proj.weapon = weapon
+	proj.damage = int(weapon.damage * f.damage_multiplier())
+	proj.owner_fighter = f
+	proj.direction = pd
+	proj.position = f.global_position + pd * (Kits.FIGHTER_RADIUS + 0.25) + Vector3(0, 1.0, 0)
+	proj.origin = proj.position
+	# Ricochets are resolved by Projectile's swept collision, which has the
+	# wall normal. A body_entered callback cannot reflect the shot and can
+	# race the sweep by deleting it at the first wall.
+	if int(weapon.get("bounces", 0)) == 0:
+		proj.body_entered.connect(_on_projectile_hit.bind(proj))
+	proj.on_sweep_hit = _on_projectile_hit
+	if bool(weapon.get("heat_trait", false)):
+		proj.on_finished = _on_heat_shot_finished.bind(f.get_instance_id())
+	if sim_active:
+		_sim_kit(f.kit.name).p_spawn += 1
+	add_child(proj)
+
 func _spawn_button_burst(f: Fighter, weapon: Dictionary, unit: Vector3) -> void:
 	var labels := ["A", "B", "X", "Y", "LB", "RB"]
 	var colors := [Color(0.25, 0.9, 0.35), Color(0.95, 0.22, 0.2),
 			Color(0.22, 0.55, 1.0), Color(1.0, 0.82, 0.18),
 			Color(0.72, 0.38, 0.95), Color(0.2, 0.9, 0.9)]
-	# Six quick launches still read as a button mash rather than one shotgun
-	# blast, but the burst has to stay SHORT. Every button is launched along the
-	# one `unit` captured when the trigger was pulled, so a button leaving late
-	# is aimed where the target was that much earlier: at 0.06s apart the last
-	# one flew 0.30s stale, which is ~1m of drift on a moving fighter — well
-	# past the ~0.65m you can actually hit. 0.035s keeps the whole burst inside
-	# 0.175s. Capture the fighter by ID: it may be freed before a delayed button
-	# is due to launch.
+	# Six quick launches read as a button mash rather than one shotgun blast.
+	# Every button flies along the one `unit` captured when the trigger was
+	# pulled, so a button leaving late is aimed where the target was that much
+	# earlier — which is what used to cap this at 0.035s: at 0.06s apart the
+	# last one flew 0.30s stale, ~1m of drift against ~0.65m of hittable width.
+	# Both halves of that changed. Fighters now move at 4.0 m/s instead of 7.0
+	# and are 1.30m wide, so at the kit's 0.05s the last button is 0.25s stale
+	# = 1.0m of drift against 2.02m of hit width. Capture the fighter by ID: it
+	# may be freed before a delayed button is due to launch.
+	var unload: float = float(weapon.get("unload", 0.035))
 	var fighter_id := f.get_instance_id()
 	for i in labels.size():
-		if i == 0:
+		if i == 0 or unload <= 0.0:
 			_launch_button_shot(fighter_id, weapon, unit, labels[i], colors[i], i)
 		else:
-			get_tree().create_timer(0.035 * i).timeout.connect(_launch_button_shot.bind(
+			get_tree().create_timer(unload * i).timeout.connect(_launch_button_shot.bind(
 					fighter_id, weapon, unit, labels[i], colors[i], i))
 
 func _launch_button_shot(fighter_id: int, weapon: Dictionary, unit: Vector3,
@@ -1398,7 +1423,7 @@ func _run_playing(delta: float) -> void:
 		if d.fire_dir != null and not b.fighter.is_dashing() and not b.fighter.is_disconnected(now):
 			if d.use_super and b.fighter.consume_super():
 				perform_attack(b.fighter, b.fighter.kit["super"], d.fire_dir, d.fire_dist)
-			elif not d.use_super and b.fighter.consume_ammo():
+			elif not d.use_super and b.fighter.consume_ammo(now):
 				perform_attack(b.fighter, b.fighter.kit.weapon, d.fire_dir, d.fire_dist)
 
 	_update_dashes(delta)
@@ -1438,7 +1463,7 @@ func _fire_player(weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	if use_super:
 		if player.consume_super():
 			perform_attack(player, weapon, dir, dist)
-	elif player.consume_ammo():
+	elif player.consume_ammo(now):
 		perform_attack(player, weapon, dir, dist)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1499,13 +1524,40 @@ func _release_fire(stick_value: Vector2, use_super: bool) -> void:
 	else:
 		_auto_aim_fire(weapon, use_super)
 
+## Where to aim so a shot MEETS a moving target rather than arriving where it
+## used to be. Brawl Stars' tap-to-shoot leads; ours did not, so at range a tap
+## could not hit a strafing enemy at all — the shot was off by roughly twice the
+## target's own width — while bots, which have led since `bot_brain._aim_point`,
+## could. Full lead, because this is the player's aim assist rather than a
+## deliberately sloppy bot. Instant-hit styles (melee, shockwave) have no speed,
+## fall through to a zero flight time, and aim where the target stands.
+func _aim_lead(shooter: Fighter, target: Fighter, weapon: Dictionary) -> Vector3:
+	var speed: float = float(weapon.speed)
+	var flight := 0.0
+	if int(weapon.style) == Kits.Style.JUMP_SMASH:
+		flight = BotBrain.LEAP_FLIGHT      # a leap, not a projectile: fixed airtime
+	elif speed > 0.1:
+		flight = shooter.global_position.distance_to(target.global_position) / speed
+	if flight <= 0.0:
+		return target.global_position
+	var travel := Vector3(target.velocity.x, 0.0, target.velocity.z)
+	var aim := target.global_position + travel * flight
+	# One refinement pass: leading moves the aim point, which changes how long
+	# the shot is airborne, which moves the aim point again.
+	if speed > 0.1:
+		flight = shooter.global_position.distance_to(aim) / speed
+		aim = target.global_position + travel * flight
+	return aim
+
 func _auto_aim_fire(weapon: Dictionary, use_super: bool) -> void:
 	# A Super only auto-aims at fighters — burning the charge on a loot box is
 	# never what the tap meant.
 	var target: Node3D = nearest_visible_enemy(player, weapon.range * 1.1, _lobbed(weapon)) \
 			if use_super else auto_aim_target(player, weapon)
 	if target:
-		var v := target.global_position - player.global_position
+		var aim: Vector3 = _aim_lead(player, target as Fighter, weapon) if target is Fighter \
+				else target.global_position
+		var v := aim - player.global_position
 		_fire_player(weapon, v, v.length())
 	elif not use_super:
 		_fire_player(weapon, player.facing, weapon.range)
@@ -1775,7 +1827,7 @@ func _net_fire(use_super: bool, dir: Vector3, dist: float) -> void:
 	if use_super:
 		if f.consume_super():
 			perform_attack(f, f.kit["super"], dir, dist)
-	elif f.consume_ammo():
+	elif f.consume_ammo(now):
 		perform_attack(f, f.kit.weapon, dir, dist)
 
 # MARK: net RPCs (host -> clients)

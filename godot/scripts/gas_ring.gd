@@ -10,7 +10,7 @@ const DAMAGE_PER_TICK := 500
 const TICK_INTERVAL := 1.0
 
 var inset := 0
-var map_tiles := 30
+var map_tiles := 33
 var _next_shrink_at := 0.0
 var _next_tick_at := 0.0
 var _overlay: Array[Node3D] = []

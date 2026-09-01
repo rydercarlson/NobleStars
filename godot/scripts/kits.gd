@@ -9,12 +9,42 @@ class_name Kits
 
 const TILE := 2.0
 
-# Speed tiers (m/s). Normal is 3.5 tiles/second.
-const SPEED_VERY_SLOW := 5.6
-const SPEED_SLOW := 6.3
-const SPEED_NORMAL := 7.0
-const SPEED_FAST := 7.7
-const SPEED_VERY_FAST := 8.4
+## Fighter width — the unit every "body-width" figure in SHOT_FEEL.md is in.
+## 1.30 m across. The match camera shows 23 m, so that is 17.7 fighters wide
+## against the ~21 brawlers Brawl Stars fits on screen: deliberately chunkier,
+## which is what lets fighters move faster than Brawl Stars without shots
+## becoming impossible to aim. Grow this and every range gets shorter in the
+## units that actually decide whether a shot lands.
+const FIGHTER_RADIUS := 0.65
+## Models are authored against the old 0.45 capsule; keep them in step with it.
+const MODEL_SCALE := 1.44
+
+# Speed tiers (m/s). Normal is 2.8 tiles/second = 4.31 body-widths/second.
+# THIS IS THE FEEL DIAL — see SHOT_FEEL.md §6.
+#
+# Judge it in body-widths per second, never in m/s: perceived speed tracks
+# body-lengths, so widening the fighter SLOWS the game down at a fixed m/s.
+# The original game was 7.0 m/s on a 0.90 m fighter = 7.78 body-widths/s; this
+# is 55% of that feel, where the raw m/s number alone reads like 80%.
+#
+# Every projectile speed below is a multiple of one of these constants, so
+# raising a tier speeds its shots up with it and aiming difficulty (lead/hit)
+# stays put. What moves is the player's reaction window: dodge = lead/hit x
+# hit_width / move - 0.25s, so going faster has to be paid for with fatter
+# projectiles. Below ~0.15s of window a shot stops reading as a travelling
+# object and reads as hitscan — that was "Hammy beams people".
+const SPEED_VERY_SLOW := 4.48
+const SPEED_SLOW := 5.04
+const SPEED_NORMAL := 5.60
+const SPEED_FAST := 6.16
+const SPEED_VERY_FAST := 6.72
+
+## Ground speed the Meshy run clips were tuned against. Stride is scaled
+## against THIS, not against SPEED_NORMAL — the clips were matched when a
+## fighter moved 7 m/s, so referencing the current Normal tier keeps the legs
+## churning at their old rate while the body covers less ground, which reads as
+## sluggish no matter what the speed number says.
+const RUN_CLIP_SPEED := 7.0
 
 # Reload tiers: seconds to regain one of the three ammo pips. Reload does not
 # change sustained DPS (the damage formula scales the hit by it) — it decides
@@ -42,10 +72,36 @@ const HEALTH_PER_CUBE := 550                   # 11% of base health
 const DAMAGE_BONUS_PER_CUBE := 0.10
 const MOVE_SPEED := SPEED_NORMAL               # default; kits override via "move_speed"
 
-# Weapons cap at 5.5 tiles and Supers at 6.5 — past that a fighter is shooting
+# Weapons cap at 5.5 tiles and Supers at 6.0 — past that a fighter is shooting
 # at something off the player's screen. See CHARACTER_BUILDING.md section 4.
+# 5.5 tiles is 11 m = 8.5 body-widths against Brawl Stars' longest at 10.0, so
+# the cap did not need to move once fighters grew — growing them is what pulled
+# every range in, in the units that decide whether a shot lands.
 const MAX_WEAPON_RANGE_TILES := 5.5
-const MAX_SUPER_RANGE_TILES := 6.5
+const MAX_SUPER_RANGE_TILES := 6.0
+
+## Direct-fire projectiles travel this many times the firer's move speed. Brawl
+## Stars sits near 4.9; we sit near 3.1 because our fighters move roughly 1.7x
+## faster than theirs relative to body size, and the ratio has to come down to
+## keep a shot in the air long enough to react to. The ratio is a means, not the
+## goal — `dodge window` and `lead/hit` are what the player feels, and both are
+## on target. What we DO copy is that speed never tracks range: it correlates
+## with range at r=0.05 there, with flight time at r=0.86. A kit may deviate
+## about +/-20% for character (a sniper's shot snaps, a controller's floats),
+## never to compensate for how far it has to travel. Lobs and arcing attacks are
+## the deliberate exception again, down at ~1.7-2.2.
+const PROJECTILE_SPEED_RATIO := 3.1
+
+## Minimum gap between two attacks, as a fraction of the reload. Brawl Stars
+## documents 0.5s for Piper against her 2.3s reload. Without this an entire
+## magazine leaves the barrel in one flick — 72-97% of a healthbar with no
+## reaction window — and the reload tier below controls nothing but the wait
+## afterwards. See SHOT_FEEL.md section 8.
+const ATTACK_COOLDOWN_RATIO := 0.22
+
+## Seconds a fighter must wait between attacks, derived from its reload tier.
+static func attack_cooldown_for(reload_seconds: float) -> float:
+	return reload_seconds * ATTACK_COOLDOWN_RATIO
 
 enum Style { PELLETS, LOB, MELEE, DASH, BOOMERANG, SHOCKWAVE, JUMP_SMASH, BUTTONS, DISCONNECT, KEEP_IT_UP, POP_OFF }
 
@@ -58,7 +114,7 @@ static func named(kit_name: String) -> Dictionary:
 			return k
 	return nova()
 
-## Health Normal · Speed Normal · Reload Normal · Range Medium 4.5
+## Health Normal · Speed Normal · Reload Normal · Range Medium 4.3
 ## The reference kit: Normal in all four tiers, so her only modifier is A=1.15
 ## for a shotgun that has to close distance to land the full burst. Every other
 ## fighter reads as a deviation from Nova.
@@ -77,14 +133,14 @@ static func nova() -> Dictionary:
 		"ideal_range_mult": 0.30,
 		"weapon": {
 			"style": Style.PELLETS, "pellets": 5, "spread_deg": 22.0, "damage": 290,
-			"range": 4.5 * TILE, "speed": 25.0, "radius": 0.14,
+			"range": 4.3 * TILE, "speed": SPEED_NORMAL * 3.05, "radius": 0.44,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
 		# 2.4x total, spread over 9 pellets that rarely all connect.
 		"super": {
 			"style": Style.PELLETS, "pellets": 9, "spread_deg": 34.0, "damage": 385,
-			"range": 5.5 * TILE, "speed": 27.0, "radius": 0.26,
+			"range": 5.0 * TILE, "speed": SPEED_NORMAL * 3.30, "radius": 0.52,
 			"destroys_walls": true, "knockback": 12.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
@@ -108,22 +164,22 @@ static func tony() -> Dictionary:
 		"reload": RELOAD_SLOW,
 		"weapon": {
 			"style": Style.LOB, "pellets": 1, "spread_deg": 0.0, "damage": 1240,
-			"range": 5.5 * TILE, "speed": 19.0, "radius": 0.22,
+			"range": 5.5 * TILE, "speed": SPEED_SLOW * 2.10, "radius": 0.42,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.7 * TILE, "water_mult": 1.0,
 		},
 		# 1.8x for one reliable piercing hit.
 		"super": {
 			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 2230,
-			"range": 6.5 * TILE, "speed": 42.0, "radius": 0.32,
+			"range": 6.0 * TILE, "speed": SPEED_SLOW * 3.90, "radius": 0.56,
 			"destroys_walls": true, "knockback": 10.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
 	}
 
-## Health Normal · Speed Very Fast · Reload Fast · Range Very Short 1.8
+## Health Normal · Speed Very Fast · Reload Fast · Range Very Short 1.4
 ## Assassin: fastest fighter in the game and the quickest reload, so he picks
-## every fight — but he still has to get inside 3.6 metres to throw a punch.
+## every fight — but he still has to get inside 2.8 metres to throw a punch.
 ## A=1.15, measured: the one-two lands 59% per strike where Henry's single
 ## sweep lands 86%, because the second punch arrives 0.22s late through a 70
 ## degree arc rather than 110. He was priced as the most reliable melee in the
@@ -154,20 +210,20 @@ static func sanjit() -> Dictionary:
 		"reload": RELOAD_FAST,
 		"weapon": {
 			"style": Style.MELEE, "pellets": 2, "spread_deg": 70.0, "damage": 615,
-			"range": 1.8 * TILE, "speed": 0.0, "radius": 0.0,
+			"range": 1.4 * TILE, "speed": 0.0, "radius": 0.0,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
 		# 2.4x total split across the two passes -> 1.2x per pass.
 		"super": {
 			"style": Style.BOOMERANG, "pellets": 1, "spread_deg": 0.0, "damage": 1480,
-			"range": 5.5 * TILE, "speed": 16.0, "radius": 0.45,
+			"range": 5.0 * TILE, "speed": SPEED_VERY_FAST * 2.85, "radius": 0.64,
 			"destroys_walls": false, "knockback": 4.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
 	}
 
-## Health High · Speed Slow · Reload Slow · Range Very Short 1.9
+## Health High · Speed Slow · Reload Slow · Range Very Short 1.5
 ## Heavyweight: the hardest single hit in the game off a 110-degree arc that is
 ## very hard to miss, but slow to swing and slow to walk into range.
 ## 1250 × 1.222(R) × 1.25(G) × 1.06(M) × 0.94(S) × 0.85(A) = 1617
@@ -185,7 +241,7 @@ static func henry() -> Dictionary:
 		"reload": RELOAD_SLOW,
 		"weapon": {
 			"style": Style.MELEE, "pellets": 1, "spread_deg": 110.0, "damage": 1620,
-			"range": 1.9 * TILE, "speed": 0.0, "radius": 0.0,
+			"range": 1.5 * TILE, "speed": 0.0, "radius": 0.0,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
@@ -194,13 +250,13 @@ static func henry() -> Dictionary:
 		# a bigger base number here would one-shot most of the roster.
 		"super": {
 			"style": Style.DASH, "pellets": 1, "spread_deg": 0.0, "damage": 2270,
-			"range": 4.5 * TILE, "speed": 34.0, "radius": 0.0,
+			"range": 3.4 * TILE, "speed": SPEED_SLOW * 3.20, "radius": 0.0,
 			"destroys_walls": false, "knockback": 9.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 2.0,
 		},
 	}
 
-## Health Very High · Speed Very Slow · Reload Normal · Range Short 2.5
+## Health Very High · Speed Very Slow · Reload Normal · Range Short 2.4
 ## Tank: the biggest healthbar and the slowest legs. His clap pierces a
 ## 78-degree cone, so it lands on everyone in front without needing precision.
 ## 1250 × 1.000(R) × 1.15(G) × 1.12(M) × 0.88(S) × 0.85(A) = 1204
@@ -223,20 +279,20 @@ static func kovacs() -> Dictionary:
 		"reload": RELOAD_NORMAL,
 		"weapon": {
 			"style": Style.SHOCKWAVE, "pellets": 1, "spread_deg": 78.0, "damage": 1200,
-			"range": 2.5 * TILE, "speed": 0.0, "radius": 0.0,
+			"range": 2.4 * TILE, "speed": 0.0, "radius": 0.0,
 			"destroys_walls": false, "knockback": 4.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0, "delay": 0.23,
 		},
 		# 1.4x: the leap is a gap-closer and an escape on top of the damage.
 		"super": {
 			"style": Style.JUMP_SMASH, "pellets": 1, "spread_deg": 360.0, "damage": 1680,
-			"range": 4.5 * TILE, "speed": 0.0, "radius": 0.0,
+			"range": 3.6 * TILE, "speed": 0.0, "radius": 0.0,
 			"destroys_walls": false, "knockback": 10.0, "pierces": true,
 			"aoe": 2.15 * TILE, "water_mult": 1.0,
 		},
 	}
 
-## Health Low · Speed Normal · Reload Fast · Range Long 5.0
+## Health Low · Speed Normal · Reload Fast · Range Long 4.8
 ## Controller: a fast, chippy stream of six buttons in a tight cone. Fragile,
 ## and each button is small, so he wins by attrition rather than by bursts.
 ## A=1.40 (Very Demanding), measured rather than guessed: six small projectiles
@@ -264,12 +320,17 @@ static func leon() -> Dictionary:
 		"reload": RELOAD_FAST,
 		"weapon": {
 			# 7 degrees, not 10: the outer buttons sit at +/-3.15 deg, so at his
-			# full 10 m range they land 0.55 m off centre and still connect with
-			# a ~0.65 m hittable width. At 10 deg they missed past about 8 m.
+			# full 9.6 m range they land 0.53 m off centre and still connect with
+			# a 2.02 m hittable width. At 10 deg they missed past about 8 m.
 			"style": Style.BUTTONS, "pellets": 6, "spread_deg": 7.0, "damage": 204,
-			"range": 5.0 * TILE, "speed": 22.0, "radius": 0.20,
+			"range": 4.8 * TILE, "speed": SPEED_NORMAL * 3.20, "radius": 0.46,
 			"destroys_walls": false, "knockback": 1.5, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
+			# A tight cone of six is Colt's stream, not Shelly's shotgun blast:
+			# they leave 0.05s apart so the attack reads as a burst of buttons
+			# rather than a wall of geometry appearing at once. Brawl Stars
+			# spaces its stream attacks the same way (Ruffs 0.2s, Larry 0.3s).
+			"unload": 0.05,
 		},
 		# 1.4x: the damage is incidental, the silence is the payload. The blast
 		# hard-stops everyone it catches for `disconnect_seconds`; the field it
@@ -277,14 +338,14 @@ static func leon() -> Dictionary:
 		# it cannot attack, and the silence lifts a beat after they step off.
 		"super": {
 			"style": Style.DISCONNECT, "pellets": 1, "spread_deg": 360.0, "damage": 1710,
-			"range": 5.5 * TILE, "speed": 18.0, "radius": 0.52,
+			"range": 4.8 * TILE, "speed": SPEED_NORMAL * 2.10, "radius": 0.66,
 			"destroys_walls": false, "knockback": 5.0, "pierces": false,
 			"aoe": 1.7 * TILE, "water_mult": 1.0, "disconnect_seconds": 2.4,
 			"zone_seconds": 4.0,
 		},
 	}
 
-## Health High · Speed Normal · Reload Fast · Range Short 3.0 · ONE ammo
+## Health High · Speed Normal · Reload Fast · Range Short 2.8 · ONE ammo
 ## Skirmisher who plays like a close brawler, which is how he actually gets
 ## used: the rally pulls him toward wherever the sack is coming down, so he
 ## fights in the pocket rather than at range. Statted for that — shorter reach,
@@ -309,14 +370,15 @@ static func anders() -> Dictionary:
 		"reload": RELOAD_FAST,
 		"ammo": 1,
 		"weapon": {
-			# speed is the ARC's travel rate, not a bullet's. A 9 m kick hangs
-			# ~0.75s: slower than Tony's shell so it reads as a floaty sack, but
-			# not so slow the landing spot goes stale before it arrives — at 8.0
-			# a target had walked 8 m by the time it came down and it hit nothing.
-			# aoe is how close a landing has to be to connect: the same
-			# forgiveness a lob gets, for the same reason.
+			# speed is the ARC's travel rate, not a bullet's. It once had to run
+			# at 12 m/s because a 7 m/s target walked out of the landing spot
+			# before the sack arrived — at 8.0 it hit almost nothing. Fighters
+			# now move at 4.0 m/s, so the constraint is looser and the sack can
+			# float again: a 5.6 m kick hangs 0.58s while the target covers
+			# 2.3 m against a 1.9 m landing radius. aoe is how close a landing
+			# has to be to connect — the same forgiveness a lob gets.
 			"style": Style.KEEP_IT_UP, "pellets": 1, "spread_deg": 0.0, "damage": 1100,
-			"range": 3.0 * TILE, "speed": 12.0, "radius": 0.26,
+			"range": 2.8 * TILE, "speed": SPEED_NORMAL * 1.70, "radius": 0.44,
 			"destroys_walls": false, "knockback": 3.0, "pierces": false,
 			"aoe": 0.95 * TILE, "water_mult": 1.0,
 		},
@@ -328,7 +390,7 @@ static func anders() -> Dictionary:
 		"super": {
 			# spread_deg 360 so the blast ring draws as a full circle.
 			"style": Style.POP_OFF, "pellets": 1, "spread_deg": 360.0, "damage": 1800,
-			"range": 3.5 * TILE, "speed": 22.0, "radius": 0.34,
+			"range": 2.8 * TILE, "speed": SPEED_NORMAL * 2.80, "radius": 0.48,
 			"destroys_walls": false, "knockback": 14.0, "pierces": true,
 			"aoe": 1.7 * TILE, "water_mult": 1.0,
 		},
@@ -348,8 +410,12 @@ static func hammy() -> Dictionary:
 		"move_speed": SPEED_NORMAL,
 		"reload": RELOAD_SLOW,
 		"weapon": {
+			# 3.6x is the fast end of the house band — he is the sniper, and
+			# Brawl Stars gives its snipers the quick end too. Even so the shot
+			# is airborne 0.55s at full range, which leaves 0.30s of reaction
+			# after a human's 0.25s: he aims now instead of beaming.
 			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1250,
-			"range": 5.5 * TILE, "speed": 29.0, "radius": 0.24,
+			"range": 5.5 * TILE, "speed": SPEED_NORMAL * 3.60, "radius": 0.62,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0, "heat_trait": true,
 			"projectile_color": Color(1.0, 0.34, 0.04),
@@ -358,7 +424,7 @@ static func hammy() -> Dictionary:
 		# adds 25%, so three clean banks ramp 1600 -> 3125 before the fire damage.
 		"super": {
 			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1600,
-			"range": 6.5 * TILE, "speed": 24.0, "radius": 0.46,
+			"range": 6.0 * TILE, "speed": SPEED_NORMAL * 3.30, "radius": 0.70,
 			"destroys_walls": false, "knockback": 5.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0, "bounces": 3,
 			"bounce_damage_mult": 1.25, "bounce_speed_mult": 1.08,

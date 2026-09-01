@@ -27,7 +27,8 @@ var _smoothed := Vector3.ZERO
 var _last_now := -1.0
 
 var _aim_error_deg := randf_range(3.0, 9.0)
-var _fire_interval := randf_range(1.0, 1.6)
+## Set in _init from the kit — see the note there.
+var _fire_interval := 1.3
 var _engage_range := Kits.TILE * randf_range(5.5, 7.0)
 var _think_interval := randf_range(0.15, 0.25)
 
@@ -36,11 +37,12 @@ var _think_interval := randf_range(0.15, 0.25)
 ## where the target already stands.
 ##
 ## Without any lead, projectile kits simply cannot hit a moving fighter: a
-## 25 m/s pellet crossing 7 m is airborne 0.28s, in which a 7 m/s target moves
-## ~2 m — over three times its own hitbox. Instant-hit kits (melee, shockwave)
-## never miss, so a no-lead sim measures "is this weapon hitscan" rather than
-## whether the kit is balanced. Sim bots therefore aim well; match bots lead
-## badly on purpose, so shots read as aimed without being hard to walk out of.
+## 17.6 m/s pellet crossing 8.6 m is airborne 0.49s, in which a 4.0 m/s target
+## moves 2.0 m — more than its own 1.30 m width. Instant-hit kits (melee,
+## shockwave) never miss, so a no-lead sim measures "is this weapon hitscan"
+## rather than whether the kit is balanced. Sim bots therefore aim well; match
+## bots lead badly on purpose, so shots read as aimed without being hard to
+## walk out of. The player's tap-fire leads fully — see main.gd `_aim_lead`.
 const LEAD_SIM := 0.85
 const LEAD_MATCH_MIN := 0.15
 const LEAD_MATCH_MAX := 0.45
@@ -49,11 +51,11 @@ const LEAP_FLIGHT := 0.48   # Fighter.begin_leap duration; JUMP_SMASH has no spe
 var _lead_skill := randf_range(LEAD_MATCH_MIN, LEAD_MATCH_MAX)
 
 ## Aim scatter has to be tightened for the sim for the same reason lead does.
-## A fighter is only ~0.65 m of hittable width, so at a 7 m engagement the match
-## spread of 3-9 degrees is 0.37-1.10 m of error: a bot that rolls above ~5 deg
-## can never land a precision weapon for its entire life. Wide melee arcs, big
-## AOEs and bouncing projectiles don't care, so leaving match scatter in the sim
-## ranks kits by how forgiving they are rather than by how strong they are.
+## A fighter is 1.30 m of hittable width, so at a 7 m engagement the match
+## spread of 3-9 degrees is 0.37-1.10 m of error: a bot that rolls near the top
+## of that can never land a precision weapon for its entire life. Wide melee
+## arcs, big AOEs and bouncing projectiles don't care, so leaving match scatter
+## in the sim ranks kits by how forgiving they are rather than how strong.
 const AIM_ERROR_SIM_MIN := 0.5
 const AIM_ERROR_SIM_MAX := 2.0
 
@@ -61,6 +63,14 @@ var _aim_error_sim := randf_range(AIM_ERROR_SIM_MIN, AIM_ERROR_SIM_MAX)
 
 func _init(f: Fighter) -> void:
 	fighter = f
+	# Fire on the kit's own ammo economy, not a constant. A flat 1.0-1.6s roll
+	# meant a Slow-reload bot (Tony, 2.2s) tried to shoot faster than it could
+	# reload and just ran dry, while a Fast-reload bot (Sanjit, 1.4s) sat on
+	# full ammo — and neither ever bursted, where the player could empty a
+	# magazine instantly. Both sides now spend ammo at roughly the rate it
+	# arrives, floored at the attack cooldown so a bot can still double-tap.
+	var reload: float = float(f.kit.get("reload", Kits.AMMO_RECHARGE_SECONDS))
+	_fire_interval = maxf(Kits.attack_cooldown_for(reload), reload * randf_range(0.85, 1.15))
 
 ## Returns {move: Vector3, fire_dir: Vector3 or null, fire_dist: float, use_super: bool}
 func decide(now: float, game) -> Dictionary:

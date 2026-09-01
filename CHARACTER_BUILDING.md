@@ -19,7 +19,10 @@ These are the same for everyone and live in `kits.gd`:
 | `BASE_MAX_HEALTH` | **5000** | Default fighter health. Damage is balanced against this. |
 | `MAX_AMMO` | 3.0 | Default ammo pips; a kit can override with `ammo`. |
 | `AMMO_RECHARGE_SECONDS` | 1.8 | The *Normal* reload tier; per-kit `reload` overrides it. |
-| `MOVE_SPEED` | 7.0 m/s | The *Normal* speed tier; per-kit `move_speed` overrides it. |
+| `MOVE_SPEED` | 5.6 m/s | The *Normal* speed tier; per-kit `move_speed` overrides it. |
+| `FIGHTER_RADIUS` | 0.65 m | Fighter is 1.30 m wide. The unit ranges actually matter in — see SHOT_FEEL.md. |
+| `PROJECTILE_SPEED_RATIO` | 3.1 | Direct-fire shot speed as a multiple of the firer's move speed. |
+| `ATTACK_COOLDOWN_RATIO` | 0.22 | Minimum gap between attacks, as a fraction of the reload. |
 | `SUPER_CHARGE_DAMAGE` | 3500 | Damage dealt to fill a Super (= 0.7 healthbars). |
 | `HEALTH_PER_CUBE` | 550 | Power cube pickup (= 11% of base health). |
 | `DAMAGE_BONUS_PER_CUBE` | 0.10 | +10% damage per cube. |
@@ -47,19 +50,30 @@ comment above the kit** so the intent survives later tuning.
 
 | Tier | m/s | vs. Normal |
 |---|---|---|
-| Very Slow | 5.6 | 0.80× |
-| Slow | 6.3 | 0.90× |
-| **Normal** | **7.0** | 1.00× |
-| Fast | 7.7 | 1.10× |
-| Very Fast | 8.4 | 1.20× |
+| Very Slow | 4.48 | 0.80× |
+| Slow | 5.04 | 0.90× |
+| **Normal** | **5.60** | 1.00× |
+| Fast | 6.16 | 1.10× |
+| Very Fast | 6.72 | 1.20× |
 
-7.0 m/s is 3.5 tiles/second. The spread from Very Slow to Very Fast is 50% —
-big enough that speed alone decides who picks the fight.
+5.6 m/s is 2.8 tiles/second, or 4.31 fighter-widths/second. **Always judge
+speed in fighter-widths, not m/s** — perceived speed tracks body-lengths, so
+widening the fighter slows the game down at a fixed m/s. The spread from
+Very Slow to Very Fast is 50% — big enough that speed alone decides who picks
+the fight.
+
+**`SPEED_NORMAL` is the game's feel dial.** Every projectile speed in `kits.gd`
+is written as a multiple of a speed tier, so raising a tier speeds its shots up
+with it and aiming difficulty stays fixed. What changes is how long a shot hangs
+in the air — the player's reaction window. See SHOT_FEEL.md §6 for the cost
+curve before touching it.
 
 ### Reload
 
 Seconds to regain **one** ammo pip. Three pips means a full magazine takes 3×
-this.
+this. It also sets the **attack cooldown** — the minimum gap between two
+attacks — at `0.22 × reload`, which is what stops a whole magazine leaving the
+barrel in a single flick.
 
 | Tier | Seconds | Full magazine |
 |---|---|---|
@@ -69,25 +83,41 @@ this.
 | Fast | 1.4 | 4.2s |
 | Very Fast | 1.0 | 3.0s |
 
+| Tier | Seconds | Attack cooldown | Full magazine dumps in |
+|---|---|---|---|
+| Very Slow | 2.6 | 0.57 | 1.14s |
+| Slow | 2.2 | 0.48 | 0.96s |
+| **Normal** | **1.8** | **0.40** | 0.80s |
+| Fast | 1.4 | 0.31 | 0.62s |
+| Very Fast | 1.0 | 0.22 | 0.44s |
+
 **Reload does not change a fighter's damage per second** — the formula in §3
 scales damage-per-attack by the reload time, so sustained output stays on
-budget either way. What reload actually controls is *burst vs. chip*: a Very
-Slow reload means one enormous, committing swing; a Very Fast reload means a
-stream of small hits you can course-correct mid-fight. Pick it for feel.
+budget either way. Nor does the cooldown: three pips refill in 4.2–6.6s and
+dump in 0.4–1.1s, so it caps *burst* and never gates steady state. What reload
+actually controls is *burst vs. chip*: a Very Slow reload means one enormous,
+committing swing; a Very Fast reload means a stream of small hits you can
+course-correct mid-fight. Pick it for feel.
 
 ### Range
 
 In tiles. The hard limit is the screen — see §4.
 
-| Tier | Tiles | Meters |
-|---|---|---|
-| Very Short (melee) | 1.5 – 2.0 | 3 – 4 |
-| Short | 2.5 – 3.0 | 5 – 6 |
-| **Medium** | **3.5 – 4.5** | 7 – 9 |
-| Long | 5.0 – 5.5 | 10 – 11 |
+| Tier | Tiles | Meters | Fighter-widths |
+|---|---|---|---|
+| Very Short (melee) | 1.2 – 1.5 | 2.4 – 3.0 | 1.8 – 2.3 |
+| Short | 2.2 – 2.8 | 4.4 – 5.6 | 3.4 – 4.3 |
+| **Medium** | **3.5 – 4.3** | 7.0 – 8.6 | 5.4 – 6.6 |
+| Long | 4.8 – 5.5 | 9.6 – 11.0 | 7.4 – 8.5 |
 
 There is deliberately **no "Very Long" tier.** 5.5 tiles is the edge of the
 screen; past that a fighter is shooting at something the player cannot see.
+
+**Read the fighter-widths column, not the tiles.** Range only means anything
+relative to how big the target is, and the fighter is 1.30 m wide. These tiers
+were pulled in at the short end and the fighter was widened by 44%, which
+between them took the roster from reaching *past* Brawl Stars' longest range to
+sitting just inside it.
 
 ---
 
@@ -172,14 +202,19 @@ After computing, verify:
 ## 4. Range and the screen
 
 The match camera is **orthographic**, `size = 12.9` (metres of vertical view),
-sitting at offset `(0, 16, 9.2)` — a 60.1° pitch — with the player dead centre
+sitting at offset `(0, 14, 9.2)` — a 56.7° pitch — with the player dead centre
 (`main.gd`, `CAMERA_OFFSET` / `CAMERA_ORTHO_SIZE`). That fixes exactly how far
 a player can see from their own fighter:
 
 | Direction | Visible from the player |
 |---|---|
-| Left / right | 11.5 m = **5.7 tiles** |
-| Up / down the screen | 7.4 m = **3.7 tiles** |
+| Left / right | 11.5 m = **5.7 tiles** = 8.8 fighter-widths |
+| Up / down the screen | 7.7 m = **3.9 tiles** = 5.9 fighter-widths |
+
+The full screen width is 23 m = **17.7 fighter-widths**. Brawl Stars fits about
+21 brawler-widths across, so our fighters read a little chunkier than theirs —
+which is deliberate, and is what lets them move faster than Brawl Stars without
+shots becoming impossible to aim (SHOT_FEEL.md §6).
 
 Up-screen is much shorter because the ground is foreshortened by the camera
 pitch. So:
@@ -231,14 +266,21 @@ Eight fighters, all rebalanced to this framework.
 
 | Fighter | Role | Health | Speed | Reload | Range | A | U | eDPS | Damage / attack |
 |---|---|---|---|---|---|---|---|---|---|
-| **Nova** | Shotgunner | Normal 5000 | Normal 7.0 | Normal 1.8 | Medium 4.5 | 1.15 | — | 805 | 1450 (5 × 290) |
-| **Tony** | Artillery | Low 4250 | Slow 6.3 | Slow 2.2 | Long 5.5 | 0.85 | — | 564 | 1240 |
-| **Henry** | Heavyweight | High 5750 | Slow 6.3 | Slow 2.2 | V.Short 1.9 | 0.85 | — | 736 | 1620 |
-| **Sanjit** | Assassin | Normal 5000 | V.Fast 8.4 | Fast 1.4 | V.Short 1.8 | 1.15 | — | 879 | 1230 (2 × 615) |
-| **Kovacs** | Tank | V.High 6500 | V.Slow 5.6 | Normal 1.8 | Short 2.5 | 0.85 | — | 667 | 1200 |
-| **Leon** | Controller | Low 4250 | Normal 7.0 | Fast 1.4 | Long 5.0 | 1.40 | — | 876 | 1224 (6 × 204) |
-| **Anders** | Skirmisher | High 5750 | Normal 7.0 | Fast 1.4 | Short 3.0 | n/a | — | n/a (1 pip) | 1100 / 1375 / 1650 rally |
-| **Hammy** | Sniper | V.Low 3500 | Normal 7.0 | Slow 2.2 | Long 5.5 | 1.15 | Strong 0.85 | 568 | 1250 |
+| **Nova** | Shotgunner | Normal 5000 | Normal 5.6 | Normal 1.8 | Medium 4.3 | 1.15 | — | 805 | 1450 (5 × 290) |
+| **Tony** | Artillery | Low 4250 | Slow 5.04 | Slow 2.2 | Long 5.5 | 0.85 | — | 564 | 1240 |
+| **Henry** | Heavyweight | High 5750 | Slow 5.04 | Slow 2.2 | V.Short 1.5 | 0.85 | — | 736 | 1620 |
+| **Sanjit** | Assassin | Normal 5000 | V.Fast 6.72 | Fast 1.4 | V.Short 1.4 | 1.15 | — | 879 | 1230 (2 × 615) |
+| **Kovacs** | Tank | V.High 6500 | V.Slow 4.48 | Normal 1.8 | Short 2.4 | 0.85 | — | 667 | 1200 |
+| **Leon** | Controller | Low 4250 | Normal 5.6 | Fast 1.4 | Long 4.8 | 1.40 | — | 876 | 1224 (6 × 204) |
+| **Anders** | Skirmisher | High 5750 | Normal 5.6 | Fast 1.4 | Short 2.8 | n/a | — | n/a (1 pip) | 1100 / 1375 / 1650 rally |
+| **Hammy** | Sniper | V.Low 3500 | Normal 5.6 | Slow 2.2 | Long 5.5 | 1.15 | Strong 0.85 | 568 | 1250 |
+
+> **The `A` column is stale and must be re-derived.** Every one of those values
+> was *measured* against the old speeds and the old 0.90 m fighter. The
+> SHOT_FEEL.md retune roughly halved `lead/hit-width` across the roster, so hit
+> rates are materially higher than when these were set — Leon's 1.40 in
+> particular came off a 39% hit rate that no longer holds. Re-measure with
+> `NS3_SIM`, reading `hits/atk` before `win%`, and reprice damage from there.
 
 **Nova is the reference kit** — Normal in all four tiers, so her only modifier
 is the 1.15 for a shotgun that has to close distance. Every other fighter is
@@ -313,10 +355,12 @@ watching (`LEAD_SIM` / `_lead_skill` in `bot_brain.gd`):
 | Sim bots (`NS3_SIM`) | 0.85 | So the table measures the kit, not the AI. |
 | Match bots | 0.15 – 0.45, rolled per bot | Present enough to read as aimed, sloppy enough to walk out of. |
 
-This matters more than it sounds. With no lead at all, a 25 m/s pellet crossing
-7 m is airborne 0.28s while a 7 m/s target travels ~2 m — over three times its
-own hitbox — so **every projectile kit misses a moving fighter and only
-instant-hit kits (melee, shockwave) ever connect.** A no-lead sim doesn't rank
+This matters more than it sounds. With no lead at all, a 17.6 m/s pellet
+crossing 8.6 m is airborne 0.49s while a 4.0 m/s target travels 2.0 m — more
+than its own 1.30 m width — so **every projectile kit misses a moving fighter
+and only instant-hit kits (melee, shockwave) ever connect.** The player's
+tap-fire now leads too (`main.gd:_aim_lead`); it did not before, which meant a
+tap at range could not hit a strafing enemy while bots could. A no-lead sim doesn't rank
 kits, it ranks hitscan against everything else. If you add a new attack style,
 check `_aim_point` knows its flight time: it derives one from `weapon.speed`,
 and special-cases the styles that have none.
