@@ -35,20 +35,22 @@ xcodebuild -project NobleStars.xcodeproj -scheme NobleStars \
 
 ## The menu
 
-The game's menu is the **web menu** in [`web-menu/`](web-menu/) — a Brawl
-Stars-style interactive home (auditorium stage, live 3D brawlers with baked
-idles, roster/shop/pass/social screens) built as plain HTML/JS + three.js. It
-supersedes the in-engine Godot lobby as the menu of record: the Godot lobby
-stays as the functional in-game entry point, but menu look, structure, and
-roster presentation are authored there. Run the local launcher so PLAY can
-hand off to Godot:
+The menu is native Godot, in `godot/scripts/menu/` — a Brawl Stars-style home
+(auditorium stage with the selected brawler idling live in 3D, brawlers grid and
+detail, shop with Star Drops, Nobles Pass, modes, matchmaking, news, friends,
+club chat, inbox). It is the only menu: the HTML build it was rebuilt from has
+been removed, because a browser page cannot ship inside the iOS app.
+
+Art lives in `godot/assets/menu/` (background, buttons, icons, svg, portraits,
+cards, treats, decor, fonts) and copy/config in `godot/data/{brawlers,game}.json`.
+Stats come from `kits.gd`, never from the JSON.
 
 ```sh
-cd web-menu && npm install && npm start   # http://localhost:3000
+/Applications/Godot.app/Contents/MacOS/Godot --path godot
 ```
 
-Solo Showdown is wired through today. The other web-menu events remain previews
-until their Godot game modes are implemented.
+Solo Showdown is wired through today. The other events remain previews until
+their game modes are implemented.
 
 ## Development
 

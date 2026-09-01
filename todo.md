@@ -32,11 +32,19 @@ only and is not tracked here.
 
 ## Menu
 
-- [x] **The web menu is the menu of record** (`web-menu/`), per Ryder — it
-      overrides the in-engine lobby design. Roster data there is transcribed
-      from `kits.gd`; when kits are retuned, mirror the numbers into
-      `web-menu/data/brawlers.json`. Nova and Anders join it when they get
-      models.
+- [x] **The menu is native Godot** (`godot/scripts/menu/`). The HTML build it was
+      rebuilt from is gone — it could not ship inside the iOS app — and all of its
+      art moved to `godot/assets/menu/` (cards, treats, decor, pass hero, skins,
+      mode/currency icons, logo, key art). Copy and config live in
+      `godot/data/{brawlers,game}.json`; stats come from `kits.gd`.
+- [ ] **v0.5 content is imported but not all wired.** `MenuData.card_art(id)`
+      serves the new full-body cards, and brawlers.json now carries
+      gadget/gear/starPower/hypercharge, but no screen displays them yet.
+      game.json also gained `quests`, `trophyRoad`, `leaderboard`, `gameLog` and
+      `upcoming` sections that nothing reads. `passRewards` was deliberately left
+      at the 15 tiers the pass screen parses rather than the web build's 40.
+- [ ] **Nova and Anders have no portrait or card art** — they fall back to a
+      colour chip until they get models.
 
 ## Arena & visuals
 

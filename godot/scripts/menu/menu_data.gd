@@ -12,6 +12,7 @@ class_name MenuData
 const BRAWLERS_PATH := "res://data/brawlers.json"
 const GAME_PATH := "res://data/game.json"
 const PORTRAIT_DIR := "res://assets/menu/portraits/"
+const CARD_DIR := "res://assets/menu/cards/"
 
 static var loaded := false
 static var brawlers: Array = []        # merged entries, roster order
@@ -101,6 +102,14 @@ static func rarity_of(b: Dictionary) -> Dictionary:
 ## null for a kit that has no model yet — callers draw a colour chip instead.
 static func portrait(id: String) -> Texture2D:
 	var path: String = PORTRAIT_DIR + id + ".png"
+	if not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
+
+## Full-body card art, resolved by id the way portraits are; null for a kit
+## that has none yet so callers can fall back to the portrait.
+static func card_art(id: String) -> Texture2D:
+	var path: String = CARD_DIR + id + ".webp"
 	if not ResourceLoader.exists(path):
 		return null
 	return load(path) as Texture2D
