@@ -281,7 +281,9 @@ func refresh() -> void:
 			online += 1
 	_set_badge(_friends_dot, online)
 	_set_badge(_inbox_dot, SaveGame.unread_mail())
-	_hint.modulate.a = 0.85 if (SaveGame.hints_on and SaveGame.first_run) else 0.0
+	# The web menu shows this line under the hero at all times; keep it while
+	# hints are on, and let the first tap of a session dismiss it.
+	_hint.modulate.a = 0.85 if SaveGame.hints_on else 0.0
 	_hint.offset_top = floor_y + 44.0
 	_hint.offset_bottom = floor_y + 78.0
 

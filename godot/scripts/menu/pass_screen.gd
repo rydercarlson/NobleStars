@@ -231,6 +231,20 @@ func _reward_cell(tier: Dictionary, lane: String) -> Control:
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(name_label)
 
+	if lane == "premium":
+		var tag := PanelContainer.new()
+		var tag_style := StyleBoxFlat.new()
+		tag_style.bg_color = MenuUI.YELLOW
+		tag_style.set_corner_radius_all(6)
+		tag_style.content_margin_left = 8
+		tag_style.content_margin_right = 8
+		tag_style.content_margin_top = 1
+		tag_style.content_margin_bottom = 1
+		tag.add_theme_stylebox_override("panel", tag_style)
+		tag.add_child(MenuUI.display("PASS", 15, MenuUI.GOLD_INK, 0))
+		MenuUI.pin(tag, false, false, 8)
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cell.add_child(tag)
 	# Owning the Pass should show on the premium lane itself, not just the header.
 	if lane == "premium" and SaveGame.pass_premium and not claimed:
 		var trim := Panel.new()

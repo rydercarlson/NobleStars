@@ -132,8 +132,16 @@ func set_render_scale(value: float) -> void:
 
 ## brawler3d.js _frame(): pull the camera back until the unit-tall model fills
 ## FILL of the view height. The models face -Z, so the camera sits there.
+var fill: float = FILL
+
+## The detail screen frames the fighter larger than the home stage does.
+func set_fill(value: float) -> void:
+	fill = clampf(value, 0.3, 1.0)
+	if _cam != null:
+		_frame_camera()
+
 func _frame_camera() -> void:
-	var visible_height: float = MODEL_HEIGHT / FILL
+	var visible_height: float = MODEL_HEIGHT / fill
 	var distance: float = visible_height / (2.0 * tan(deg_to_rad(FOV) / 2.0))
 	_cam.position = Vector3(0, LOOK_Y + 0.10 * MODEL_HEIGHT, -distance)
 	_cam.look_at(Vector3(0, LOOK_Y, 0))
@@ -210,10 +218,13 @@ func _setup_capsule() -> void:
 	_model = holder
 	var body := MeshInstance3D.new()
 	var mesh := CapsuleMesh.new()
-	mesh.radius = 0.45
+	# A fighter-sized blob reads as a mistake on the menu stage; a slim, muted
+	# pillar reads as a stand-in for art that has not shipped yet.
+	mesh.radius = 0.26
 	mesh.height = 1.6
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = _kit.get("color", Color.WHITE)
+	var kit_color: Color = _kit.get("color", Color.WHITE)
+	mat.albedo_color = kit_color.lerp(Color(0.5, 0.55, 0.65), 0.35)
 	mesh.material = mat
 	body.mesh = mesh
 	body.position.y = 0.8
@@ -226,7 +237,7 @@ func _setup_capsule() -> void:
 	nose_mat.albedo_color = Color(0.95, 0.95, 0.95)
 	nose_mesh.material = nose_mat
 	nose.mesh = nose_mesh
-	nose.position = Vector3(0, 1.15, -0.42)
+	nose.position = Vector3(0, 1.15, -0.24)
 	holder.add_child(nose)
 
 ## Ported from fighter.gd: Meshy's attack clips drop the hips below the rest

@@ -35,6 +35,7 @@ func _build_view() -> Control:
 	_view = MenuStage.new()
 	_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	holder.add_child(_view)
+	_view.set_fill(0.88)   # the reference fills most of the view height
 	_view.show_brawler(brawler)
 	_view.tapped.connect(func() -> void: sfx("hit"))
 
@@ -132,7 +133,10 @@ func _build_panel() -> Control:
 
 	var actions := MenuUI.hbox(16)
 	var cost: int = 200 * power
-	var upgrade: Button = MenuUI.button("UPGRADE  %s" % MenuUI.fmt(cost), "blue")
+	var upgrade: Button = MenuUI.button("%s  UPGRADE" % MenuUI.fmt(cost), "blue")
+	upgrade.icon = MenuUI.icon_texture("coin")
+	upgrade.expand_icon = true
+	upgrade.add_theme_constant_override("icon_max_width", 40)
 	upgrade.pressed.connect(func() -> void: _upgrade(cost))
 	actions.add_child(upgrade)
 	var selected: bool = id == SaveGame.selected_kit.to_lower()
@@ -178,7 +182,7 @@ func _ability(letter: String, dark: Color, light: Color, ability: Dictionary) ->
 	row.add_child(badge)
 	var text := MenuUI.vbox(4)
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text.add_child(MenuUI.display(str(ability.name), 28, MenuUI.TEXT, 4))
+	text.add_child(MenuUI.display(str(ability.name).to_upper(), 28, MenuUI.TEXT, 4))
 	text.add_child(MenuUI.wrap(MenuUI.body(str(ability.text), 21, MenuUI.TEXT_SOFT)))
 	row.add_child(text)
 	return p

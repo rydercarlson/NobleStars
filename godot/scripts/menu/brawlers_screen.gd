@@ -46,7 +46,10 @@ func _card(b: Dictionary) -> Button:
 	art.clip_contents = true
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(art)
-	art.add_child(MenuUI.card_backdrop(MenuUI.hex(rarity.get("dark"), Color("#3a4160"))))
+	# Locked fighters sit on the same neutral navy as the reference grid; the
+	# rarity tint is earned with the unlock.
+	art.add_child(MenuUI.card_backdrop(
+			MenuUI.hex(rarity.get("dark"), Color("#3a4160")) if unlocked else Color("#2b3148")))
 	art.add_child(_portrait(b, unlocked))
 
 	if not unlocked:

@@ -36,6 +36,13 @@ func _build() -> void:
 		daily.add_child(_daily_card(item))
 	stagger_children(daily)
 
+	column.add_child(_heading("Gems"))
+	var gems: GridContainer = MenuUI.grid(4)
+	column.add_child(gems)
+	for pack in shop.get("gems", []):
+		gems.add_child(_gem_card(pack))
+	stagger_children(gems)
+
 	var skins_data: Array = shop.get("skins", [])
 	if not skins_data.is_empty():
 		column.add_child(_heading("Skins"))
@@ -54,16 +61,10 @@ func _build() -> void:
 			resources.add_child(_resource_card(item))
 		stagger_children(resources)
 
-	column.add_child(_heading("Gems"))
-	var gems: GridContainer = MenuUI.grid(4)
-	column.add_child(gems)
-	for pack in shop.get("gems", []):
-		gems.add_child(_gem_card(pack))
-	stagger_children(gems)
 
 func _heading(text: String, note: String = "") -> HBoxContainer:
 	var row := MenuUI.hbox(16)
-	row.add_child(MenuUI.display(text, 40, MenuUI.TEXT, 6))
+	row.add_child(MenuUI.display(text.to_upper(), 42, MenuUI.TEXT, 6))
 	if note != "":
 		var n: Label = MenuUI.body(note, 22, MenuUI.TEXT_DIM)
 		n.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -96,7 +97,7 @@ func _offer_card(o: Dictionary) -> Panel:
 	var left := MenuUI.vbox(10)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(left)
-	left.add_child(MenuUI.wrap(MenuUI.display(str(o.name), 32, MenuUI.TEXT, 6)))
+	left.add_child(MenuUI.wrap(MenuUI.display(str(o.name).to_upper(), 32, MenuUI.TEXT, 6)))
 	for line in o.get("contents", []):
 		left.add_child(MenuUI.body("✓  %s" % str(line), 22, MenuUI.TEXT_SOFT))
 	left.add_child(MenuUI.spacer())
@@ -110,6 +111,9 @@ func _offer_card(o: Dictionary) -> Panel:
 				SaveGame.star_points += 100)
 	var buy_button: Button = _price_button(o, on_buy)
 	buy_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	# Shrunk to its text the icon had no room and vanished; the reference button
+	# is a wide pill with the gem showing.
+	buy_button.custom_minimum_size = Vector2(230, 78)
 	buy_row.add_child(buy_button)
 	var art: TextureRect = MenuUI.icon("star_drop", 160)
 	art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -157,8 +161,10 @@ func _daily_card(item: Dictionary) -> Panel:
 		art_holder.add_child(MenuUI.icon(str(KIND_ICON.get(kind, "token")), 116))
 
 	var amount_text: String = MenuUI.fmt(int(item.amount)) if item.has("amount") \
-			else str(item.get("name", ""))
-	var amount: Label = MenuUI.wrap(MenuUI.display(amount_text, 36, MenuUI.TEXT, 6))
+			else str(item.get("name", "")).to_upper()
+	# A two-word skin name wraps; a step down keeps its price button on the card.
+	var amount: Label = MenuUI.wrap(MenuUI.display(amount_text,
+			36 if item.has("amount") else 28, MenuUI.TEXT, 6))
 	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(amount)
 	var what: String = str(KIND_LABEL.get(kind, kind)).to_upper()
@@ -170,7 +176,27 @@ func _daily_card(item: Dictionary) -> Panel:
 	column.add_child(MenuUI.spacer())
 	column.add_child(_price_button(item, func(button: Button) -> void:
 		_buy(item, button, func() -> void: _apply_item(item))))
+	if str(item.get("currency", "")) == "free" and not SaveGame.is_claimed(str(item.id)):
+		card.add_child(_free_ribbon())
 	return card
+
+## The red corner ribbon the reference puts on every free deal.
+func _free_ribbon() -> Control:
+	var ribbon := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = MenuUI.RED
+	style.set_border_width_all(3)
+	style.border_color = MenuUI.LINE
+	style.content_margin_left = 34
+	style.content_margin_right = 34
+	style.content_margin_top = 2
+	style.content_margin_bottom = 2
+	ribbon.add_theme_stylebox_override("panel", style)
+	ribbon.add_child(MenuUI.display("FREE", 20, MenuUI.TEXT, 4))
+	ribbon.rotation_degrees = -35.0
+	ribbon.position = Vector2(-32, 34)
+	ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return ribbon
 
 # MARK: skins
 

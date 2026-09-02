@@ -46,11 +46,23 @@ func _row(mail: Dictionary) -> Button:
 		dot.custom_minimum_size = Vector2(16, 16)
 		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		box.add_child(dot)
+		# Unread mail is outlined in yellow, not just dotted.
+		var outline := Panel.new()
+		var outline_style := StyleBoxFlat.new()
+		outline_style.bg_color = Color(0, 0, 0, 0)
+		outline_style.set_border_width_all(4)
+		outline_style.border_color = MenuUI.YELLOW
+		outline_style.set_corner_radius_all(16)
+		outline.add_theme_stylebox_override("panel", outline_style)
+		outline.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		outline.offset_bottom = -6
+		outline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(outline)
 	box.add_child(MenuUI.icon("shield", 62))
 	var who := MenuUI.vbox(4)
 	who.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	who.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	who.add_child(MenuUI.display(str(mail.title), 30, MenuUI.TEXT, 4))
+	who.add_child(MenuUI.display(str(mail.title).to_upper(), 30, MenuUI.TEXT, 4))
 	who.add_child(MenuUI.body(str(mail.from), 20, MenuUI.TEXT_DIM))
 	box.add_child(who)
 	if mail.has("reward") and not SaveGame.is_claimed("mail:" + id):

@@ -85,9 +85,22 @@ func _slot(player: String, brawler: Dictionary, mine: bool) -> Control:
 		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		portrait.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		portrait.offset_top = 8
+		# Oversized and bottom-anchored like the roster cards, so the head fills
+		# the plate instead of floating small in the middle of it.
+		portrait.offset_left = -22
+		portrait.offset_right = 22
+		portrait.offset_top = 2
+		portrait.offset_bottom = 30
 		portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		art.add_child(portrait)
+		if portrait.texture == null:
+			var initial: Label = MenuUI.display(str(brawler.get("name", "?")).substr(0, 1), 72,
+					brawler.get("color", Color.WHITE), 8)
+			initial.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			art.add_child(initial)
+		else:
+			art.add_child(portrait)
 	var name_bar := Panel.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = MenuUI.YELLOW if mine else (MenuUI.BLUE if player != "" else Color("#4b5270"))
@@ -124,7 +137,14 @@ func _fill_next() -> void:
 	if _filled >= total:
 		_found()
 		return
-	var roster: Array = MenuData.brawlers
+	# Bots only wear fighters that have portrait art, so no lobby slot fills
+	# with an empty plate.
+	var roster: Array = []
+	for b in MenuData.brawlers:
+		if MenuData.portrait(str(b.id)) != null:
+			roster.append(b)
+	if roster.is_empty():
+		roster = MenuData.brawlers
 	var slot: Control = _slot(str(_names[_filled % _names.size()]),
 			roster[randi() % roster.size()], false)
 	var old: Control = _slots[_filled]

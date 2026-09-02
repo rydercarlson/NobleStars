@@ -38,7 +38,7 @@ func _left(club: Dictionary) -> VBoxContainer:
 	lines.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lines.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head_row.add_child(lines)
-	lines.add_child(MenuUI.display(str(club.get("name", "Club")), 48))
+	lines.add_child(MenuUI.display(str(club.get("name", "Club")).to_upper(), 48))
 	lines.add_child(MenuUI.body("%s · %s · %d/%d members" % [str(club.get("tag", "")),
 			str(club.get("type", "")), int(club.get("members", 0)),
 			int(club.get("maxMembers", 30))], 22, MenuUI.TEXT_DIM))
@@ -97,7 +97,7 @@ func _member_row(member: Dictionary, index: int) -> PanelContainer:
 	row.add_child(rank)
 	var who := MenuUI.vbox(2)
 	who.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	who.add_child(MenuUI.display(str(member.name), 30, MenuUI.TEXT, 4))
+	who.add_child(MenuUI.display(str(member.name).to_upper(), 30, MenuUI.TEXT, 4))
 	who.add_child(MenuUI.body(str(member.get("role", "Member")), 20, MenuUI.TEXT_DIM))
 	row.add_child(who)
 	row.add_child(MenuUI.icon("trophy", 30))
@@ -175,7 +175,7 @@ func _add_message(who: String, text: String) -> void:
 	var column := MenuUI.vbox(4)
 	bubble.add_child(column)
 	column.add_child(MenuUI.display(who, 22, MenuUI.YELLOW_HI, 0))
-	column.add_child(MenuUI.wrap(MenuUI.body(text, 21, MenuUI.TEXT)))
+	column.add_child(MenuUI.wrap(MenuUI.body(text.to_upper(), 21, MenuUI.TEXT)))
 	_messages.add_child(row)
 	_scroll_to_bottom()
 
