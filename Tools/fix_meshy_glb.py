@@ -107,6 +107,44 @@ def node_trs(n):
 
 # ---------- fixes ----------
 
+def drop_junk_clips(j, log):
+    """Remove Meshy's export debris: the near-zero-length `clip0|baselayer`
+    stub, and clips still named after a raw asset UUID. Godot addresses clips
+    by name, so a duplicate name silently shadows its twin in the
+    AnimationPlayer — these arrive in pairs, so they cannot all be kept.
+    """
+    import re as _re
+    anims = j.get('animations', [])
+    if not anims:
+        return
+    def duration(a):
+        return max((j['accessors'][s['input']].get('max', [0])[0]
+                    for s in a['samplers']), default=0)
+    uuid_like = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-', _re.I)
+    kept, dropped = [], []
+    for a in anims:
+        nm = a.get('name', '')
+        if duration(a) < 0.1 or 'baselayer' in nm or uuid_like.match(nm):
+            dropped.append(f"{nm or '<unnamed>'} ({duration(a):.2f}s)")
+        else:
+            kept.append(a)
+    # a name surviving twice would still shadow itself — keep the longer one
+    seen = {}
+    for a in list(kept):
+        nm = a['name']
+        if nm in seen:
+            loser = a if duration(a) <= duration(seen[nm]) else seen[nm]
+            kept.remove(loser)
+            dropped.append(f"{nm} (duplicate name)")
+            if loser is seen[nm]:
+                seen[nm] = a
+        else:
+            seen[nm] = a
+    if dropped:
+        j['animations'] = kept
+        log(f"dropped {len(dropped)} junk clip(s): " + ", ".join(dropped))
+
+
 def fix_material(j, log):
     for m in j.get('materials', []):
         if m.pop('emissiveTexture', None) is not None:
@@ -484,7 +522,8 @@ def add_idle(j, blob, log, duration=4.0, keys=17):
 
 
 ATTACKISH = ('attack', 'slash', 'thrust', 'punch', 'swing', 'smash', 'sweep',
-             'hit', 'kick', 'shoot', 'cast', 'stomp', 'slam', 'throw')
+             'hit', 'kick', 'shoot', 'cast', 'stomp', 'slam', 'throw', 'pitch',
+             'shot', 'dunk', 'serve')
 
 
 def dirlerp(d0, d1, u):
@@ -689,6 +728,7 @@ def main():
     log = lambda m: (steps.append(m), print(f"  - {m}"))
 
     print(f"{os.path.basename(args.input)}  ({before/1e6:.1f} MB)")
+    drop_junk_clips(j, log)
     fix_material(j, log)
     flatten_uniform_mr(j, blob, log)
     drop_unused_textures(j, log)

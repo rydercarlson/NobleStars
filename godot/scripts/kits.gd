@@ -412,6 +412,12 @@ static func hammy() -> Dictionary:
 	return {
 		"name": "Hammy", "color": Color(1.0, 0.36, 0.08),
 		"role": "Sniper",
+		"model": "res://assets/hammy.glb",
+		# baseball_pitching is the windup-and-release his three-pointer needs;
+		# at 2.5x the ball leaves his hand about 0.5s in. He has no melee clip,
+		# so the Super reuses the same shot.
+		"clips": {"idle": "Idle", "run": "Running", "attack": "baseball_pitching",
+				  "attack_speed": 2.5},
 		"desc": "Sinks long-range three-pointers; three consecutive hits set his shots On Fire.",
 		"super_desc": "Bank Is Open: fires a huge basketball that gains power on every wall bounce and sets enemies on fire.",
 		"max_health": HEALTH_VERY_LOW,
