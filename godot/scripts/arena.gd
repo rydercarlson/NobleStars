@@ -313,6 +313,7 @@ func _build() -> void:
 	_static_box(centre() + Vector3(0, -0.5, 0),
 				Vector3(map_width(), 1, map_depth()), Color(0.45, 0.70, 0.35), 1)
 
+	_bush_centers.clear()
 	for row in row_count:
 		for col in columns:
 			var ch := rows[row][col]
@@ -340,7 +341,7 @@ func _build() -> void:
 										 Color(0.30, 0.55, 0.85, 0.85), 2)
 					w.add_to_group("water")
 				"b":
-					_bush(c)
+					_bush_centers.append(c)
 				"S":
 					spawn_points.append(c)
 					# Cup teams are read off the map: team 0 defends the goal
@@ -349,6 +350,7 @@ func _build() -> void:
 				"X":
 					box_points.append(c)
 	_finish_goals()
+	_build_bushes()
 
 ## The goal mouth is floor, so it reads as a goal only if it is painted. The
 ## `=` posts around it already give the frame; this is the team-coloured slab
@@ -369,20 +371,80 @@ func _finish_goals() -> void:
 			sum += p
 		goal_centers[team] = sum / float(goal_mouths[team].size())
 
-func _bush(center: Vector3) -> void:
-	# Visual only — bushes never block movement; concealment is logic-side.
-	for offset in [Vector3(-0.4, 0.5, -0.3), Vector3(0.45, 0.55, 0.2), Vector3(-0.05, 0.7, 0.35)]:
-		var m := MeshInstance3D.new()
-		var s := SphereMesh.new()
-		s.radius = 0.75
-		s.height = 1.5
-		var mat := StandardMaterial3D.new()
-		mat.albedo_color = Color(0.22, 0.50, 0.20, 0.9)
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		s.material = mat
-		m.mesh = s
-		m.position = center + offset
-		add_child(m)
+const GRASS_MODEL := "res://assets/tall_grass.glb"
+## Half the model's height is 0.49, which sits it flush; less than that buries
+## the base disc so only greenery shows above the floor.
+const BUSH_LIFT := 0.33
+
+var _bush_centers: Array[Vector3] = []
+
+## Bushes are visual only — they never block movement, and concealment stays
+## logic-side. The map has 155 of them, so one MultiMesh draws the whole field
+## in a single call instead of 155 nodes and 1.3M triangles of scene tree.
+func _build_bushes() -> void:
+	if _bush_centers.is_empty():
+		return
+	var mesh: Mesh = _grass_mesh()
+	if mesh == null:
+		_build_bushes_fallback()
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = _bush_centers.size()
+	# The model is ~1.9 across and centred on its own origin. Sitting it exactly
+	# on the floor leaves its brown base disc showing as a ring of dirt, so it
+	# is sunk a little below flush and the greenery grows straight out of the
+	# grass. A per-clump yaw and scale jitter stop a field of them reading as
+	# one tiled texture.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20260902
+	for i in _bush_centers.size():
+		var scale: float = rng.randf_range(0.92, 1.12)
+		var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3.ONE * scale)
+		mm.set_instance_transform(i, Transform3D(basis,
+				_bush_centers[i] + Vector3(0, BUSH_LIFT * scale, 0)))
+	var holder := MultiMeshInstance3D.new()
+	holder.multimesh = mm
+	holder.name = "Bushes"
+	add_child(holder)
+
+func _grass_mesh() -> Mesh:
+	if not ResourceLoader.exists(GRASS_MODEL):
+		return null
+	var scene: PackedScene = load(GRASS_MODEL)
+	if scene == null:
+		return null
+	var root: Node3D = scene.instantiate()
+	var found: Mesh = null
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
+		found = mi.mesh
+		if found != null:
+			# Meshy leaves metallicFactor at 1.0, which renders black without a
+			# reflection probe — same clamp the characters get.
+			for si in found.get_surface_count():
+				var mat = found.surface_get_material(si)
+				if mat is BaseMaterial3D:
+					mat.metallic = 0.0
+			break
+	root.queue_free()
+	return found
+
+## Pre-model look, kept so a build without the grass asset still has bushes.
+func _build_bushes_fallback() -> void:
+	for center in _bush_centers:
+		for offset in [Vector3(-0.4, 0.5, -0.3), Vector3(0.45, 0.55, 0.2), Vector3(-0.05, 0.7, 0.35)]:
+			var m := MeshInstance3D.new()
+			var sph := SphereMesh.new()
+			sph.radius = 0.75
+			sph.height = 1.5
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = Color(0.22, 0.50, 0.20, 0.9)
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			sph.material = mat
+			m.mesh = sph
+			m.position = center + offset
+			add_child(m)
 
 func _static_box(pos: Vector3, size: Vector3, color: Color, layer: int) -> StaticBody3D:
 	var body := StaticBody3D.new()
