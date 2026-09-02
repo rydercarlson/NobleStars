@@ -33,19 +33,44 @@ func _build() -> void:
 	_scroll_to_current()
 
 func _header(season: Dictionary) -> PanelContainer:
-	var plate: PanelContainer = MenuUI.panel("navy", 16, 7, 24)
+	# Owning the Pass recolours the whole plate gold — the season banner is the
+	# one place that should look different once you have paid for it.
+	var plate: PanelContainer = MenuUI.panel(
+			"yellow" if SaveGame.pass_premium else "navy", 16, 7, 24)
 	var row := MenuUI.hbox(26)
 	plate.add_child(row)
-	row.add_child(MenuUI.icon("shield", 96))
+	# On the gold plate every label needs dark ink, not just the title.
+	var head_ink: Color = MenuUI.GOLD_INK if SaveGame.pass_premium else MenuUI.TEXT
+	var sub_ink: Color = Color(0.23, 0.14, 0.0, 0.85) if SaveGame.pass_premium \
+			else MenuUI.TEXT_DIM
+	# The season's hero art if it shipped, else the school shield.
+	var hero_path := "res://assets/menu/decor/pass_hero.webp"
+	if ResourceLoader.exists(hero_path):
+		var hero := TextureRect.new()
+		hero.texture = load(hero_path)
+		hero.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		hero.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		hero.custom_minimum_size = Vector2(132, 132)
+		hero.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hero.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(hero)
+		# a slow float so the hero is not dead weight on the plate
+		var bob := hero.create_tween().set_loops()
+		bob.tween_property(hero, "position:y", -7.0, 1.7) \
+				.as_relative().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		bob.tween_property(hero, "position:y", 7.0, 1.7) \
+				.as_relative().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	else:
+		row.add_child(MenuUI.icon("shield", 96))
 	var lines := MenuUI.vbox(6)
 	lines.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lines.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(lines)
 	lines.add_child(MenuUI.display("SEASON %d: %s" % [int(season.get("number", 1)),
-			str(season.get("name", ""))], 44, MenuUI.TEXT, 6))
+			str(season.get("name", ""))], 44, head_ink, 6))
 	lines.add_child(MenuUI.body("%d days left · %s" % [int(season.get("endsInDays", 30)),
 			"Nobles Pass active" if SaveGame.pass_premium else "Free track"],
-			22, MenuUI.TEXT_DIM))
+			22, sub_ink))
 
 	var tokens := MenuUI.vbox(6)
 	tokens.custom_minimum_size = Vector2(320, 0)
@@ -53,10 +78,10 @@ func _header(season: Dictionary) -> PanelContainer:
 	row.add_child(tokens)
 	var per_tier: int = maxi(1, int(season.get("tokensPerTier", 500)))
 	var label_row := MenuUI.hbox(8)
-	label_row.add_child(MenuUI.body("Tokens to next tier", 19, MenuUI.TEXT_DIM))
+	label_row.add_child(MenuUI.body("Tokens to next tier", 19, sub_ink))
 	label_row.add_child(MenuUI.spacer())
 	label_row.add_child(MenuUI.display("%d / %d" % [SaveGame.pass_tokens, per_tier],
-			20, MenuUI.TEXT_DIM, 0))
+			20, sub_ink, 0))
 	tokens.add_child(label_row)
 	var token_bar: Panel = MenuUI.bar(26, Color("#1fb8e6"), Color("#9ff4ff"))
 	tokens.add_child(token_bar)
@@ -64,10 +89,11 @@ func _header(season: Dictionary) -> PanelContainer:
 
 	var tier := MenuUI.vbox(2)
 	tier.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var tier_key: Label = MenuUI.body("TIER", 18, MenuUI.TEXT_DIM)
+	var tier_key: Label = MenuUI.body("TIER", 18, sub_ink)
 	tier_key.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tier.add_child(tier_key)
-	var tier_value: Label = MenuUI.display(str(SaveGame.pass_tier), 60, MenuUI.YELLOW_HI)
+	var tier_value: Label = MenuUI.display(str(SaveGame.pass_tier), 60,
+			MenuUI.GOLD_INK if SaveGame.pass_premium else MenuUI.YELLOW_HI)
 	tier_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tier.add_child(tier_value)
 	row.add_child(tier)
@@ -82,6 +108,7 @@ func _header(season: Dictionary) -> PanelContainer:
 		unlock.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		unlock.pressed.connect(func() -> void: _unlock_premium(unlock))
 		row.add_child(unlock)
+		_sheen(unlock, 3.4)
 	return plate
 
 func _unlock_premium(button: Button) -> void:
@@ -107,19 +134,43 @@ func _tier_column(tier: Dictionary) -> VBoxContainer:
 	var number: int = int(tier.tier)
 	var column := MenuUI.vbox(12)
 	column.custom_minimum_size = Vector2(TIER_WIDTH, 0)
+	# The headers double as the progress track: expanding each one by half the
+	# 14px column gap makes them touch, so the row reads as one continuous line
+	# that is lit up to the current tier and dark beyond it.
+	var current: bool = number == SaveGame.pass_tier
+	var reached: bool = number < SaveGame.pass_tier
 	var header := PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = MenuUI.YELLOW if number == SaveGame.pass_tier else Color(0, 0, 0, 0.35)
+	style.bg_color = MenuUI.YELLOW if current else \
+			(Color("#e07b1a") if reached else Color(0, 0, 0, 0.35))
 	style.set_corner_radius_all(10)
 	style.content_margin_top = 6
 	style.content_margin_bottom = 6
+	style.expand_margin_left = 7
+	style.expand_margin_right = 7
+	if current:
+		style.set_border_width_all(3)
+		style.border_color = MenuUI.YELLOW_HI
 	header.add_theme_stylebox_override("panel", style)
-	var ink: Color = MenuUI.GOLD_INK if number == SaveGame.pass_tier \
-			else (MenuUI.GREEN if number < SaveGame.pass_tier else MenuUI.TEXT_DIM)
-	var header_label: Label = MenuUI.display("TIER %d" % number, 26, ink, 0)
-	header_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	header.add_child(header_label)
+	var ink: Color = MenuUI.GOLD_INK if current \
+			else (MenuUI.TEXT if reached else MenuUI.TEXT_DIM)
+	var header_row := MenuUI.hbox(6)
+	header_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	header.add_child(header_row)
+	if reached:
+		var tick: TextureRect = MenuUI.icon("check", 22)
+		tick.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		header_row.add_child(tick)
+	header_row.add_child(MenuUI.display("TIER %d" % number, 26, ink, 0))
 	column.add_child(header)
+	if current:
+		# gentle breathing pulse so the eye lands on where you are
+		header.pivot_offset = Vector2(TIER_WIDTH * 0.5, 22)
+		var beat := header.create_tween().set_loops()
+		beat.tween_property(header, "scale", Vector2(1.06, 1.12), 0.55) \
+				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		beat.tween_property(header, "scale", Vector2.ONE, 0.55) \
+				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	column.add_child(_reward_cell(tier, "free"))
 	column.add_child(_reward_cell(tier, "premium"))
 	if number == SaveGame.pass_tier:
@@ -158,6 +209,18 @@ func _reward_cell(tier: Dictionary, lane: String) -> Control:
 	cell.add_child(column)
 	var art := CenterContainer.new()
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Skins and brawlers are the headline rewards — give them a soft halo so
+	# they read as bigger prizes than a stack of coins.
+	var kind: String = str(reward.get("kind", ""))
+	if kind == "skin" or kind == "brawler":
+		var halo := Panel.new()
+		var halo_style := StyleBoxFlat.new()
+		halo_style.bg_color = Color(MenuUI.YELLOW_HI.r, MenuUI.YELLOW_HI.g, MenuUI.YELLOW_HI.b, 0.16)
+		halo_style.set_corner_radius_all(60)
+		halo.add_theme_stylebox_override("panel", halo_style)
+		halo.custom_minimum_size = Vector2(112, 112)
+		halo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		art.add_child(halo)
 	art.add_child(MenuUI.icon(_reward_icon(reward), 84))
 	column.add_child(art)
 	if reward.has("amount"):
@@ -167,6 +230,20 @@ func _reward_cell(tier: Dictionary, lane: String) -> Control:
 	var name_label: Label = MenuUI.wrap(MenuUI.body(_reward_name(reward), 18, MenuUI.TEXT_DIM))
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(name_label)
+
+	# Owning the Pass should show on the premium lane itself, not just the header.
+	if lane == "premium" and SaveGame.pass_premium and not claimed:
+		var trim := Panel.new()
+		var trim_style := StyleBoxFlat.new()
+		trim_style.bg_color = Color(0, 0, 0, 0)
+		trim_style.set_border_width_all(3)
+		trim_style.border_color = Color(MenuUI.YELLOW.r, MenuUI.YELLOW.g, MenuUI.YELLOW.b, 0.75)
+		trim_style.set_corner_radius_all(16)
+		trim.add_theme_stylebox_override("panel", trim_style)
+		trim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		trim.offset_bottom = -6
+		trim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cell.add_child(trim)
 
 	if claimed or not reachable or lane_locked:
 		var veil := ColorRect.new()
@@ -195,6 +272,7 @@ func _reward_cell(tier: Dictionary, lane: String) -> Control:
 		var pulse := glow.create_tween().set_loops()
 		pulse.tween_property(glow, "modulate:a", 0.35, 0.6)
 		pulse.tween_property(glow, "modulate:a", 1.0, 0.6)
+		_sheen(cell)
 		cell.pressed.connect(func() -> void: _claim(id, reward, cell))
 	elif lane_locked and reachable and not claimed:
 		cell.pressed.connect(func() -> void:
@@ -212,13 +290,46 @@ func _claim(id: String, reward: Dictionary, cell: Control) -> void:
 		menu.refresh_currencies()
 	SaveGame.save()
 	sfx("reward")
-	menu.burst(center_of(cell), _reward_icon(reward), 12)
+	# Punch the card, then throw the reward at the counter it lands in, so the
+	# claim reads as the card handing something over rather than just vanishing.
+	var at: Vector2 = center_of(cell)
+	cell.pivot_offset = cell.size * 0.5
+	var punch := cell.create_tween()
+	punch.tween_property(cell, "scale", Vector2(1.12, 1.12), 0.09) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	punch.tween_property(cell, "scale", Vector2.ONE, 0.16) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	menu.burst(at, _reward_icon(reward), 20)
+	if kind == "coins" or kind == "gems":
+		menu.fly_to(at, kind, 9)
 	toast("Claimed %s" % _reward_name(reward), _reward_icon(reward))
 	if kind == "star_drop":
 		for i in int(reward.get("amount", 1)):
 			get_tree().create_timer(0.4 + i * 0.1).timeout.connect(func() -> void:
 				ShopScreen.open_star_drop(menu))
+	# _reopen rebuilds the track, which would cut the punch off mid-flight
+	await get_tree().create_timer(0.3).timeout
 	_reopen()
+
+## A slow diagonal highlight sweeping across a claimable card, so the eye is
+## drawn to what can actually be taken. The cell clips, so it stays inside.
+func _sheen(cell: Control, gap: float = 1.9) -> void:
+	var shine := TextureRect.new()
+	shine.texture = MenuUI.fade_texture()
+	shine.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shine.stretch_mode = TextureRect.STRETCH_SCALE
+	shine.modulate = Color(1, 1, 1, 0.13)
+	shine.rotation_degrees = 18.0
+	shine.custom_minimum_size = Vector2(70, 300)
+	shine.size = Vector2(70, 300)
+	shine.position = Vector2(-90, -60)
+	shine.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cell.add_child(shine)
+	var sweep := shine.create_tween().set_loops()
+	sweep.tween_property(shine, "position:x", TIER_WIDTH + 40.0, 1.5) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	sweep.tween_interval(gap)
+	sweep.tween_callback(func() -> void: shine.position.x = -90)
 
 func _reward_icon(reward: Dictionary) -> String:
 	match str(reward.get("kind", "")):
