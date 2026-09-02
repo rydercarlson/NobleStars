@@ -20,6 +20,10 @@ var _mode_tab: Panel
 var _friends_dot: Control
 var _inbox_dot: Control
 var _hint: Label
+var _mode_art: TextureRect
+
+const PACK := "res://assets/menu/pack/"
+const MODE_CARDS := {"showdown_solo": "showdown_card.png", "nobles_cup": "nobles_cup_card.png"}
 var _intro_done := false
 
 func _ready() -> void:
@@ -90,7 +94,7 @@ func _build_currency() -> void:
 	add_child(pills)
 
 func _build_menu_button() -> void:
-	var b: TextureButton = MenuUI.art_button(load("res://assets/menu/btn_menu.png"), 92)
+	var b: TextureButton = MenuUI.art_button(load(PACK + "menu/hamburger_menu.png"), 92)
 	b.anchor_left = 1.0
 	b.anchor_right = 1.0
 	b.offset_left = -40 - b.custom_minimum_size.x
@@ -142,7 +146,7 @@ func _build_side_columns() -> void:
 	_inbox_dot = _badge(inbox, MenuUI.RED)
 
 func _side_button(art: String, height: float, action: Callable) -> TextureButton:
-	var b: TextureButton = MenuUI.art_button(load("res://assets/menu/btn_%s.png" % art), height)
+	var b: TextureButton = MenuUI.art_button(load(PACK + "menu/%s.png" % art), height)
 	b.pressed.connect(func() -> void:
 		menu.sfx("click")
 		action.call())
@@ -198,6 +202,16 @@ func _build_bottom() -> void:
 	var mode_row := _inner_row(mode, 14, 12, 90)
 	_mode_icon = MenuUI.icon("bulldog", 116)
 	mode_row.add_child(_mode_icon)
+	# The clean pack ships baked cards for Showdown and Nobles Cup; when the
+	# pick has one it covers the plate, otherwise the icon-and-text plate shows.
+	_mode_art = TextureRect.new()
+	_mode_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_mode_art.stretch_mode = TextureRect.STRETCH_SCALE
+	_mode_art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_mode_art.offset_bottom = -7
+	_mode_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_mode_art.visible = false
+	mode.add_child(_mode_art)
 	var text := MenuUI.vbox(6)
 	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mode_row.add_child(text)
@@ -223,7 +237,7 @@ func _build_bottom() -> void:
 	chevron.pivot_offset = Vector2(17, 17)
 	_mode_tab.add_child(chevron)
 
-	var play: TextureButton = MenuUI.art_button(load("res://assets/menu/btn_play.png"), 134)
+	var play: TextureButton = MenuUI.art_button(load(PACK + "menu/play_button.png"), 134)
 	play.size_flags_vertical = Control.SIZE_SHRINK_END
 	play.pressed.connect(func() -> void:
 		menu.sfx("play")
@@ -264,6 +278,14 @@ func refresh() -> void:
 	if not mode.is_empty():
 		var color := Color(str(mode.get("color", "#57c81e")))
 		_mode_icon.texture = MenuUI.icon_texture(str(mode.get("icon", "bulldog")))
+		var card: String = str(MODE_CARDS.get(str(mode.get("id", "")), ""))
+		var has_card: bool = card != "" and ResourceLoader.exists(PACK + "modes/" + card)
+		if has_card:
+			_mode_art.texture = load(PACK + "modes/" + card)
+		_mode_art.visible = has_card
+		_mode_icon.visible = not has_card
+		_mode_name.visible = not has_card
+		_mode_sub.visible = not has_card
 		_mode_name.text = str(mode.get("name", "SHOWDOWN"))
 		_mode_sub.text = str(mode.get("sub", "")).to_upper()
 		_mode_sub.add_theme_color_override("font_color", color)

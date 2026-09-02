@@ -678,6 +678,26 @@ def split_held_item(j, blob, log, hand_side):
         f"node ({len(body_tris)} stay with the body)")
 
 
+def _jpeg_size(raw):
+    """Width/height from a JPEG's first SOF marker, without decoding it."""
+    import struct as _s
+    i = 2
+    while i + 9 < len(raw):
+        if raw[i] != 0xFF:
+            i += 1
+            continue
+        marker = raw[i + 1]
+        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+            i += 2
+            continue
+        length = _s.unpack('>H', raw[i + 2:i + 4])[0]
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+            h, w = _s.unpack('>HH', raw[i + 5:i + 9])
+            return w, h
+        i += 2 + length
+    return 0, 0
+
+
 def resize_textures(j, blob, log, max_side):
     """Downsample embedded textures to `max_side`. Meshy ships 4k and 8k bakes
     for characters that draw a few hundred pixels tall; the oversized ones cost
@@ -694,13 +714,19 @@ def resize_textures(j, blob, log, max_side):
         bv = j['bufferViews'][bv_index]
         off = bv.get('byteOffset', 0)
         raw = bytes(blob[off:off + bv['byteLength']])
-        if raw[:8] != b'\x89PNG\r\n\x1a\n':
-            continue                      # only PNG bakes are handled
-        w, h = _struct.unpack('>II', raw[16:24])
+        is_png = raw[:8] == b'\x89PNG\r\n\x1a\n'
+        is_jpg = raw[:3] == b'\xff\xd8\xff'
+        if not (is_png or is_jpg):
+            continue                      # PNG and JPEG bakes are handled
+        if is_png:
+            w, h = _struct.unpack('>II', raw[16:24])
+        else:
+            w, h = _jpeg_size(raw)
+        ext = 'png' if is_png else 'jpg'
         if max(w, h) <= max_side:
             continue
         with tempfile.TemporaryDirectory() as tmp:
-            src, dst = f"{tmp}/in.png", f"{tmp}/out.png"
+            src, dst = f"{tmp}/in.{ext}", f"{tmp}/out.{ext}"
             open(src, 'wb').write(raw)
             subprocess.run(["sips", "-Z", str(max_side), src, "--out", dst],
                            capture_output=True)

@@ -49,6 +49,13 @@ const WEBP_ICONS := {
 	"dawg_treat": "dawg_treat_icon",
 }
 
+## Icons that come from the clean asset pack, checked before the generated sets.
+const PACK_ICONS := {
+	"dawg_treat": "res://assets/menu/pack/decor/dawg_treat.png",
+	"dawg_treat_icon": "res://assets/menu/pack/decor/dawg_treat.png",
+	"soccer_ball": "res://assets/menu/pack/decor/soccer_ball.png",
+}
+
 static var _fonts: Dictionary = {}
 static var _plates: Dictionary = {}
 static var _icons: Dictionary = {}
@@ -117,7 +124,9 @@ static func icon_texture(icon_name: String) -> Texture2D:
 	if _icons.has(icon_name):
 		return _icons[icon_name]
 	var path: String = ICON_DIR + icon_name + ".svg"
-	if PNG_ICONS.has(icon_name):
+	if PACK_ICONS.has(icon_name) and ResourceLoader.exists(str(PACK_ICONS[icon_name])):
+		path = str(PACK_ICONS[icon_name])
+	elif PNG_ICONS.has(icon_name):
 		path = PNG_ICON_DIR + str(PNG_ICONS[icon_name]) + ".png"
 	elif not ResourceLoader.exists(path):
 		# The v0.5 art pack arrived as WebP under icons/; resolve by name so the

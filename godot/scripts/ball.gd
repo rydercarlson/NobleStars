@@ -11,6 +11,7 @@ extends Node3D
 ## would be the worst possible thing to replicate later.
 
 const RADIUS := 0.42
+const BALL_MODEL := "res://assets/soccer_ball.glb"
 const CARRY_HEIGHT := 1.25      # rides at chest height in front of the carrier
 const CARRY_AHEAD := 0.85
 const LOOSE_HEIGHT := RADIUS
@@ -61,6 +62,29 @@ func _ready() -> void:
 	mat.emission_energy_multiplier = 0.35
 	sphere.material = mat
 	_mesh.mesh = sphere
+	# The Meshy soccer ball when it shipped, else the plain sphere. Only the
+	# mesh is swapped, so the rolling in _process keeps turning the same node.
+	if ResourceLoader.exists(BALL_MODEL):
+		var scene: PackedScene = load(BALL_MODEL)
+		var root: Node3D = scene.instantiate() if scene != null else null
+		if root != null:
+			for mi in root.find_children("*", "MeshInstance3D", true, false):
+				if mi.mesh == null:
+					continue
+				_mesh.mesh = mi.mesh
+				var aabb: AABB = mi.mesh.get_aabb()
+				var span: float = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
+				_mesh.scale = Vector3.ONE * (RADIUS * 2.0 / maxf(span, 0.01))
+				for si in mi.mesh.get_surface_count():
+					var m = mi.mesh.surface_get_material(si)
+					if m is BaseMaterial3D:
+						m.metallic = 0.0
+						m.albedo_color = Color(1.0, 1.0, 1.0)
+						m.emission_enabled = true      # same bush-readability trick, and
+						m.emission = Color(0.6, 0.6, 0.56)   # a match ball reads bright
+						m.emission_energy_multiplier = 0.45
+				break
+			root.queue_free()
 	add_child(_mesh)
 
 	# A flat disc under the ball: with the steep match camera a ball in the air

@@ -5,6 +5,10 @@ extends Node3D
 
 enum Phase { COUNTDOWN, PLAYING, ENDED }
 
+## Pre-match: the VS cards count 5..1, then the mode title holds for the rest.
+const PREMATCH := 7.0
+const PREMATCH_INTRO_AT := 5.0
+
 const BOX_HEALTH := 900   # loot box hit points; also the bar's full width
 # Loading the 3D pickup on the fatal-hit frame caused a large synchronous disk
 # and texture decode spike. Keep it resident before the match starts instead.
@@ -26,6 +30,7 @@ var now := 0.0
 # HUD
 var hud: CanvasLayer
 var center_label: Label
+var versus: VersusScreen
 var players_label: Label
 var feed_label: Label
 var status_label: Label
@@ -348,9 +353,55 @@ func player_kit() -> Dictionary:
 func _start_countdown() -> void:
 	phase = Phase.COUNTDOWN
 	phase_at = now
-	center_label.text = "3"
+	center_label.text = ""
 	feed_label.text = ""
 	results.visible = false
+	_show_versus()
+
+## The pre-match versus card over the countdown. Showdown lists the ten solo
+## fighters five a side with you on the left; Nobles Cup lists the two teams.
+## The balance sim skips it — nobody is watching.
+func _show_versus() -> void:
+	if versus != null and is_instance_valid(versus):
+		versus.queue_free()
+	versus = null
+	if sim_active:
+		return
+	MenuData.ensure_loaded()
+	var top: Array = []
+	var bottom: Array = []
+	if mode == "cup":
+		for f in fighters:
+			if f.team == player.team:
+				bottom.append(f)
+			else:
+				top.append(f)
+	else:
+		bottom.append(player)
+		var others: Array = []
+		for f in fighters:
+			if f != player:
+				others.append(f)
+		for i in others.size():
+			if top.size() < 5:
+				top.append(others[i])
+			else:
+				bottom.append(others[i])
+	versus = VersusScreen.new()
+	hud.add_child(versus)
+	versus.build(mode, top, bottom, player)
+	# The match HUD waits behind the cards.
+	status_label.visible = false
+	players_label.visible = false
+	feed_label.visible = false
+
+func _hide_versus() -> void:
+	if versus != null and is_instance_valid(versus):
+		versus.dismiss()
+	versus = null
+	status_label.visible = true
+	players_label.visible = true
+	feed_label.visible = true
 
 func _spawn_fighter(kit: Dictionary, pos: Vector3, is_player: bool, team := -1) -> Fighter:
 	var f := Fighter.new()
@@ -1521,9 +1572,11 @@ func _physics_process(delta: float) -> void:
 	else:
 		match phase:
 			Phase.COUNTDOWN:
-				var remaining := 3.5 - (now - phase_at)
+				var elapsed: float = now - phase_at
+				var remaining: float = (PREMATCH if versus != null else 3.5) - elapsed
 				if remaining <= 0.0:
 					phase = Phase.PLAYING
+					_hide_versus()
 					center_label.text = "FIGHT!"
 					get_tree().create_timer(0.8).timeout.connect(func() -> void:
 						if phase == Phase.PLAYING:
@@ -1532,6 +1585,9 @@ func _physics_process(delta: float) -> void:
 						gas = GasRing.new()
 						add_child(gas)
 						gas.start(now, arena.columns)
+				elif versus != null and is_instance_valid(versus):
+					versus.update(int(ceil(PREMATCH_INTRO_AT - elapsed)), elapsed / PREMATCH,
+							elapsed >= PREMATCH_INTRO_AT)
 				else:
 					center_label.text = str(int(ceil(remaining)))
 				for f in fighters:
@@ -2128,10 +2184,11 @@ func _start_from_roster(roster: Array) -> void:
 
 	phase = Phase.COUNTDOWN
 	phase_at = now
-	center_label.text = "3"
+	center_label.text = ""
 	feed_label.text = ""
 	results.visible = false
 	_update_players_label()
+	_show_versus()
 	cam.position = player.position + CAMERA_OFFSET
 	cam.look_at(player.position, Vector3.UP)
 	for f in fighters:
@@ -2146,7 +2203,14 @@ func _start_from_roster(roster: Array) -> void:
 ## the round trip is a few ms.
 func _client_tick(delta: float) -> void:
 	if phase == Phase.COUNTDOWN:
-		center_label.text = str(int(ceil(maxf(3.5 - (now - phase_at), 1.0))))
+		var elapsed_c: float = now - phase_at
+		if versus != null and is_instance_valid(versus):
+			versus.update(int(ceil(maxf(PREMATCH_INTRO_AT - elapsed_c, 1.0))), elapsed_c / PREMATCH,
+					elapsed_c >= PREMATCH_INTRO_AT)
+		else:
+			center_label.text = str(int(ceil(maxf(3.5 - elapsed_c, 1.0))))
+	elif versus != null:
+		_hide_versus()
 	if phase == Phase.PLAYING and player != null and is_instance_valid(player) \
 			and not player.is_dead():
 		var dir := Vector3.ZERO
