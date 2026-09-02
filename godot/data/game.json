@@ -106,7 +106,7 @@
    },
    {
     "id": "d3",
-    "kind": "star_drop",
+    "kind": "dawg_treat",
     "amount": 1,
     "price": 0,
     "currency": "free",
@@ -169,7 +169,7 @@
    },
    {
     "id": "o3",
-    "kind": "star_drop",
+    "kind": "dawg_treat",
     "name": "MEGA STAR DROP",
     "contents": [
      "Guaranteed Epic or better"

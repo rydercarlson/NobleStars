@@ -126,7 +126,7 @@ func _unlock_premium(button: Button) -> void:
 	SaveGame.save()
 	menu.refresh_currencies()
 	sfx("reward")
-	menu.burst(center_of(button), "star_drop", 18)
+	menu.burst(center_of(button), "treat_legendary", 18)
 	toast("Nobles Pass unlocked!", "shield")
 	_reopen()
 
@@ -303,10 +303,12 @@ func _claim(id: String, reward: Dictionary, cell: Control) -> void:
 	if kind == "coins" or kind == "gems":
 		menu.fly_to(at, kind, 9)
 	toast("Claimed %s" % _reward_name(reward), _reward_icon(reward))
-	if kind == "star_drop":
+	# A Dawg Treat reward hands over a treat to open, not a silent nothing —
+	# before this, claiming one granted no currency and opened no container.
+	if kind == "dawg_treat" or kind == "star_drop":
 		for i in int(reward.get("amount", 1)):
 			get_tree().create_timer(0.4 + i * 0.1).timeout.connect(func() -> void:
-				ShopScreen.open_star_drop(menu))
+				ShopScreen.open_dawg_treat(menu))
 	# _reopen rebuilds the track, which would cut the punch off mid-flight
 	await get_tree().create_timer(0.3).timeout
 	_reopen()
@@ -364,7 +366,7 @@ func _reward_name(reward: Dictionary) -> String:
 		"power_points":
 			return "Power Points"
 		"star_drop":
-			return "Star Drop"
+			return "Dawg Treat"
 		"dawg_treat":
 			return "Dawg Treat"
 		"bling":
