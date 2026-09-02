@@ -371,6 +371,15 @@ static func anders() -> Dictionary:
 	return {
 		"name": "Anders", "color": Color(0.2, 0.88, 0.78),
 		"role": "Skirmisher",
+		"model": "res://assets/anders.glb",
+		# Clip timing, measured off the export: the kick's foot speed peaks at
+		# 0.54s, so seeking to 0.28 at 2.2x strikes ~0.12s after the cast. The
+		# backflip is airborne 0.60-1.35s, and Pop Off's leap lasts 0.48s
+		# (fighter.gd:begin_leap), so seeking to 0.55 at 1.6x puts the flight
+		# over the leap and leaves the landing recovery to play after it.
+		"clips": {"idle": "Idle", "run": "Running", "attack": "Kick_a_Soccer_Ball",
+				  "attack_speed": 2.2, "attack_seek": 0.28,
+				  "super": "Backflip", "super_speed": 1.6, "super_seek": 0.55},
 		"desc": "Keeps a hacky sack alive — every touch kicks it to whoever is closest, and catching it yourself continues the rally for free.",
 		"super_desc": "Pop Off: flicks the sack up and leaps clear, then spikes it back the way he came.",
 		"max_health": HEALTH_HIGH,
