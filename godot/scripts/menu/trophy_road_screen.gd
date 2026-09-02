@@ -203,7 +203,7 @@ func _reward_name(reward: Dictionary) -> String:
 		"gems":
 			return "%s GEMS" % MenuUI.fmt(amount)
 		"star_drop":
-			return "%s STAR DROP%s" % [MenuUI.fmt(amount), "S" if amount != 1 else ""]
+			return "%s DAWG TREAT%s" % [MenuUI.fmt(amount), "S" if amount != 1 else ""]
 		"power_points":
 			return "%s POWER POINTS" % MenuUI.fmt(amount)
 		"bling":
@@ -245,13 +245,13 @@ func _claim(claim_id: String, reward: Dictionary, button: Control) -> void:
 	menu.burst(center_of(button), _reward_icon(reward), 14)
 	toast(str(reward.get("name", "Claimed %s" % _reward_name(reward))),
 			_reward_icon(reward))
-	var drops: int = amount if kind == "star_drop" else 0
+	var drops: int = amount if (kind == "star_drop" or kind == "dawg_treat") else 0
 	_reopen()
 	if not unlocked_brawler.is_empty():
 		_show_brawler_unlock(unlocked_brawler, unlock_title)
 	for i in drops:
 		get_tree().create_timer(0.35 + i * 0.12).timeout.connect(func() -> void:
-			ShopScreen.open_star_drop(menu))
+			ShopScreen.open_dawg_treat(menu))
 
 ## Guaranteed random unlock. Common rarities are more likely to arrive early,
 ## and removing owned brawlers from the pool prevents duplicate drops.
@@ -305,7 +305,7 @@ func _show_brawler_unlock(brawler: Dictionary, title: String = "Brawler Drop") -
 	awesome.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	awesome.pressed.connect(popup.close_screen)
 	column.add_child(awesome)
-	menu.burst(menu.stage.size * 0.5, "star_drop", 20)
+	menu.burst(menu.stage.size * 0.5, "treat_epic", 20)
 
 func _rarity_weight(rarity: String) -> float:
 	match rarity:

@@ -678,6 +678,51 @@ def split_held_item(j, blob, log, hand_side):
         f"node ({len(body_tris)} stay with the body)")
 
 
+def resize_textures(j, blob, log, max_side):
+    """Downsample embedded textures to `max_side`. Meshy ships 4k and 8k bakes
+    for characters that draw a few hundred pixels tall; the oversized ones cost
+    file size, iOS bundle size, and minutes of Godot import time each. Uses
+    `sips`, which is always present on macOS, so the tool keeps its no-extra-
+    dependencies promise.
+    """
+    import subprocess, tempfile, struct as _struct
+    changed = 0
+    for im in j.get('images', []):
+        bv_index = im.get('bufferView')
+        if bv_index is None:
+            continue
+        bv = j['bufferViews'][bv_index]
+        off = bv.get('byteOffset', 0)
+        raw = bytes(blob[off:off + bv['byteLength']])
+        if raw[:8] != b'\x89PNG\r\n\x1a\n':
+            continue                      # only PNG bakes are handled
+        w, h = _struct.unpack('>II', raw[16:24])
+        if max(w, h) <= max_side:
+            continue
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = f"{tmp}/in.png", f"{tmp}/out.png"
+            open(src, 'wb').write(raw)
+            subprocess.run(["sips", "-Z", str(max_side), src, "--out", dst],
+                           capture_output=True)
+            try:
+                new = open(dst, 'rb').read()
+            except OSError:
+                continue
+        if not new or len(new) >= len(raw):
+            continue
+        delta = len(new) - bv['byteLength']
+        blob[off:off + bv['byteLength']] = new
+        bv['byteLength'] = len(new)
+        for other in j['bufferViews']:
+            if other is not bv and other.get('byteOffset', 0) > off:
+                other['byteOffset'] += delta
+        log(f"resized {im.get('name', 'texture')} {w}x{h} -> {max_side} "
+            f"({len(raw)/1e6:.1f} MB -> {len(new)/1e6:.1f} MB)")
+        changed += 1
+    if changed:
+        j['buffers'][0]['byteLength'] = len(blob)
+
+
 def repack(j, blob, log):
     """Rebuild the binary chunk, dropping bufferViews nothing references."""
     used = set()
@@ -716,6 +761,8 @@ def main():
     ap.add_argument('-o', '--output')
     ap.add_argument('--no-idle', action='store_true')
     ap.add_argument('--no-attack', action='store_true')
+    ap.add_argument('--texture-size', type=int, default=0,
+                    help="downsample embedded textures to at most N pixels")
     ap.add_argument('--split-held-item', choices=['left', 'right'],
                     help="split the item in this hand into a hideable "
                          "'held_item' node")
@@ -740,6 +787,8 @@ def main():
         add_attack(j, blob, log)
     if args.split_held_item and j.get('skins'):
         split_held_item(j, blob, log, args.split_held_item)
+    if args.texture_size:
+        resize_textures(j, blob, log, args.texture_size)
     blob = repack(j, blob, log)
     save(out, j, blob)
     after = os.path.getsize(out)

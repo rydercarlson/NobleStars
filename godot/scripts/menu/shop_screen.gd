@@ -6,13 +6,13 @@ extends MenuScreen
 
 const KIND_ICON := {
 	"coins": "coin", "gems": "gem", "power_points": "power_point",
-	"star_drop": "star_drop", "gadget": "gadget", "skin": "star_drop",
-	"pin": "rank_badge", "bundle": "star_drop",
+	"star_drop": "treat_legendary", "gadget": "gadget", "skin": "star_drop",
+	"pin": "rank_badge", "bundle": "treat_epic",
 	"dawg_treat": "dawg_treat", "bling": "bling", "brawler": "brawlers",
 }
 const KIND_LABEL := {
 	"coins": "Coins", "gems": "Gems", "power_points": "Power Points",
-	"star_drop": "Star Drop", "gadget": "Gadget", "skin": "Skin", "pin": "Pin",
+	"star_drop": "Dawg Treat", "gadget": "Gadget", "skin": "Skin", "pin": "Pin",
 	"dawg_treat": "Dawg Treat", "bling": "Bling", "brawler": "Brawler",
 }
 
@@ -313,7 +313,7 @@ func _buy(item: Dictionary, button: Button, apply: Callable) -> void:
 	SaveGame.save()
 	menu.refresh_currencies()
 	var kind: String = str(item.get("kind", "coins"))
-	sfx("reward" if kind == "star_drop" else "purchase")
+	sfx("reward" if (kind == "star_drop" or kind == "dawg_treat") else "purchase")
 	var at: Vector2 = center_of(button)
 	if kind == "coins":
 		menu.fly_to(at, "coins", 10)
@@ -323,8 +323,8 @@ func _buy(item: Dictionary, button: Button, apply: Callable) -> void:
 	done.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_sibling(done)
 	button.queue_free()
-	if kind == "star_drop":
-		open_star_drop(menu)
+	if kind == "star_drop" or kind == "dawg_treat":
+		open_dawg_treat(menu)
 
 func _apply_item(item: Dictionary) -> void:
 	if str(item.get("kind", "")) == "coins":
@@ -337,41 +337,97 @@ func _reset_time() -> String:
 
 # MARK: star drop
 
-## The Star Drop opening — tap to open, escalating rarity roll, and a brawler
-## unlock at Mythic/Legendary if that fighter is still locked.
-static func open_star_drop(shell: MenuShell) -> void:
-	var rolls: Array = [
-		{"p": 0.5, "label": "RARE", "color": "#6df26a", "kind": "coins", "amount": 150},
-		{"p": 0.28, "label": "SUPER RARE", "color": "#4f8dff", "kind": "coins", "amount": 400},
-		{"p": 0.15, "label": "EPIC", "color": "#c56cff", "kind": "gems", "amount": 25},
-		{"p": 0.06, "label": "MYTHIC", "color": "#ff5f5f", "kind": "brawler", "id": "kovacs"},
-		{"p": 0.01, "label": "LEGENDARY", "color": "#ffe14f", "kind": "brawler", "id": "henry"},
-	]
-	var roll: float = randf()
-	var pick: Dictionary = rolls[0]
-	for r in rolls:
-		if roll < float(r.p):
-			pick = r
-			break
-		roll -= float(r.p)
-	if str(pick.get("kind", "")) == "brawler" and SaveGame.is_unlocked(str(pick.id)):
-		pick = {"label": pick.label, "color": pick.color, "kind": "gems", "amount": 60}
+## Dawg Treats — our Starr Drop. A Starr Drop rolls a rarity first and then
+## pulls a reward from that rarity's pool, so the colour you see tells you how
+## good the prize can be before you open it; that is the mechanic reproduced
+## here, across the seven treat rarities we have art for. Probabilities are
+## shaped like Brawl Stars': the common tiers carry the draw, Legendary and
+## Ultra are the rare thrill.
+const TREAT_TIERS := [
+	{"id": "common", "label": "COMMON", "color": "#cfcfcf", "p": 0.40},
+	{"id": "rare", "label": "RARE", "color": "#6df26a", "p": 0.26},
+	{"id": "super_rare", "label": "SUPER RARE", "color": "#4f8dff", "p": 0.16},
+	{"id": "epic", "label": "EPIC", "color": "#c56cff", "p": 0.10},
+	{"id": "mythic", "label": "MYTHIC", "color": "#ff5f5f", "p": 0.055},
+	{"id": "legendary", "label": "LEGENDARY", "color": "#ffe14f", "p": 0.02},
+	{"id": "ultra", "label": "ULTRA", "color": "#ff8ae0", "p": 0.005},
+]
 
-	var popup: MenuPopup = shell.popup("Star Drop")
+## What each rarity can hold. Entries are weighted so a tier can still surprise
+## inside itself, and the value climbs steeply with rarity.
+const TREAT_POOL := {
+	"common": [{"kind": "coins", "amount": 120, "w": 3}, {"kind": "power_points", "amount": 25, "w": 2}],
+	"rare": [{"kind": "coins", "amount": 260, "w": 3}, {"kind": "power_points", "amount": 60, "w": 2},
+			{"kind": "bling", "amount": 20, "w": 1}],
+	"super_rare": [{"kind": "coins", "amount": 520, "w": 3}, {"kind": "power_points", "amount": 130, "w": 2},
+			{"kind": "bling", "amount": 45, "w": 2}, {"kind": "gems", "amount": 10, "w": 1}],
+	"epic": [{"kind": "power_points", "amount": 280, "w": 2}, {"kind": "bling", "amount": 110, "w": 2},
+			{"kind": "gems", "amount": 25, "w": 2}, {"kind": "pin", "w": 1}],
+	"mythic": [{"kind": "gems", "amount": 55, "w": 2}, {"kind": "bling", "amount": 260, "w": 2},
+			{"kind": "brawler", "w": 3}],
+	"legendary": [{"kind": "brawler", "w": 4}, {"kind": "gems", "amount": 120, "w": 2},
+			{"kind": "skin", "w": 2}],
+	"ultra": [{"kind": "brawler", "w": 3}, {"kind": "skin", "w": 3}, {"kind": "gems", "amount": 220, "w": 2}],
+}
+
+static func _roll_tier() -> Dictionary:
+	var roll: float = randf()
+	for tier in TREAT_TIERS:
+		if roll < float(tier.p):
+			return tier
+		roll -= float(tier.p)
+	return TREAT_TIERS[0]
+
+## Pick a reward from a tier's pool, then resolve it against what the player
+## already owns — a brawler pull with nothing left to unlock becomes gems
+## rather than a dud, the way Starr Drops substitute duplicates out.
+static func _roll_reward(tier_id: String) -> Dictionary:
+	var pool: Array = TREAT_POOL.get(tier_id, TREAT_POOL["common"])
+	var total: float = 0.0
+	for entry in pool:
+		total += float(entry.get("w", 1))
+	var pick: float = randf() * total
+	var chosen: Dictionary = pool[0]
+	for entry in pool:
+		pick -= float(entry.get("w", 1))
+		if pick <= 0.0:
+			chosen = entry
+			break
+	var reward: Dictionary = chosen.duplicate()
+	if str(reward.get("kind", "")) == "brawler":
+		var locked: Array = []
+		for b in MenuData.brawlers:
+			if not SaveGame.is_unlocked(str(b.id)):
+				locked.append(str(b.id))
+		if locked.is_empty():
+			return {"kind": "gems", "amount": 80}
+		reward["id"] = locked[randi() % locked.size()]
+	return reward
+
+static func treat_icon(tier_id: String) -> String:
+	return "treat_%s" % tier_id
+
+## The opening: the treat drops in at its rarity colour, you tap, it reveals.
+static func open_dawg_treat(shell: MenuShell) -> void:
+	var tier: Dictionary = _roll_tier()
+	var reward: Dictionary = _roll_reward(str(tier.id))
+	var accent: Color = MenuUI.hex(tier.color)
+
+	var popup: MenuPopup = shell.popup("Dawg Treat")
 	var box := MenuUI.vbox(18)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	popup.body_box.add_child(box)
-	var star_holder := CenterContainer.new()
-	star_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var star: TextureRect = MenuUI.icon("star_drop", 200)
-	star_holder.add_child(star)
-	box.add_child(star_holder)
-	var label: Label = MenuUI.display("TAP TO OPEN", 54, MenuUI.hex(pick.color), 8)
+	var treat_holder := CenterContainer.new()
+	treat_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var treat: TextureRect = MenuUI.icon(treat_icon(str(tier.id)), 210)
+	treat_holder.add_child(treat)
+	box.add_child(treat_holder)
+	var label: Label = MenuUI.display("TAP TO OPEN", 54, accent, 8)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(label)
-	var bob := star.create_tween().set_loops()
-	bob.tween_property(star, "position:y", -12.0, 0.6).set_trans(Tween.TRANS_SINE)
-	bob.tween_property(star, "position:y", 0.0, 0.6).set_trans(Tween.TRANS_SINE)
+	var bob := treat.create_tween().set_loops()
+	bob.tween_property(treat, "position:y", -12.0, 0.6).set_trans(Tween.TRANS_SINE)
+	bob.tween_property(treat, "position:y", 0.0, 0.6).set_trans(Tween.TRANS_SINE)
 
 	var opened: Array = [false]
 	var open := func(event: InputEvent) -> void:
@@ -380,19 +436,27 @@ static func open_star_drop(shell: MenuShell) -> void:
 		opened[0] = true
 		shell.sfx("reward")
 		bob.kill()
-		star.queue_free()
-		label.text = str(pick.label)
-		var reward := CenterContainer.new()
-		reward.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		box.add_child(reward)
-		box.move_child(reward, 0)
-		if str(pick.kind) == "brawler":
-			var b: Dictionary = MenuData.brawler(str(pick.id))
-			SaveGame.unlock(str(pick.id))
+		# the treat pops before it hands the prize over
+		treat.pivot_offset = treat.size * 0.5
+		var pop := treat.create_tween()
+		pop.tween_property(treat, "scale", Vector2(1.3, 1.3), 0.12) \
+				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		pop.tween_property(treat, "modulate:a", 0.0, 0.14)
+		pop.tween_callback(treat.queue_free)
+		shell.burst(shell.stage.size * 0.5, treat_icon(str(tier.id)), 22)
+		label.text = str(tier.label)
+		var slot := CenterContainer.new()
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(slot)
+		box.move_child(slot, 0)
+		var kind: String = str(reward.get("kind", "coins"))
+		if kind == "brawler":
+			var b: Dictionary = MenuData.brawler(str(reward.id))
+			SaveGame.unlock(str(reward.id))
 			SaveGame.save()
 			var column := MenuUI.vbox(10)
 			var portrait := TextureRect.new()
-			portrait.texture = MenuData.portrait(str(pick.id))
+			portrait.texture = MenuData.portrait(str(reward.id))
 			portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			portrait.custom_minimum_size = Vector2(220, 220)
@@ -400,16 +464,28 @@ static func open_star_drop(shell: MenuShell) -> void:
 			var caption: Label = MenuUI.display("NEW BRAWLER: %s" % str(b.name), 40)
 			caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			column.add_child(caption)
-			reward.add_child(column)
+			slot.add_child(column)
+		elif kind == "skin" or kind == "pin":
+			var column2 := MenuUI.vbox(10)
+			column2.add_child(MenuUI.icon("brawlers" if kind == "skin" else "rank_badge", 170))
+			var caption2: Label = MenuUI.display(
+					"NEW SKIN" if kind == "skin" else "NEW PIN", 40, accent, 6)
+			caption2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			column2.add_child(caption2)
+			slot.add_child(column2)
 		else:
-			SaveGame.grant(str(pick.kind), int(pick.amount))
+			SaveGame.grant(kind, int(reward.get("amount", 0)))
 			shell.refresh_currencies()
 			var row := MenuUI.hbox(16)
-			row.add_child(MenuUI.icon("gem" if str(pick.kind) == "gems" else "coin", 90))
-			row.add_child(MenuUI.display("+%s" % MenuUI.fmt(int(pick.amount)), 70))
-			reward.add_child(row)
+			row.add_child(MenuUI.icon(str(KIND_ICON.get(kind, "coin")), 90))
+			row.add_child(MenuUI.display("+%s" % MenuUI.fmt(int(reward.get("amount", 0))), 70))
+			slot.add_child(row)
 		var awesome: Button = MenuUI.button("AWESOME", "yellow")
 		awesome.pressed.connect(popup.close_screen)
 		box.add_child(awesome)
 	box.mouse_filter = Control.MOUSE_FILTER_STOP
 	box.gui_input.connect(open)
+
+## Kept so older call sites keep working; Dawg Treats are the only container.
+static func open_star_drop(shell: MenuShell) -> void:
+	open_dawg_treat(shell)
