@@ -86,8 +86,30 @@ var _next_ready_send := 0.0
 var _cube_seq := 0
 var _snap_tick := 0
 
+## Battle music. The menu owns its own track; the match had none at all, so it
+## starts one here and honours the same Settings toggle.
+const BATTLE_MUSIC := "res://assets/menu/audio/clash_carnival.mp3"
+
+var _music: AudioStreamPlayer
+
+func _start_battle_music() -> void:
+	if not SaveGame.music_on or not ResourceLoader.exists(BATTLE_MUSIC):
+		return
+	var track: AudioStream = load(BATTLE_MUSIC) as AudioStream
+	if track == null:
+		return
+	if track is AudioStreamMP3:
+		track.loop = true
+	_music = AudioStreamPlayer.new()
+	_music.stream = track
+	_music.volume_db = -13.0
+	_music.bus = "Master"
+	add_child(_music)
+	_music.play()
+
 func _ready() -> void:
 	SaveGame.ensure_loaded()   # NS3_KIT runs skip the menu, so load here too
+	_start_battle_music()
 	net_active = Net.active
 	net_host = net_active and multiplayer.is_server()
 	authoritative = not net_active or net_host
@@ -1146,6 +1168,10 @@ func _elim_feed_text(who: String, killer: String, left_game: bool) -> String:
 
 func _end_match(rank: int, victory: bool) -> void:
 	phase = Phase.ENDED
+	if _music != null and _music.playing:
+		var fade := _music.create_tween()
+		fade.tween_property(_music, "volume_db", -40.0, 1.6)
+		fade.tween_callback(_music.stop)
 	center_label.text = ""
 	move_stick.release()
 	aim_stick.release()

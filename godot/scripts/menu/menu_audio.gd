@@ -40,10 +40,24 @@ func play(sound: String = "click") -> void:
 	p.volume_db = -6.0
 	p.play()
 
+## The lobby track if one shipped, else the synthesized chord pad. Keeping the
+## fallback means the menu still has music in a build without the audio file.
+const MUSIC_TRACK := "res://assets/menu/audio/lobby_vibes.mp3"
+
 func set_music(on: bool) -> void:
 	if on:
 		if not _music.playing:
-			_music.stream = _stream("music")
+			var track: AudioStream = null
+			if ResourceLoader.exists(MUSIC_TRACK):
+				track = load(MUSIC_TRACK) as AudioStream
+			if track != null:
+				if track is AudioStreamMP3:
+					track.loop = true
+				_music.volume_db = -11.0
+				_music.stream = track
+			else:
+				_music.volume_db = -14.0
+				_music.stream = _stream("music")
 			_music.play()
 	else:
 		_music.stop()
