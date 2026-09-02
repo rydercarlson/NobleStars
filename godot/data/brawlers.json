@@ -28,7 +28,7 @@
    },
    "attack": {
     "name": "Button Mash",
-    "text": "Six A/B/X/Y buttons stream out in a tight cone \u2014 204 damage each."
+    "text": "Six A/B/X/Y buttons stream out in a tight cone — 204 damage each."
    },
    "super": {
     "name": "Disconnect",
@@ -50,7 +50,7 @@
    "title": "Dojo Captain",
    "rarity": "rare",
    "role": "Assassin",
-   "description": "Fastest fighter in the game with the quickest reload \u2014 he picks every fight, but folds if caught out.",
+   "description": "Fastest fighter in the game with the quickest reload — he picks every fight, but folds if caught out.",
    "model": "assets/models/sanjit.glb",
    "portrait": "assets/portraits/sanjit.png",
    "stance": "ready",
@@ -161,7 +161,7 @@
    },
    "super": {
     "name": "Seismic Slam",
-    "text": "Leaps forward and slams the ground \u2014 a massive shockwave erupts on landing."
+    "text": "Leaps forward and slams the ground — a massive shockwave erupts on landing."
    },
    "unlocked": false,
    "trophies": 0,
@@ -200,22 +200,116 @@
    },
    "attack": {
     "name": "Paddle Whack",
-    "text": "A huge 110\u00b0 sweep that punishes anyone in reach."
+    "text": "A huge 110° sweep that punishes anyone in reach."
    },
    "super": {
     "name": "Portage",
-    "text": "A charging dash that knocks enemies flying \u2014 and doubles its punch across water."
+    "text": "A charging dash that knocks enemies flying — and doubles its punch across water."
    },
    "unlocked": false,
    "trophies": 0,
    "rank": 1,
    "power": 1,
    "pins": 0,
-   "unlockHint": "Nobles Pass \u00b7 Tier 30",
+   "unlockHint": "Nobles Pass · Tier 30",
    "gadget": "Trail Mix",
    "gear": "Hiking Boots",
    "hypercharge": "Wilderness Week",
    "starPower": "Survivor"
+  },
+  {
+   "id": "anders",
+   "name": "ANDERS",
+   "title": "The Hacky-Sack Captain",
+   "rarity": "rare",
+   "role": "Skirmisher",
+   "description": "Throws a hacky sack onto a spot — catch it on the way back to reload instantly and make the next throw hit harder.",
+   "model": "assets/models/anders.glb",
+   "portrait": "assets/portraits/anders.png",
+   "stance": "ready",
+   "idle": {
+    "duration": 4.0,
+    "seed": 3.6
+   },
+   "attackClips": [
+    "Kick_a_Soccer_Ball"
+   ],
+   "moveClip": "Running",
+   "attack": {
+    "name": "Keep It Up",
+    "text": "Aim the sack onto an enemy, then catch its return to reload instantly and build a harder-hitting streak."
+   },
+   "super": {
+    "name": "Pop Off",
+    "text": "Backflips clear, then spikes the ground he left and blasts everyone there away from him."
+   },
+   "unlockHint": "Found in Star Drops",
+   "unlocked": false,
+   "trophies": 0,
+   "rank": 1,
+   "power": 1,
+   "pins": 2
+  },
+  {
+   "id": "hammy",
+   "name": "HAMMY",
+   "title": "The Basketball Sniper",
+   "rarity": "legendary",
+   "role": "Sniper",
+   "description": "Sinks long-range three-pointers; three consecutive hits set his shots On Fire.",
+   "model": "assets/models/hammy.glb",
+   "portrait": "assets/portraits/hammy.png",
+   "stance": "ready",
+   "idle": {
+    "duration": 4.0,
+    "seed": 2.7
+   },
+   "attackClips": [
+    "baseball_pitching"
+   ],
+   "moveClip": "Running",
+   "attack": {
+    "name": "Three-Pointer",
+    "text": "Fires a long-range basketball; three consecutive hits set his shots On Fire."
+   },
+   "super": {
+    "name": "Bank Is Open",
+    "text": "Fires a huge basketball that gains power on every wall bounce and sets enemies on fire."
+   },
+   "unlockHint": "Found in Star Drops",
+   "unlocked": false,
+   "trophies": 0,
+   "rank": 1,
+   "power": 1,
+   "pins": 2
+  },
+  {
+   "id": "ayaan",
+   "name": "AYAAN",
+   "title": "Downhill Racer",
+   "rarity": "epic",
+   "role": "Carver",
+   "description": "Two snow shots that meet exactly where you aim — the further out you point, the wider and lazier the curve that gets them there.",
+   "portrait": "assets/portraits/ayaan.png",
+   "stance": "ready",
+   "idle": {
+    "duration": 4.8,
+    "seed": 1.4
+   },
+   "attack": {
+    "name": "Slalom",
+    "text": "Two snow shots swing off the aim line and meet again exactly where you point. Aim far and they draw one wide arc that passes either side of a body and rejoins on it. Aim close and they braid tight — dense and hard to slip, but it gets nowhere."
+   },
+   "super": {
+    "name": "Downhill",
+    "text": "Plants his poles and launches into a two-second downhill run you carve with the stick. Anyone he hits is bulldozed aside, and the run ends in a spray of snow that slows everyone nearby. An icy timer over his head counts it down."
+   },
+   "unlockHint": "Found in Star Drops",
+   "unlocked": false,
+   "trophies": 0,
+   "rank": 1,
+   "power": 1,
+   "pins": 2
   }
  ],
  "rarities": {

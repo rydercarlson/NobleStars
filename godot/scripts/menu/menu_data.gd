@@ -7,7 +7,7 @@ class_name MenuData
 ## The one thing the JSON is NOT trusted for is balance: every brawler entry is
 ## merged with its live Kits dictionary, so health/damage/speed/range on the
 ## detail screen are whatever kits.gd says today. A kit with no JSON entry
-## (Nova, Anders) still shows up — its card is synthesised from kits.gd.
+## (currently Nova) still shows up — its card is synthesised from kits.gd.
 
 const BRAWLERS_PATH := "res://data/brawlers.json"
 const GAME_PATH := "res://data/game.json"
@@ -137,13 +137,16 @@ static func starting_brawlers() -> Array:
 	ensure_loaded()
 	return game.get("startingBrawlers", ["nova"])
 
-## Only Showdown is built; every other mode selects fine but says so on PLAY.
+## Showdown and Nobles Cup are built; every other mode selects fine but says so
+## on PLAY.
 static func mode_playable(id: String) -> bool:
-	return id == "showdown_solo"
+	return id == "showdown_solo" or id == "nobles_cup"
 
 ## Menu mode id -> the string main.gd's start_match hook branches on.
 static func engine_mode(id: String) -> String:
-	return "showdown" if id.begins_with("showdown") else id
+	if id.begins_with("showdown"):
+		return "showdown"
+	return "cup" if id == "nobles_cup" else id
 
 static func speed_label(v: float) -> String:
 	if v <= Kits.SPEED_VERY_SLOW + 0.01:

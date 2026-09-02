@@ -104,6 +104,10 @@ static func ensure_loaded() -> void:
 		_grant_start()
 		if selected_mode == "showdown":
 			selected_mode = "showdown_solo"
+	# Not version-gated: the mode was selectable long before it was playable,
+	# so a save of any version can be sitting on the old id.
+	if selected_mode == "brawl_ball":
+		selected_mode = "nobles_cup"
 	# Before Trophy Road, native saves gave every fighter away at startup.
 	# Migrate once so those saves participate in the new unlock progression.
 	if save_version < 3:

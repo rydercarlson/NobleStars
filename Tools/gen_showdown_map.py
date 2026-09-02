@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""Regenerate the 33x33 Showdown arena in godot/scripts/arena.gd.
+"""Regenerate the Showdown arena in godot/scripts/arena.gd.
 
-The map is a Brawl Stars Showdown map rescaled to Noble Stars' range cap:
-theirs is 60x60 tiles against a 10-tile max weapon range, ours is 5.5, so
-60 * 0.55 ~= 33. Terrain is authored in one quadrant and rotated four ways,
+The map is a Brawl Stars Showdown map rescaled to Noble Stars' fighters.
+Theirs is 60x60 tiles with a brawler about one tile wide, so it is 60
+body-widths across. Ours is N tiles of 2 m against a fighter of
+2*Kits.FIGHTER_RADIUS, so N = 60 * FIGHTER_RADIUS: at 0.65 that is 39.
+Keep N in step with FIGHTER_RADIUS — if the fighter is rescaled and this is
+not, the arena silently changes size in the only unit that matters.
+
+Terrain is authored in DESIGN UNITS on the original 33-tile grid and scaled
+by S = N/33 at emit time, so the layout is resolution-independent: rings stay
+proportionally placed and the annular bands keep their share of the area.
+Terrain is authored in one quadrant and rotated four ways,
 which makes the draw identical from every spawn; the clump angles are chiral
 rather than mirrored so it reads as a pinwheel, not a kaleidoscope.
 
@@ -53,7 +61,9 @@ def render(path, out, px=14):
     print('wrote', out, W, 'x', H)
 
 
-N, C = 33, 16
+N = 39                       # 60 body-widths at FIGHTER_RADIUS 0.65
+C = N // 2
+S = N / 33.0                 # design units -> tiles; radii below are design units
 def rot(x, y): return (N - 1 - y, x)
 grid = [['.'] * N for _ in range(N)]
 def put(x, y, ch):
@@ -66,8 +76,8 @@ def sym_put(x, y, ch):
 def pol(x, y):
     dx, dy = x - C, y - C
     return math.hypot(dx, dy), math.degrees(math.atan2(dy, dx)) % 90.0
-def at(r, a): return (int(round(C + r*math.cos(math.radians(a)))),
-                      int(round(C + r*math.sin(math.radians(a)))))
+def at(r, a): return (int(round(C + r*S*math.cos(math.radians(a)))),
+                      int(round(C + r*S*math.sin(math.radians(a)))))
 def clump(r, a, w, h, ch):
     x0, y0 = at(r, a)
     for dy in range(h):
@@ -77,7 +87,7 @@ def arc(r0, r1, spans, ch):
     for y in range(N):
         for x in range(N):
             r, a = pol(x, y)
-            if r0 <= r <= r1 and any(lo <= a <= hi for lo, hi in spans):
+            if r0*S <= r <= r1*S and any(lo <= a <= hi for lo, hi in spans):
                 if get(x, y) == '.': put(x, y, ch)
 
 for i in range(N):
@@ -85,11 +95,11 @@ for i in range(N):
     grid[i][0] = grid[i][N-1] = '#'
 
 # --- concentric cover, gaps deliberately offset ring to ring -------------
-arc(6.8,  8.6, [(10, 78)],           'b')   # inner ring, open at the four cardinals
+arc(7.0,  8.5, [(12, 76)],           'b')   # inner ring, open at the four cardinals
 arc(11.8, 13.3, [(0, 38), (58, 90)], 'b')   # outer ring, open on the four diagonals
-arc(17.8, 19.2, [(26, 64)],          'b')   # corner thickets
-arc(9.6,  11.2, [(0, 12), (78, 90)], '~')   # ponds sitting in the cardinal lanes
-arc(15.2, 16.6, [(38, 52)],          '~')   # corner pools
+arc(17.9, 19.1, [(28, 62)],          'b')   # corner thickets
+arc(9.4,  11.4, [(0, 17), (73, 90)], '~')   # ponds sitting in the cardinal lanes
+arc(15.0, 16.8, [(33, 57)],          '~')   # corner pools
 
 # --- wall clumps on chiral angles: rotational symmetry, no mirror --------
 # A wall tile is 2 m against a 1.10 m fighter, so one tile of cover is already
@@ -102,7 +112,19 @@ for r, a, w, h in [(5.8, 15, 2, 2), (5.8, 63, 2, 2), (9.7, 34, 2, 3),
                    (17.6, 12, 1, 2), (12.0, 60, 1, 1), (7.6, 78, 1, 1),
                    (11.0, 24, 1, 2), (15.0, 45, 2, 1), (19.0, 33, 1, 1),
                    (8.6,  5, 1, 1), (12.6, 84, 1, 1), (16.0, 58, 2, 1),
-                   (20.0, 50, 1, 2)]:
+                   (20.0, 50, 1, 2),
+                   # Added when the grid went 33 -> 39. Radii scale by S but a
+                   # clump is a fixed number of TILES, so the field grows by S^2
+                   # while the wall count does not: without these, cover thinned
+                   # from 20.8% to 14.9%. Any future resize needs the same
+                   # treatment — check the density read-out, not just the asserts.
+                   (6.8, 40, 1, 2), (8.2, 68, 2, 1), (10.2, 12, 1, 1),
+                   (13.8, 74, 2, 2), (17.0, 48, 1, 2), (18.8, 22, 2, 1),
+                   (19.6, 78, 1, 1),
+                   (7.4, 25, 2, 1), (9.0, 52, 1, 2), (11.4, 70, 2, 2),
+                   (12.8, 40, 1, 1), (14.6, 18, 2, 2), (15.8, 80, 1, 2),
+                   (17.2, 60, 2, 1), (18.4, 38, 1, 1), (19.2,  8, 2, 2),
+                   (20.4, 66, 1, 2)]:
     clump(r, a, w, h, '#')
 
 # --- centre keep --------------------------------------------------------

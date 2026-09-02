@@ -19,6 +19,9 @@ var radius := 3.4
 var duration := 3.5
 var tint := Color(1.0, 0.2, 0.85)
 var owner_fighter: Fighter
+## Team that cast it, or -1 in Showdown. Held here rather than read off
+## owner_fighter because the field outlives its caster.
+var owner_team := -1
 
 var _mesh: ImmediateMesh
 var _elapsed := 0.0

@@ -41,6 +41,9 @@ var _idle_time := 0.0
 var _sway := 0.0
 var _render_scale := 1.0
 var _pending: Dictionary = {}
+var _clip_end_at := INF
+var _clip_fast_at := INF
+var _clip_end_speed_scale := 1.0
 
 signal tapped
 
@@ -266,6 +269,9 @@ func play_run() -> void:
 
 func play_idle() -> void:
 	if _anim and _kit.has("clips"):
+		_clip_end_at = INF
+		_clip_fast_at = INF
+		_anim.speed_scale = 1.0
 		_anim.play(str(_kit.clips.idle), 0.25)
 
 func has_clip(key: String) -> bool:
@@ -283,9 +289,21 @@ func _play_clip(key: String, speed_key: String, seek_key: String) -> void:
 	if anim:
 		anim.loop_mode = Animation.LOOP_LINEAR if key == "run" else Animation.LOOP_NONE
 	var speed: float = float(clips.get(speed_key, 1.0)) if speed_key != "" else 1.0
+	_anim.speed_scale = 1.0
 	_anim.play(clip_name, 0.15, speed)
-	if seek_key != "" and clips.has(seek_key):
-		_anim.seek(float(clips[seek_key]), true)
+	var seek_to := float(clips.get(seek_key, 0.0)) if seek_key != "" else 0.0
+	if seek_to > 0.0:
+		_anim.seek(seek_to, true)
+	if key == "attack" or key == "super":
+		_clip_end_at = clampf(float(clips.get(key + "_end", anim.length)), seek_to,
+				anim.length)
+		_clip_fast_at = clampf(float(clips.get(key + "_fast_at", _clip_end_at)),
+				seek_to, _clip_end_at)
+		var end_speed := maxf(0.01, float(clips.get(key + "_end_speed", speed)))
+		_clip_end_speed_scale = end_speed / maxf(0.01, speed)
+	else:
+		_clip_end_at = INF
+		_clip_fast_at = INF
 
 func _on_clip_finished(clip_name: StringName) -> void:
 	if _kit.has("clips") and str(clip_name) != str(_kit.clips.idle):
@@ -320,6 +338,10 @@ func _gui_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if _pivot == null:
 		return
+	if _anim and _anim.current_animation_position >= _clip_end_at:
+		play_idle()
+	elif _anim and _anim.current_animation_position >= _clip_fast_at:
+		_anim.speed_scale = _clip_end_speed_scale
 	if _dragging:
 		_idle_time = 0.0
 	else:

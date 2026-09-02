@@ -147,15 +147,28 @@ projectile, point-blank-only pellet convergence. **Very Demanding** = several
 small projectiles that must *all* connect, thrown far enough that the target can
 move between the shot and the landing.
 
-A is the factor most worth measuring rather than guessing, because the spread is
-wider than it looks. From `hits/atk` and the projectile-fate table:
+**Don't judge A — measure it.** Run `NS3_SIM`, take `hits/atk ÷ pellets`, and
+band it:
 
-| delivery | measured hit rate |
-|---|---|
-| Henry, one 110° melee swing | **85%** |
-| Tony, one lobbed 1.4m AOE | **81%** |
-| Nova, 5 pellets converging at 2.7m | **47%** |
-| Leon, 6 buttons thrown 7m | **39%** |
+| measured hit rate | A | tier |
+|---|---|---|
+| ≥ 75% | **0.85** | Forgiving |
+| 60 – 75% | **1.00** | Fair |
+| 45 – 60% | **1.15** | Demanding |
+| < 45% | **1.40** | Very Demanding |
+
+This is not a new invention: it reproduces all four hit rates this doc had
+already recorded, with nothing fudged — Henry 85% → 0.85, Tony 81% → 0.85,
+Nova 47% → 1.15, Leon 39% → 1.40. Using it makes the whole roster reproducible:
+after any change to speed, fighter size or projectile size, re-run the sim and
+the A values fall out instead of being re-argued.
+
+**Except for melee, which the sim inflates.** Bots walk at each other in
+straight lines, so a punch lands far more often in the sim than against a player
+who kites — Henry measures 93% in-sim against the 85% this doc recorded from
+play. Deriving A from an inflated rate under-pays every melee kit, so melee A
+stays a judgement anchored on playtest. Ranged hit rates have no such bias.
+This is the same lesson as §8's "the sim under-rates melee", applied to A.
 
 That is a 2.2× spread in how much of its nominal damage a kit actually collects,
 so the 0.85–1.15 range alone cannot express it — hence the 1.40 tier. Leon was
@@ -201,23 +214,24 @@ After computing, verify:
 
 ## 4. Range and the screen
 
-The match camera is **orthographic**, `size = 12.9` (metres of vertical view),
-sitting at offset `(0, 14, 9.2)` — a 56.7° pitch — with the player dead centre
-(`main.gd`, `CAMERA_OFFSET` / `CAMERA_ORTHO_SIZE`). That fixes exactly how far
-a player can see from their own fighter:
+The match camera uses a **very narrow perspective**, `fov = 7°`, sitting at
+offset `(0, 91.4, 52.8)` — a 60° pitch — with the player at the centre ray
+(`main.gd`, `CAMERA_OFFSET` / `CAMERA_FOV`). Its centre-plane framing matches
+the old 12.9 m orthographic view, while perspective gives slightly more ground
+visibility up-screen and slightly less down-screen:
 
 | Direction | Visible from the player |
 |---|---|
 | Left / right | 11.5 m = **5.7 tiles** = 8.8 fighter-widths |
-| Up / down the screen | 7.7 m = **3.9 tiles** = 5.9 fighter-widths |
+| Up-screen / down-screen | 7.7 m / 7.2 m = **3.9 / 3.6 tiles** |
 
 The full screen width is 23 m = **17.7 fighter-widths**. Brawl Stars fits about
 21 brawler-widths across, so our fighters read a little chunkier than theirs —
 which is deliberate, and is what lets them move faster than Brawl Stars without
 shots becoming impossible to aim (SHOT_FEEL.md §6).
 
-Up-screen is much shorter because the ground is foreshortened by the camera
-pitch. So:
+The ground is foreshortened by the camera pitch, and perspective makes the
+up-screen half longer than the down-screen half. So:
 
 - **Weapons cap at 5.5 tiles.** That fills the wide axis and nothing more.
 - **Supers may reach 6.5 tiles**, but only when the projectile visibly travels
@@ -262,25 +276,81 @@ pitch. So:
 
 ## 7. Current roster
 
-Eight fighters, all rebalanced to this framework.
+Nine fighters, all rebalanced to this framework.
 
-| Fighter | Role | Health | Speed | Reload | Range | A | U | eDPS | Damage / attack |
-|---|---|---|---|---|---|---|---|---|---|
-| **Nova** | Shotgunner | Normal 5000 | Normal 5.6 | Normal 1.8 | Medium 4.3 | 1.15 | — | 805 | 1450 (5 × 290) |
-| **Tony** | Artillery | Low 4250 | Slow 5.04 | Slow 2.2 | Long 5.5 | 0.85 | — | 564 | 1240 |
-| **Henry** | Heavyweight | High 5750 | Slow 5.04 | Slow 2.2 | V.Short 1.5 | 0.85 | — | 736 | 1620 |
-| **Sanjit** | Assassin | Normal 5000 | V.Fast 6.72 | Fast 1.4 | V.Short 1.4 | 1.15 | — | 879 | 1230 (2 × 615) |
-| **Kovacs** | Tank | V.High 6500 | V.Slow 4.48 | Normal 1.8 | Short 2.4 | 0.85 | — | 667 | 1200 |
-| **Leon** | Controller | Low 4250 | Normal 5.6 | Fast 1.4 | Long 4.8 | 1.40 | — | 876 | 1224 (6 × 204) |
-| **Anders** | Skirmisher | High 5750 | Normal 5.6 | Fast 1.4 | Short 2.8 | n/a | — | n/a (1 pip) | 1100 / 1375 / 1650 rally |
-| **Hammy** | Sniper | V.Low 3500 | Normal 5.6 | Slow 2.2 | Long 5.5 | 1.15 | Strong 0.85 | 568 | 1250 |
+| Fighter | Role | Health | Speed | Reload | Range | hit rate | A | U | eDPS | Damage / attack |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Nova** | Shotgunner | Normal 5000 | Normal 5.6 | Normal 1.8 | Medium 4.3 | 69% | 1.00 | — | 694 | 1250 (5 × 250) |
+| **Tony** | Artillery | Low 4250 | Slow 5.04 | Slow 2.2 | Long 5.5 | 74% | 1.00 | — | 663 | 1459 |
+| **Henry** | Heavyweight | High 5750 | Slow 5.04 | Slow 2.2 | V.Short 1.5 | 93%† | 0.85 | — | 736 | 1620 |
+| **Sanjit** | Assassin | Normal 5000 | V.Fast 6.72 | V.Fast 1.0 | V.Short 1.4 | 62%† | 1.15 | — | 879 | 880 (2 × 440) |
+| **Kovacs** | Tank | V.High 6500 | V.Slow 4.48 | Normal 1.8 | Short 2.4 | 90%† | 0.85 | — | 667 | 1200 |
+| **Leon** | Controller | Low 4250 | Normal 5.6 | Fast 1.4 | Long 4.8 | 50% | 1.15 | — | 720 | 1008 (6 × 168) |
+| **Anders** | Skirmisher | High 5750 | Normal 5.6 | Fast 1.4 | Short 2.8 | — | n/a | — | n/a (1 pip) | 1100 / 1375 / 1650 rally |
+| **Hammy** | Sniper | V.Low 3500 | Normal 5.6 | Slow 2.2 | Long 5.5 | 83% | 0.85 | 1.00 | 562 | 1236 |
+| **Ayaan** | Carver | Normal 5000 | Fast 6.16 | Normal 1.8 | Medium 2.8–4.5‡ | 41%‡ | 1.15 | — | 751 | 1352 (2 × 676) |
 
-> **The `A` column is stale and must be re-derived.** Every one of those values
-> was *measured* against the old speeds and the old 0.90 m fighter. The
-> SHOT_FEEL.md retune roughly halved `lead/hit-width` across the roster, so hit
-> rates are materially higher than when these were set — Leon's 1.40 in
-> particular came off a 39% hit rate that no longer holds. Re-measure with
-> `NS3_SIM`, reading `hits/atk` before `win%`, and reprice damage from there.
+† melee — A is held by judgement, not derived, because the sim inflates melee
+hit rates (see §3). Hit rates are from a 240-match `NS3_SIM` on the 39×39 map.
+
+‡ **Ayaan's range is a band, not a number, and it is set by the aim.** The shot
+ends where it was pointed, anywhere from 2.8 to 4.5 tiles, and the distance
+picks the shape it flies to get there: 4.5 tiles is one 27° arc bowing 1.39 m
+off the line, 2.8 tiles is a 58° braid crossing three times. `kits.gd` carries
+the ends as `range` / `range_min`; `Kits.slalom_weave` does the rest. G is 1.00
+because the band straddles Medium — and note which end beats cover: the LONG
+one, because only the wide single arc bows further than the 1.11 m it takes to
+pass a body.
+
+**His A of 1.15 was measured on the previous weave and has not been re-measured
+since.** Two 40-match `NS3_SIM` runs on the build before this one read 45.0%
+(784 shots) and 38.2% (900 shots), pooling to 41.4% — Very Demanding by §3's
+table. Two things then argued against paying it, and both still hold: `1250 ×
+0.94(M) × 1.40(A)` = 1645 is an eDPS of **914** against the 820 ceiling, which
+is what that sanity check is for; and he was already taking 17 of 92 spawns to a
+win, 18.5% against the 11.1% a nine-kit roster expects. A kit cannot be Very
+Demanding at Normal health and Fast speed — if a playtest confirms the 41%, **the
+honest fix is a tier, not the formula** (Health Normal → High puts A=1.40 at
+eDPS 804 and fits).
+
+**One 40-match run on the reworked weave reads 35.1% (838 shots) at a 12.8% win
+rate over 39 spawns** — delivery down, results down onto the 11.1% line. Both
+move the way the inversion predicts: shots now end where they were aimed instead
+of overshooting, and the long setting spends its whole flight more than a metre
+off the line, so half of them find scenery. It is one run and it does not settle
+anything, but it is the reason nothing was retuned off it. Run
+`NS3_SIM=200 --headless` with no other Godot instance open — a live editor
+session kills long runs — and treat 200 matches as the first number worth
+acting on.
+
+**Do not up-rate him on the hit rate alone: he is already winning too much.**
+Across those same 80 matches he took 17 of 92 spawns to a win, 18.5% against the
+11.1% a nine-kit roster expects — 2.2σ high, suggestive rather than settled, but
+pointing the opposite way to his delivery number. The two readings are not
+contradictory: he misses a lot and still wins, which is what a kit with the
+roster's second-best mobility and a Super that repositions across a third of the
+map looks like. **Re-run `NS3_SIM=200 --headless` with no other Godot instance
+open** (a live editor session kills long runs) and settle both before touching
+anything.
+
+**A melee kit needs a gap-closer, and it has to be somewhere specific.** Henry
+dashes and Kovacs leaps, both on the Super, and both are slower than a Normal
+kit — the Super *is* their approach. Sanjit was Very Fast instead, but Very Fast
+is only +1.12 m/s, which put an 11 m sniper at 7.3 seconds of chase: 3.3 shots
+and 4113 of his 5000 health before he arrived. His Super throws his staff
+*away*, so it could never be the answer. The fix is a 0.8 m lunge on each melee
+strike (`"lunge"` on the weapon, `Fighter.lunge`), which puts the approach on
+the basic attack and fires whether or not the swing connects. **Before adding a
+melee kit, name where its gap-closer lives.**
+
+**Hammy lost his U discount rather than taking both.** A measured at 0.85 and U
+at 0.85 would have given him 0.85(G) × 0.85(A) × 0.85(U) = 0.61 — precisely the
+stacked-discount trap recorded below for Anders, who finished a sim at 2.7%.
+Hammy was at 3.8% over 240 matches with both applied, which is the proof that
+rule asks for. **Note what this does not fix:** his delivery is fine at 83%, and
+he loses because he gets 5.1 attacks a life on 3500 health. That is uptime, and
+the damage formula has no lever for it — the honest fix would be his health
+tier, which is a change to the character rather than to its maths.
 
 **Nova is the reference kit** — Normal in all four tiers, so her only modifier
 is the 1.15 for a shotgun that has to close distance. Every other fighter is
@@ -335,6 +405,70 @@ Two lessons: piercing and bouncing are worth nothing if the *first* hit misses,
 so a slow projectile is Fair delivery and not Forgiving; and a utility you can
 only get by luck is not a utility. His sack now returns to him reliably rather
 than depending on a random bounce, and U rides free until a sim says otherwise.
+
+**A weapon aimed by distance needs the distance to be an input.** Ayaan's two
+Slalom shots swing off the aim line and cross back onto it, and the crossing is
+where his damage is — so the crossing is the aim. It shipped first at a fixed
+3.2 tiles, and a playtest called it immediately: a weapon whose sweet spot is a
+ring you cannot move is not aimed, it is *stood in*. `Kits.slalom_weave` now
+takes the aim distance and returns the weave that puts a crossing exactly
+there. It costs nothing at the input layer because every path already carries a
+distance — a drag has its own length, a tap has the distance to the target, a
+bot has the distance to its lead point — so drag, tap, bot and the net replay
+all agree without any of them knowing what the number means. **If a new attack
+has a sweet spot, ask what moves it before asking what it's worth.**
+
+**Then make the shape cost something, or the choice is free** — and check you
+made it cost the thing you meant. The playtest note was "the less wiggled it is
+the more range he gets", and the build that answered it did the exact opposite,
+which took a second note to catch: *"the more braided it is the shorter it
+should go — this isn't quite working"*.
+
+The bug is worth keeping because it is not a typo, it is a modelling error. That
+build capped the crossing **spacing** and let the count fall out, so reaching
+further needed *more* crossings and the longest shot came out as the tightest
+braid — the precise opposite of the rule, arrived at by tuning the wrong end of
+the same relationship. Cap the **count** instead and it inverts into the shape
+it should always have had: one lazy arc for the long shot, a dense braid for the
+short one, a braid that cannot be long-ranged by construction. **When a shape
+control comes out backwards, look for the quantity you bounded, not the constant
+you set.**
+
+**Draw a curved attack's real path, and integrate the drawing the way the shot
+flies.** The aim ribbon for Slalom runs the same heading law at the same 60 Hz
+tick as `Projectile`, midpoint-sampled in both places. That is not tidiness:
+sampling the swerve at the frame's start instead of its middle runs the curve
+several percent long, which would have put the drawn crossing a fifth of a tile
+from the real one — a lie about the one number the kit asks the player to read.
+
+**A weaving shot's range is not its path length.** A Slalom shot covers 5-24%
+more ground than it gains on the aim line depending on how hard it swerves, so
+`projectile.gd:_advance` spends its range along that line. Otherwise "ends at
+4.5 tiles" would mean 4.3 for a gentle arc and 3.4 for a hard braid, and
+`bot_brain`'s range gate — which measures straight-line distance to the target —
+would expire his opening shot in mid-air. The same correction has to reach
+anything that turns speed into a flight time, which is what `Kits.aim_speed` is
+for; both `_aim_point` and `_aim_lead` call it, and both pass the aim distance,
+because the swerve (and so the flight time) depends on it.
+
+**A steered Super is a dash with a clock, and it steers with the ordinary
+stick.** Downhill reuses the `dash` channel deliberately — every guard that
+already asks `is_dashing()` covers it for free — but it ends on `duration`
+rather than on distance, and `Fighter.apply_movement` sets its heading straight
+from the move input.
+
+It shipped twice with a capped turn rate first, 2.0 rad/s and then 3.4, on the
+theory that a committed arc was what made it a Super. Both times the playtest
+said the same thing, and the second time named it: *"super steering shouldn't be
+relative to where he is facing"*. A rate cap turns the stick toward the
+**current heading**, so pushing left does not go left, it curves left from
+wherever he happens to point — which reads as relative control however the input
+is framed, and the tighter the cap the more the arena decides where the run
+goes. **Rate-limited steering is relative steering. If a mechanic should feel
+like the normal controls, give it the normal controls** and let the commitment
+live in the duration and the speed you cannot cancel. The other half is a swept
+contact test rather than a per-frame point check, or a 12 m/s body skates
+straight through people at `NS3_SIM`'s 10x time scale.
 
 ---
 

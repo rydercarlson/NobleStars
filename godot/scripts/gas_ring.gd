@@ -6,11 +6,19 @@ extends Node3D
 const FIRST_SHRINK_DELAY := 18.0
 const SHRINK_INTERVAL := 12.0
 const TILES_PER_SHRINK := 2
-const DAMAGE_PER_TICK := 500
 const TICK_INTERVAL := 1.0
 
+## The gas takes a share of the target's own maximum health, not a flat number.
+## A flat 500 killed a 3500 HP Hammy in seven ticks and a cube-loaded 8850 HP
+## Kovacs in eighteen, so the ring hit hardest exactly the fighters least able
+## to win the cubes that made them tanky. A share kills anyone in TICKS_TO_KILL
+## seconds — a full-health fighter caught outside has that long to get back in,
+## whatever kit it is and however loaded it is. Cubes buy survivability against
+## other fighters, never against the map.
+const TICKS_TO_KILL := 6.0
+
 var inset := 0
-var map_tiles := 33
+var map_tiles := 39
 var _next_shrink_at := 0.0
 var _next_tick_at := 0.0
 var _overlay: Array[Node3D] = []
@@ -60,9 +68,14 @@ func tick(now: float, fighters: Array) -> Array:
 	var damaged := []
 	for f in fighters:
 		if not f.is_dead() and not contains(f.global_position):
-			f.take_damage(DAMAGE_PER_TICK, now)
+			f.take_damage(damage_for(f), now)
 			damaged.append(f)
 	return damaged
+
+## Rounded up, so TICKS_TO_KILL ticks always finish a fighter off rather than
+## leaving it on a sliver from integer division.
+func damage_for(f) -> int:
+	return maxi(1, int(ceil(float(f.max_health) / TICKS_TO_KILL)))
 
 func _rebuild_overlay() -> void:
 	for n in _overlay:

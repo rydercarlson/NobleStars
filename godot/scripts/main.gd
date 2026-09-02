@@ -1,7 +1,7 @@
 extends Node3D
 ## Match controller: spawning, phases, combat resolution, camera, HUD.
 ## Debug env hooks (see CLAUDE.md): NS3_KIT, NS3_AUTOFIRE, NS3_AUTOWALK,
-## NS3_GODMODE, NS3_SHOTS="prefix:t1,t2,..." (screenshots at match times).
+## NS3_GODMODE, NS3_CUBES, NS3_SHOTS="prefix:t1,t2,..." (screenshots at match times).
 
 enum Phase { COUNTDOWN, PLAYING, ENDED }
 
@@ -12,6 +12,9 @@ const POWER_CUBE_SCENE: PackedScene = preload("res://assets/power_cube.glb")
 
 var arena: Arena
 var gas: GasRing
+## Nobles Cup rules engine; null in Showdown. See cup_mode.gd.
+var cup: CupMode
+var mode := "showdown"
 var cam: Camera3D
 var player: Fighter
 var fighters: Array[Fighter] = []
@@ -36,14 +39,18 @@ var results_title: Label
 var results_award: Label
 var aim_mesh: MeshInstance3D
 
-# Orthographic, like Brawl Stars: wall verticals project straight up-down
-# everywhere on screen and nothing shears as the camera pans. ORTHO_SIZE is
-# the vertical view extent in meters (~12 tiles across at 16:9).
-# Pitch ~57° — oblique enough to show more of the fighters while preserving
-# the clear top-down read of the arena.
-const CAMERA_OFFSET := Vector3(0, 14.0, 9.2)
-const CAMERA_ORTHO_SIZE := 12.9
+# Brawl Stars uses a steep, low-distortion perspective rather than a true
+# orthographic view: near walls grow subtly and off-axis boxes reveal different
+# sides. A 60° pitch and very narrow 7° vertical FOV reproduce that 2.5D feel.
+# The 105.5 m offset preserves the old camera's ~12.9 m centre-plane height, so
+# this changes perspective without unexpectedly changing combat visibility.
+const CAMERA_OFFSET := Vector3(0, 91.4, 52.8)
+const CAMERA_FOV := 7.0
 const TAP_THRESHOLD := 0.3
+## The carrier's kick lane. Cool and pale so it never reads as a weapon's aim;
+## the Super Shot's is hotter and twice as long, so the two are never confused.
+const KICK_AIM_COLOR := Color(0.55, 0.86, 1.0, 0.45)
+const SUPER_KICK_AIM_COLOR := Color(1.0, 0.78, 0.30, 0.55)
 ## How far Pop Off's spike will snap onto an enemy who drifted off the spot
 ## Anders jumped away from.
 const SPIKE_SNAP := 3.2
@@ -106,8 +113,9 @@ func _ready() -> void:
 	add_child(env)
 
 	cam = Camera3D.new()
-	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = CAMERA_ORTHO_SIZE
+	cam.projection = Camera3D.PROJECTION_PERSPECTIVE
+	cam.keep_aspect = Camera3D.KEEP_HEIGHT
+	cam.fov = CAMERA_FOV
 	# The camera is driven from _process, so physics interpolation only makes
 	# the rendered view lag the transform unproject_position sees (bar buzz).
 	cam.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
@@ -240,52 +248,58 @@ func _label(pos: Vector2, size: int, align: int) -> Label:
 func start_match() -> void:
 	for c in get_children():
 		if c is Arena or c is GasRing or c is Fighter or c is Projectile or c is Lob or c is Boomerang \
-				or c is HackySack:
+				or c is HackySack or c is Ball or c is CupMode:
 			c.queue_free()
 	for c in get_tree().get_nodes_in_group("lootbox") + get_tree().get_nodes_in_group("cube"):
 		c.queue_free()
 	fighters.clear()
 	brains.clear()
 
+	# Mode hook. Nobles Cup swaps the map, the roster and the win condition;
+	# everything below the branch is Showdown's and stays that way. NS3_MODE
+	# beats the menu's pick so game.tscn can be run straight into a mode.
+	var mode_env := OS.get_environment("NS3_MODE")
+	mode = mode_env if mode_env != "" else Session.mode
+	cup = null
+
 	arena = Arena.new()
+	arena.map_mode = "cup" if mode == "cup" else "showdown"
 	add_child(arena)
 	gas = null
 
 	await get_tree().process_frame   # let arena _ready run
 
-	var spawns := arena.spawn_points.duplicate()
-	spawns.shuffle()
+	if mode == "cup":
+		cup = CupMode.new()
+		cup.game = self
+		add_child(cup)
+		cup.build_match(now)
+	else:
+		var spawns := arena.spawn_points.duplicate()
+		spawns.shuffle()
 
-	# Mode hook: only Showdown exists today; branch on Session.mode when new
-	# modes land (the menu only lets "showdown" through for now).
-	var _mode: String = Session.mode
+		player = _spawn_fighter(player_kit(), spawns.pop_front(), not sim_active)
+		player.display_name = "%s 0" % player.kit.name if sim_active else "You"
+		if sim_active:
+			brains.append(BotBrain.new(player))
 
-	var player_kit: Dictionary = Session.kit if not Session.kit.is_empty() else Kits.nova()
-	if sim_active:
-		player_kit = Kits.all().pick_random()
-	player = _spawn_fighter(player_kit, spawns.pop_front(), not sim_active)
-	player.display_name = "%s 0" % player_kit.name if sim_active else "You"
-	if sim_active:
-		brains.append(BotBrain.new(player))
+		var i := 1
+		while not spawns.is_empty() and i <= 9:
+			var kit: Dictionary = Kits.all().pick_random()
+			var bot := _spawn_fighter(kit, spawns.pop_front(), false)
+			bot.display_name = "%s %d" % [kit.name, i]
+			brains.append(BotBrain.new(bot))
+			i += 1
+
+		for p in arena.box_points:
+			_spawn_lootbox(p)
+
 	if OS.get_environment("NS3_SUPER") != "":   # debug: start with Super charged
 		player.super_charge = 1.0
+	for _c in int(OS.get_environment("NS3_CUBES")):   # debug: start loaded with cubes
+		player.collect_cube()
 
-	var i := 1
-	while not spawns.is_empty() and i <= 9:
-		var kit: Dictionary = Kits.all().pick_random()
-		var bot := _spawn_fighter(kit, spawns.pop_front(), false)
-		bot.display_name = "%s %d" % [kit.name, i]
-		brains.append(BotBrain.new(bot))
-		i += 1
-
-	for p in arena.box_points:
-		_spawn_lootbox(p)
-
-	phase = Phase.COUNTDOWN
-	phase_at = now
-	center_label.text = "3"
-	feed_label.text = ""
-	results.visible = false
+	_start_countdown()
 	if sim_active:
 		for f in fighters:
 			_sim_kit(f.kit.name).spawns += 1
@@ -302,10 +316,25 @@ func start_match() -> void:
 		f.reset_physics_interpolation()
 	cam.reset_physics_interpolation()
 
-func _spawn_fighter(kit: Dictionary, pos: Vector3, is_player: bool) -> Fighter:
+## What the player brought to the match: the menu's pick, or a random kit when
+## the balance sim is driving every slot.
+func player_kit() -> Dictionary:
+	if sim_active:
+		return Kits.all().pick_random()
+	return Session.kit if not Session.kit.is_empty() else Kits.nova()
+
+func _start_countdown() -> void:
+	phase = Phase.COUNTDOWN
+	phase_at = now
+	center_label.text = "3"
+	feed_label.text = ""
+	results.visible = false
+
+func _spawn_fighter(kit: Dictionary, pos: Vector3, is_player: bool, team := -1) -> Fighter:
 	var f := Fighter.new()
 	f.kit = kit
 	f.is_player = is_player
+	f.team = team
 	f.position = pos
 	add_child(f)
 	fighters.append(f)
@@ -323,7 +352,10 @@ func _spawn_lootbox(pos: Vector3, box_name := "") -> void:
 	# Meshy crate model; the collider below stays the authority on its size.
 	var m: Node3D = (load("res://assets/loot_crate.glb") as PackedScene).instantiate()
 	m.scale = Vector3.ONE * 0.58   # model is ~1.9 across; match the 1.1 collider
-	m.rotate_y(randf() * TAU)      # vary the facing so a field of them isn't uniform
+	# No random yaw: under the steep match camera an off-axis crate presents a
+	# corner to the viewer and reads as tipped over rather than sat on the floor.
+	# Square-on is how Brawl Stars sits its boxes, and the model is symmetric so
+	# there is nothing to vary anyway.
 	for mi in m.find_children("*", "MeshInstance3D", true, false):
 		var mesh: Mesh = mi.mesh
 		for si in mesh.get_surface_count():
@@ -399,6 +431,8 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 		return
 	if god_mode and target == player:
 		return
+	if attacker != null and attacker.is_ally(target):
+		return   # Nobles Cup teams; Showdown fighters are never allies
 	target.take_damage(amount, now)
 	if kb_strength > 0.0:
 		target.receive_knockback(kb_dir, kb_strength)
@@ -465,6 +499,13 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			lob.on_land = _on_lob_land
 			add_child(lob)
 		Kits.Style.MELEE:
+			# A lunging melee closes its own gap. Sanjit is the only melee kit
+			# whose Super travels AWAY from him, so where Henry dashes and
+			# Kovacs leaps, his approach has to live on the basic attack — and
+			# it fires whether or not the swing connects, so swinging at air is
+			# a legitimate way to travel.
+			var lunge: float = float(weapon.get("lunge", 0.0))
+			f.lunge(unit, lunge)
 			_melee(f, weapon, unit)
 			# pellets > 1 = a combo: repeat strikes a beat apart (Sanjit's
 			# one-two punch), each following the fighter's current facing.
@@ -478,6 +519,7 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 				get_tree().create_timer(0.22 * i).timeout.connect(func() -> void:
 					var fx := instance_from_id(fid)
 					if phase == Phase.PLAYING and fx is Fighter and not fx.is_dead():
+						fx.lunge(fx.facing, lunge)
 						_melee(fx, weapon, fx.facing, sweep))
 		Kits.Style.SHOCKWAVE:
 			# `delay` holds the wave until the animation's impact frame, so the
@@ -511,6 +553,23 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			f.set_held_item_visible(false)   # the staff is in the air now
 		Kits.Style.JUMP_SMASH:
 			f.begin_leap(weapon, unit, dist)
+		Kits.Style.SLALOM:
+			# `dist` is not a throw distance here, it is where the two shots
+			# MEET — the one thing this weapon asks the player to choose.
+			# `slalom_weave` turns it into the weave that puts a crossing there
+			# and still has the range to arrive; a drag, a tap and a bot all hand
+			# it a distance without needing to know that is what it means.
+			var weave: Dictionary = Kits.slalom_weave(weapon, dist)
+			# Both shots leave on the SAME frame, deliberately: the pair only
+			# reads as a slalom if you can watch it split and cross again, and an
+			# `unload` stagger would smear the two lanes into one stream.
+			for p in int(weapon.pellets):
+				_spawn_slalom_shot(f, weapon, unit, 1.0 if p % 2 == 0 else -1.0, weave)
+		Kits.Style.DOWNHILL:
+			# Clients skip the ride state machine for the same reason they skip
+			# a dash: the host simulates it and the snapshot stream moves them.
+			if authoritative:
+				f.begin_ride(weapon, unit)
 		Kits.Style.BUTTONS:
 			_spawn_button_burst(f, weapon, unit)
 		Kits.Style.DISCONNECT:
@@ -542,8 +601,11 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			sack.owner_fighter = f
 			sack.game = self
 			sack.position = f.global_position + unit * 0.8 + Vector3(0, 1.0, 0)
+			# Damage step is capped; the streak the player sees is not.
+			sack.rally = clampi(f.sack_streak + 1, 1, HackySack.MAX_RALLY)
+			sack.streak = f.sack_streak + 1
 			sack.on_enemy_hit = _on_rally_sack_hit
-			sack.on_rally = _on_rally_continued
+			sack.on_rally = _on_sack_caught
 			sack.on_land = _on_sack_land
 			sack.on_box_hit = _on_sack_box_hit
 			if sim_active:
@@ -594,6 +656,32 @@ func _spawn_pellet(f: Fighter, weapon: Dictionary, ang: float) -> void:
 	proj.on_sweep_hit = _on_projectile_hit
 	if bool(weapon.get("heat_trait", false)):
 		proj.on_finished = _on_heat_shot_finished.bind(f.get_instance_id())
+	if sim_active:
+		_sim_kit(f.kit.name).p_spawn += 1
+	add_child(proj)
+
+## One Slalom shot. `curve_sign` mirrors the weave, so a pair leaves together,
+## bows to opposite sides, and crosses back onto the aim line at the gate. The
+## curve itself lives in Projectile; the geometry is documented on the kit.
+func _spawn_slalom_shot(f: Fighter, weapon: Dictionary, unit: Vector3,
+		curve_sign: float, weave: Dictionary) -> void:
+	var proj := Projectile.new()
+	proj.weapon = weapon
+	proj.damage = int(weapon.damage * f.damage_multiplier())
+	proj.owner_fighter = f
+	proj.direction = unit
+	proj.curve_sign = curve_sign
+	proj.curve_period = weave.period
+	proj.curve_deg = weave.curve_deg
+	# Both are per SHOT, not per weapon: the aim distance chose this weave, and
+	# `range` on the kit is only the top of a band.
+	proj.reach = weave.reach
+	# Both shots leave the muzzle, not offset lanes: the split has to come from
+	# the curve, or the first metre reads as a shotgun spread instead.
+	proj.position = f.global_position + unit * (Kits.FIGHTER_RADIUS + 0.25) + Vector3(0, 1.0, 0)
+	proj.origin = proj.position
+	proj.body_entered.connect(_on_projectile_hit.bind(proj))
+	proj.on_sweep_hit = _on_projectile_hit
 	if sim_active:
 		_sim_kit(f.kit.name).p_spawn += 1
 	add_child(proj)
@@ -677,6 +765,7 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 		if authoritative:
 			if net_host:
 				_net_wall_broken.rpc(String(body.name))
+			arena.open_at(body.global_position)
 			body.queue_free()
 	elif not body.is_in_group("water"):
 		if sim_active and is_instance_valid(proj.owner_fighter):
@@ -712,14 +801,20 @@ func _disconnect_lob_land(lob: Lob) -> void:
 	if not is_instance_valid(lob):
 		return
 	var center := lob.target_pos
+	var caster := _live(lob.owner_fighter)
 	_spawn_shockwave(center, lob.weapon, Color(1.0, 0.2, 0.85))
 	for target in fighters:
+		# The silence is friendly fire like any other, and deal_damage's own
+		# ally guard does not cover it — a Disconnect thrown into a scrap in
+		# front of your goal was cutting your own team off with the enemy.
 		if target == lob.owner_fighter or target.is_dead():
+			continue
+		if caster != null and caster.is_ally(target):
 			continue
 		var delta := target.global_position - center
 		delta.y = 0
 		if delta.length() <= lob.weapon.aoe + 0.5:
-			deal_damage(lob.damage, target, _live(lob.owner_fighter), delta.normalized(), lob.weapon.knockback)
+			deal_damage(lob.damage, target, caster, delta.normalized(), lob.weapon.knockback)
 			if authoritative:
 				target.apply_disconnect(now, float(lob.weapon.disconnect_seconds))
 	for box in get_tree().get_nodes_in_group("lootbox"):
@@ -733,7 +828,10 @@ func _disconnect_lob_land(lob: Lob) -> void:
 		zone.radius = lob.weapon.aoe
 		zone.duration = zone_seconds
 		zone.tint = Color(1.0, 0.2, 0.85)
-		zone.owner_fighter = _live(lob.owner_fighter)
+		zone.owner_fighter = caster
+		# Kept separately from the fighter: the field outlives its caster, and
+		# in Showdown the caster's node is gone the moment they die.
+		zone.owner_team = caster.team if caster != null else -1
 		zone.position = center
 		add_child(zone)
 
@@ -765,22 +863,54 @@ func _on_rally_sack_hit(target: Fighter, sack: HackySack) -> void:
 	deal_damage(sack.rally_damage(), target, _live(sack.owner_fighter),
 			sack.travel_dir(), sack.weapon.knockback)
 
-## Anders got back under it. Free kick, no ammo touched — the rally IS the
-## reward for reading where it would land.
-func _on_rally_continued(sack: HackySack) -> void:
+## Anders got back under it. The catch is worth TEMPO: it refunds the pip so he
+## can throw again immediately, steps the streak so the next throw hits harder,
+## and blasts the ground at his feet. It used to kick itself back out instead,
+## which is what took the controller off the player for seconds at a time.
+func _on_sack_caught(sack: HackySack) -> void:
 	if not is_instance_valid(sack) or not is_instance_valid(sack.owner_fighter):
 		return
-	sack.owner_fighter.play_attack_animation(now)
-	sack.owner_fighter._popup("RALLY %d" % sack.rally, Color(1.0, 0.78, 0.3))
+	var f: Fighter = sack.owner_fighter
+	f.play_attack_animation(now)
+	# The catch IS his reload. Dropping it is what makes him pay the real one.
+	# Uncapped: damage stops climbing at MAX_RALLY but the number does not, so
+	# a long run stays worth chasing for its own sake.
+	f.sack_streak += 1
+	f.ammo = f.max_ammo
+	var tint: Color = HackySack.STREAK_TINTS[clampi(f.sack_streak,
+			0, HackySack.STREAK_TINTS.size() - 1)]
+	f._popup("x%d" % (f.sack_streak + 1), tint)
+	# The kick hits. Every point of Anders' damage used to sit on the landings,
+	# so the two hops HOME were dead air — half of his burst window producing
+	# nothing, which is why his burst DPS sat at a third of the roster. Blasting
+	# the ground he kicks from converts that dead half into damage and gives him
+	# an answer to being dived, which a landing-only kit never had.
+	var blast: float = float(sack.weapon.get("kick_aoe", 0.0))
+	var dmg := sack.kick_damage()
+	if blast <= 0.0 or dmg <= 0:
+		return
+	var ring: Dictionary = sack.weapon.duplicate()
+	ring.spread_deg = 360.0
+	ring.aoe = blast
+	_spawn_shockwave(f.global_position, ring, Color(0.35, 1.0, 0.85))
+	for other in fighters:
+		if not is_instance_valid(other) or other == f or other.is_dead():
+			continue
+		var d := Vector2(other.global_position.x - f.global_position.x,
+				other.global_position.z - f.global_position.z)
+		if d.length() <= blast:
+			var away := Vector3(d.x, 0.0, d.y).normalized() if d.length() > 0.01 \
+					else f.facing
+			deal_damage(dmg, other, f, away, float(sack.weapon.knockback))
 
-## Pop Off's returning kick: a fast piercing sack fired back toward where he
-## jumped from, knocking whoever dived him away rather than into him.
 ## Pop Off's returning kick. It arcs down onto the ground he vacated and blasts
 ## a radius there, so it connects with whoever chased him instead of needing
 ## them to still be standing on one line. Snaps onto an enemy near that spot if
 ## one drifted, which keeps it reliable without making it home.
 func _pop_off_spike(f: Fighter, weapon: Dictionary, spot: Vector3, mult: float) -> void:
-	f.play_attack_animation(now, true)
+	# The backflip already played across the leap. Landing transitions into the
+	# kick that sends the sack down, rather than restarting a second backflip.
+	f.play_attack_animation(now)
 	var target := spot
 	var best := SPIKE_SNAP
 	for other in fighters:
@@ -815,7 +945,20 @@ func _pop_off_land(lob: Lob) -> void:
 		var gap := away.length()
 		if gap > radius:
 			continue
-		var push: Vector3 = away.normalized() if gap > 0.05 else Vector3.FORWARD
+		# Peel outward from ANDERS, not from the impact spot. He leapt AWAY from
+		# `center`, so anyone standing between the two was being shoved along
+		# (them - center) — straight onto him. The Super exists to make space
+		# and it was closing it: jump clear, then pull the diver after you.
+		var push := Vector3.FORWARD
+		if is_instance_valid(lob.owner_fighter):
+			var from_him := f.global_position - lob.owner_fighter.global_position
+			from_him.y = 0.0
+			if from_him.length() > 0.05:
+				push = from_him.normalized()
+			elif gap > 0.05:
+				push = away.normalized()
+		elif gap > 0.05:
+			push = away.normalized()
 		# Splash falloff: full damage at the centre, 55% at the rim. Landing it
 		# on someone is still worth more than catching them in the edge.
 		var falloff: float = lerpf(1.0, 0.55, clampf(gap / maxf(radius, 0.01), 0.0, 1.0))
@@ -969,6 +1112,8 @@ func _update_disconnect_zones() -> void:
 		for f in fighters:
 			if f == caster or f.is_dead():
 				continue
+			if zone.owner_team >= 0 and f.team == zone.owner_team:
+				continue   # your own field does not silence your own team
 			if zone.contains(f.global_position):
 				f.apply_disconnect(now, DisconnectZone.TAIL)
 
@@ -977,22 +1122,72 @@ func _update_dashes(delta: float) -> void:
 		if not f.is_dashing():
 			continue
 		var d: Dictionary = f.dash
-		d.remaining -= d.weapon.speed * delta
+		var riding: bool = f.is_riding()
+		if riding:
+			d.elapsed += delta
+		else:
+			d.remaining -= d.weapon.speed * delta
 		if arena.tile_at(f.global_position) == "~":
 			d.crossed_water = true
+		var from: Vector3 = d.get("last_pos", f.global_position)
 		for enemy in fighters:
 			if enemy == f or enemy.is_dead() or d.hit.has(enemy):
 				continue
-			if f.global_position.distance_to(enemy.global_position) < 1.3:
+			# A ride sweeps its contact test over the whole frame's travel. At
+			# 11.7 m/s under NS3_SIM's 10x time scale a fighter advances ~2 m a
+			# tick, so the point test a dash uses would skate straight through
+			# people — the same tunnelling projectile.gd already sweeps for.
+			var gap: float = Geometry3D.get_closest_point_to_segment(
+					enemy.global_position, from, f.global_position
+					).distance_to(enemy.global_position) if riding \
+					else f.global_position.distance_to(enemy.global_position)
+			if gap < 1.3:
 				d.hit.append(enemy)
 				var mult: float = d.weapon.water_mult if d.crossed_water else 1.0
 				deal_damage(int(d.weapon.damage * mult * f.damage_multiplier()),
-							enemy, f, d.direction, d.weapon.knockback)
+							enemy, f, _ride_shove(d, f, enemy) if riding else d.direction,
+							d.weapon.knockback)
 		var over_water := arena.tile_at(f.global_position) == "~"
+		if riding:
+			d.last_pos = f.global_position
+			# Never end over water — the ride crosses it on skis, and dropping
+			# the normal collision mask back on mid-river would strand him. The
+			# grace cap is the same escape hatch a dash uses.
+			var spent: bool = d.elapsed >= float(d.duration)
+			if spent and (not over_water or d.elapsed > float(d.duration) + 1.5):
+				f.end_dash()
+				_snow_spray(f, d.weapon)
+			continue
 		if d.remaining <= 0.0 and not over_water:
 			f.end_dash()
 		elif d.remaining < -4.0 * Kits.TILE:
 			f.end_dash()
+
+## Which way a Downhill victim gets thrown. "Pushes them aside", not "punts them
+## down the hill": mostly along the run, plus a lateral kick to whichever side
+## they were already on, so bodies are cleared out of the lane instead of being
+## pinned in front of the skis for the rest of the ride.
+func _ride_shove(d: Dictionary, f: Fighter, enemy: Fighter) -> Vector3:
+	var run: Vector3 = d.direction
+	var side := Vector3(-run.z, 0, run.x)
+	var offset: float = side.dot(enemy.global_position - f.global_position)
+	return (run + side * (1.2 if offset >= 0.0 else -1.2)).normalized()
+
+## The tail of Downhill: a spray of snow that slows but does not damage. All of
+## the Super's damage is on the bodies the run hit, so the spray is pure utility
+## and is already paid for by the 1.4x multiplier on the kit.
+func _snow_spray(f: Fighter, weapon: Dictionary) -> void:
+	_spawn_shockwave(f.global_position, weapon, Color(0.86, 0.95, 1.0))
+	if not authoritative:
+		return   # visual on clients; the host owns the slow
+	for target in fighters:
+		if target == f or target.is_dead() or f.is_ally(target):
+			continue
+		var offset := target.global_position - f.global_position
+		offset.y = 0
+		if offset.length() <= float(weapon.aoe) + 0.5:
+			target.apply_slow(now, float(weapon.get("slow_seconds", 1.5)),
+					float(weapon.get("slow_factor", 0.6)))
 
 func _update_leaps(delta: float) -> void:
 	for f in fighters:
@@ -1037,7 +1232,7 @@ func nearest_visible_enemy(viewer: Fighter, within: float, through_walls := fals
 	var best: Fighter = null
 	var best_d := INF
 	for f in fighters:
-		if f == viewer or f.is_dead():
+		if f == viewer or f.is_dead() or viewer.is_ally(f):
 			continue
 		var d := viewer.global_position.distance_to(f.global_position)
 		if d < within and d < best_d and can_see(viewer, f, through_walls):
@@ -1064,7 +1259,9 @@ func nearest_visible_lootbox(viewer: Fighter, within: float,
 ## Lobbed attacks arc over walls, so they target through them.
 func _lobbed(weapon: Dictionary) -> bool:
 	var style := int(weapon.style)
-	return style == Kits.Style.LOB or style == Kits.Style.DISCONNECT
+	# KEEP_IT_UP arcs over walls now, so it picks targets through them too.
+	return style == Kits.Style.LOB or style == Kits.Style.DISCONNECT \
+			or style == Kits.Style.KEEP_IT_UP
 
 ## What a tap fires at: the nearest visible enemy, or a loot box when no enemy
 ## is in range, so tapping in a quiet corner opens boxes instead of firing at
@@ -1102,14 +1299,20 @@ func gas_depth(pos: Vector3) -> float:
 	return gas.depth_inside(pos) if gas else INF
 
 func gas_safe_center() -> Vector3:
-	return gas.safe_center() if gas else Vector3(arena.map_size() / 2, 0, arena.map_size() / 2)
+	return gas.safe_center() if gas else arena.centre()
 
 # MARK: match flow
 
 func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
+	if cup != null:
+		# Nobles Cup: the fighter is parked and comes back, and the roster it
+		# was counted in never shrinks, so none of the Showdown flow applies.
+		cup.on_death(f, killer)
+		return
 	var rank := fighters.size()
 	if net_host:
 		_net_eliminate.rpc(net_fighters.find(f), killer, rank, left_game)
+	_drop_cubes(f)
 	fighters.erase(f)
 	for b in brains.duplicate():
 		if b.fighter == f:
@@ -1137,6 +1340,36 @@ func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
 	elif fighters.size() == 1 and fighters[0] == player:
 		_end_match(1, true)
 
+## A fallen fighter puts half of what it was carrying back on the floor,
+## rounded up, so killing a loaded fighter is worth chasing without handing the
+## whole match's cubes to one player.
+func _drop_cubes(f: Fighter) -> void:
+	if not authoritative or f.cubes <= 0:
+		return
+	var drop := int(ceil(f.cubes / 2.0))
+	f.cubes = 0
+	var origin := f.global_position
+	for i in drop:
+		var angle := TAU * float(i) / float(drop) + randf() * 0.7
+		var pos := _cube_drop_spot(origin, angle, 0.0 if drop == 1 else 1.0)
+		_spawn_cube(pos, _cube_seq)
+		if net_host:
+			_net_cube_dropped.rpc(_cube_seq, pos)
+		_cube_seq += 1
+
+## Scattering the drop can push a cube through the wall a fighter died against,
+## where nothing could ever pick it up. Walk the offset back toward the death
+## spot until it lands somewhere walkable.
+func _cube_drop_spot(origin: Vector3, angle: float, radius: float) -> Vector3:
+	var dir := Vector3(cos(angle), 0.0, sin(angle))
+	var r := radius
+	while r > 0.05:
+		var p := origin + dir * r
+		if not arena.blocks_movement(p):
+			return p
+		r -= 0.3
+	return origin
+
 func _elim_feed_text(who: String, killer: String, left_game: bool) -> String:
 	if left_game:
 		return "%s left the game" % who
@@ -1158,8 +1391,31 @@ func _end_match(rank: int, victory: bool) -> void:
 		award.trophies, award.coins, award.tokens]
 	results.visible = true
 
+## Called by CupMode when the whistle goes. Nobles Cup has no placement, so it
+## borrows Showdown's reward curve at the ranks that pay what a 3v3 result
+## should: a win like a Showdown win, a draw mid-table, a loss just under the
+## break-even rank.
+func end_cup_match(blue: int, red: int) -> void:
+	phase = Phase.ENDED
+	center_label.text = ""
+	move_stick.release()
+	aim_stick.release()
+	super_stick.release()
+	var won := blue > red
+	var drew := blue == red
+	results_title.text = "%s\n%d — %d" % [
+			"VICTORY!" if won else ("DRAW" if drew else "DEFEATED"), blue, red]
+	results_title.add_theme_color_override("font_color",
+			Color(1.0, 0.85, 0.2) if won else
+			(Color(0.85, 0.85, 0.85) if drew else Color(0.95, 0.4, 0.35)))
+	var award: Dictionary = SaveGame.award_match(player.kit.name, 1 if won else (5 if drew else 9))
+	results_award.text = "TROPHIES %+d      COINS +%d      PASS +%d" % [
+			award.trophies, award.coins, award.tokens]
+	results.visible = true
+
 func _update_players_label() -> void:
-	players_label.text = "%d LEFT" % fighters.size()
+	# Nobles Cup shows a score and a clock instead; CupMode owns those labels.
+	players_label.text = "" if cup != null else "%d LEFT" % fighters.size()
 
 # MARK: balance sim (NS3_SIM)
 
@@ -1246,9 +1502,10 @@ func _physics_process(delta: float) -> void:
 					get_tree().create_timer(0.8).timeout.connect(func() -> void:
 						if phase == Phase.PLAYING:
 							center_label.text = "")
-					gas = GasRing.new()
-					add_child(gas)
-					gas.start(now, arena.columns)
+					if cup == null:      # the pitch has no gas closing in
+						gas = GasRing.new()
+						add_child(gas)
+						gas.start(now, arena.columns)
 				else:
 					center_label.text = str(int(ceil(remaining)))
 				for f in fighters:
@@ -1284,6 +1541,23 @@ func _update_aim_indicator() -> void:
 	var stick: TouchStick = super_stick if use_super else aim_stick
 	if not stick.active or stick.value.length() < TAP_THRESHOLD:
 		return
+	# Holding the ball replaces the weapon's aimer with the ball's own path.
+	# The kick is a different action with a different reach, and it banks off
+	# walls, so drawing the weapon lane here would preview an attack the player
+	# cannot currently make and hide the one they can.
+	if cup != null and cup.ball.carrier == player:
+		var powerful := use_super and player.is_super_ready()
+		var kick_dir := Vector3(stick.value.x, 0, stick.value.y).normalized()
+		var from := Vector3(cup.ball.position.x, 0.08, cup.ball.position.z)
+		var tint: Color = SUPER_KICK_AIM_COLOR if powerful else KICK_AIM_COLOR
+		im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+		im.surface_set_color(tint)
+		for segment in _aim_bounce_segments(from, kick_dir,
+				Ball.kick_range(Ball.SUPER_KICK_MULT if powerful else 1.0), 2, Ball.BOUNCE):
+			_aim_add_segment(im, segment[0], segment[1], Ball.RADIUS, tint)
+		im.surface_end()
+		return
+
 	var weapon: Dictionary = player.kit["super"] if use_super else player.kit.weapon
 	var color := Color(1.0, 0.7, 0.2, 0.4) if use_super else Color(1, 1, 1, 0.3)
 	var origin := player.global_position + Vector3(0, 0.08, 0)
@@ -1328,6 +1602,26 @@ func _update_aim_indicator() -> void:
 			im.surface_add_vertex(origin)
 			im.surface_add_vertex(origin + Vector3(sin(a0), 0, cos(a0)) * weapon.range)
 			im.surface_add_vertex(origin + Vector3(sin(a1), 0, cos(a1)) * weapon.range)
+	elif style == Kits.Style.SLALOM:
+		# Draw the real weave, both lanes, for the shot this drag would fire —
+		# how wide it carves, where the pair meets, and how far that leaves it
+		# able to reach. All three move together and all three are the point, so
+		# a straight lane would hide the whole weapon.
+		#
+		# The RAW drag reach, not `target_dist`: `slalom_weave` applies the kit's
+		# own floor, and _release_fire hands the shot this same unclamped number,
+		# so anything else here would draw a weave that is not the one fired.
+		var weave: Dictionary = Kits.slalom_weave(weapon,
+				stick.value.length() * float(weapon.range))
+		for curve_sign in [1.0, -1.0]:
+			_aim_add_ribbon(im, _slalom_path(origin, dir, weapon, curve_sign, weave),
+					maxf(float(weapon.radius), 0.16), color)
+	elif style == Kits.Style.DOWNHILL:
+		# The run is steered, so the lane is only where it STARTS. Draw the aim
+		# reach rather than the full 11-tile ride, which would leave the screen
+		# and read as a weapon range it is not. Body-width, because it is a body.
+		_aim_add_segment(im, origin, origin + dir * float(weapon.range),
+				Kits.FIGHTER_RADIUS, color)
 	else:
 		# Single projectiles, dashes, and boomerangs occupy a straight lane.
 		_aim_add_segment(im, origin, origin + dir * float(weapon.range),
@@ -1365,8 +1659,63 @@ func _aim_add_segment(im: ImmediateMesh, from: Vector3, to: Vector3,
 	im.surface_add_vertex(to + side)
 	im.surface_add_vertex(from + side)
 
+## A continuous band along a polyline. Chaining `_aim_add_segment` would work,
+## but each quad would overlap its neighbour at the joint and the alpha would
+## stack into a bright dot on every bend; sharing the seam edge keeps the weave
+## one even ribbon.
+func _aim_add_ribbon(im: ImmediateMesh, points: PackedVector3Array,
+		half_width: float, color: Color) -> void:
+	if points.size() < 2:
+		return
+	im.surface_set_color(color)
+	var prev_side := Vector3.ZERO
+	for i in points.size() - 1:
+		var travel := points[i + 1] - points[i]
+		travel.y = 0.0
+		if travel.length_squared() < 0.000001:
+			continue
+		var side := Vector3(travel.z, 0, -travel.x).normalized() * half_width
+		if prev_side == Vector3.ZERO:
+			prev_side = side
+		im.surface_add_vertex(points[i] - prev_side)
+		im.surface_add_vertex(points[i + 1] - side)
+		im.surface_add_vertex(points[i + 1] + side)
+		im.surface_add_vertex(points[i] - prev_side)
+		im.surface_add_vertex(points[i + 1] + side)
+		im.surface_add_vertex(points[i] + prev_side)
+		prev_side = side
+
+## The path a Slalom shot actually flies, sampled for the aim indicator. It
+## integrates the same heading law Projectile does and spends its range down the
+## aim line the same way, so the drawing and the shot cannot drift apart.
+func _slalom_path(origin: Vector3, dir: Vector3, weapon: Dictionary,
+		curve_sign: float, weave: Dictionary) -> PackedVector3Array:
+	var points := PackedVector3Array([origin])
+	var curve_rad := deg_to_rad(float(weave.curve_deg))
+	var omega: float = TAU / maxf(0.05, float(weave.period))
+	var speed: float = float(weapon.speed)
+	var reach: float = float(weave.reach)
+	# The physics tick and the midpoint sample, exactly as Projectile flies it.
+	# The ribbon is a promise about where the pair crosses, so it integrates the
+	# same way rather than more accurately.
+	var step := 1.0 / 60.0
+	var axial := 0.0
+	var point := origin
+	var t := 0.0
+	while axial < reach and t < 3.0:
+		var motion := dir.rotated(Vector3.UP,
+				curve_rad * curve_sign * cos(omega * (t + step * 0.5))) * speed * step
+		axial += motion.dot(dir)
+		point += motion
+		points.append(point)
+		t += step
+	return points
+
+## `decay` shortens what is left of the path at every bounce. Projectiles keep
+## their speed off a wall and leave it at 1.0; the ball does not, so its preview
+## passes Ball.BOUNCE and the drawn path ends where the real one stops.
 func _aim_bounce_segments(origin: Vector3, direction: Vector3,
-		total_distance: float, bounces: int) -> Array:
+		total_distance: float, bounces: int, decay := 1.0) -> Array:
 	var segments: Array = []
 	var start := origin + Vector3(0, 0.05, 0)
 	var heading := direction.normalized()
@@ -1380,7 +1729,7 @@ func _aim_bounce_segments(origin: Vector3, direction: Vector3,
 			break
 		var impact: Vector3 = hit.position
 		segments.append([start, impact])
-		remaining -= start.distance_to(impact)
+		remaining = (remaining - start.distance_to(impact)) * decay
 		if remaining <= 0.05:
 			break
 		heading = heading.bounce(hit.normal).normalized()
@@ -1390,7 +1739,14 @@ func _aim_bounce_segments(origin: Vector3, direction: Vector3,
 func _run_playing(delta: float) -> void:
 	# In sim mode the player slot is brain-driven; skip input. After it dies
 	# the node is freed while the match runs on, hence the validity guards.
-	if not sim_active and is_instance_valid(player) and not player.is_dead():
+	# Nobles Cup holds everyone still through the kickoff beat and once the
+	# final whistle has gone; the match loop otherwise runs exactly as usual.
+	var held := cup != null and cup.frozen(now)
+	if held:
+		for f in fighters:
+			if not f.is_dead():
+				f.apply_movement(Vector3.ZERO)
+	if not sim_active and is_instance_valid(player) and not player.is_dead() and not held:
 		var dir := Vector3.ZERO
 		if OS.get_environment("NS3_AUTOWALK") != "":
 			var parts := OS.get_environment("NS3_AUTOWALK").split(",")
@@ -1421,8 +1777,16 @@ func _run_playing(delta: float) -> void:
 				f.face_direction(face)
 
 	for b in brains:
+		if held or b.fighter.is_dead():
+			continue      # a knocked-out fighter is waiting on its respawn
 		var d := b.decide(now, self)
 		b.fighter.apply_movement(d.move)
+		# Carrying is the whole move set: the weapon is unavailable and the
+		# Super goes into the ball, so nothing below this runs for a carrier.
+		if cup != null and cup.ball.carrier == b.fighter:
+			if d.kick_dir != null:
+				cup.kick(b.fighter, d.kick_dir, now, bool(d.kick_super))
+			continue
 		if d.fire_dir != null and not b.fighter.is_dashing() and not b.fighter.is_disconnected(now):
 			if d.use_super and b.fighter.consume_super():
 				perform_attack(b.fighter, b.fighter.kit["super"], d.fire_dir, d.fire_dist)
@@ -1435,6 +1799,8 @@ func _run_playing(delta: float) -> void:
 	_update_burns()
 	for f in fighters:
 		f.tick(delta, now)
+	if cup != null:
+		cup.tick(delta, now)
 
 	if gas:
 		var vulnerable := fighters.filter(func(f): return not (god_mode and f == player))
@@ -1458,7 +1824,16 @@ func _fire_player(weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	if phase != Phase.PLAYING or player == null or not is_instance_valid(player) \
 			or player.is_dead() or player.is_dashing() or player.is_disconnected(now):
 		return
+	if cup != null and cup.frozen(now):
+		return
 	var use_super: bool = weapon == player.kit["super"]
+	# Last line of defence for the carrier's kick. _release_fire and
+	# _auto_aim_fire resolve the aim and kick before they reach here, but every
+	# player attack funnels through this call — NS3_AUTOFIRE included — and none
+	# of them may fire a weapon while the ball is in hand. A Super spent here
+	# goes into the ball rather than the kit.
+	if cup != null and cup.kick(player, dir, now, use_super):
+		return
 	if net_active and not net_host:
 		# Clients ask the host to fire; the attack echoes back as _net_attack.
 		_net_fire.rpc_id(1, use_super, dir, dist)
@@ -1520,6 +1895,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _release_fire(stick_value: Vector2, use_super: bool) -> void:
 	if phase != Phase.PLAYING or player.is_dead():
 		return
+	if _kick_instead(stick_value, use_super):
+		return
 	var weapon: Dictionary = player.kit["super"] if use_super else player.kit.weapon
 	if stick_value.length() >= TAP_THRESHOLD:
 		var dir := Vector3(stick_value.x, 0, stick_value.y)
@@ -1535,7 +1912,8 @@ func _release_fire(stick_value: Vector2, use_super: bool) -> void:
 ## deliberately sloppy bot. Instant-hit styles (melee, shockwave) have no speed,
 ## fall through to a zero flight time, and aim where the target stands.
 func _aim_lead(shooter: Fighter, target: Fighter, weapon: Dictionary) -> Vector3:
-	var speed: float = float(weapon.speed)
+	var speed: float = Kits.aim_speed(weapon,
+			shooter.global_position.distance_to(target.global_position))
 	var flight := 0.0
 	if int(weapon.style) == Kits.Style.JUMP_SMASH:
 		flight = BotBrain.LEAP_FLIGHT      # a leap, not a projectile: fixed airtime
@@ -1552,7 +1930,30 @@ func _aim_lead(shooter: Fighter, target: Fighter, weapon: Dictionary) -> Vector3
 		aim = target.global_position + travel * flight
 	return aim
 
+## Holding the ball swaps the attack for a kick: dragged, it goes where you
+## point; tapped, CupMode picks the shot or the pass. Spending the Super here is
+## the Super Shot — twice as fast and twice as far — so a charged Super while
+## carrying never fires the kit's own Super.
+func _kick_instead(stick_value: Vector2, use_super: bool) -> bool:
+	if cup == null or cup.frozen(now) or cup.ball.carrier != player:
+		return false
+	var powerful := use_super and player.is_super_ready()
+	var dir: Vector3 = Vector3(stick_value.x, 0, stick_value.y) \
+			if stick_value.length() >= TAP_THRESHOLD else cup.kick_aim(player, powerful)
+	return cup.kick(player, dir, now, use_super)
+
 func _auto_aim_fire(weapon: Dictionary, use_super: bool) -> void:
+	if _kick_instead(Vector2.ZERO, use_super):
+		return
+	# Pop Off is an ESCAPE, so a tapped one leaps the way Anders is already
+	# running. Auto-aiming it at the nearest enemy made the tap jump him into
+	# the fight he was trying to leave. Falls back to his facing when standing
+	# still; drag from the button to aim it anywhere else.
+	if int(weapon.get("style", -1)) == Kits.Style.POP_OFF:
+		var run := Vector3(player.velocity.x, 0.0, player.velocity.z)
+		var away: Vector3 = run.normalized() if run.length() > 0.5 else player.facing
+		_fire_player(weapon, away, float(weapon.range))
+		return
 	# A Super only auto-aims at fighters — burning the charge on a loot box is
 	# never what the tap meant.
 	var target: Node3D = nearest_visible_enemy(player, weapon.range * 1.1, _lobbed(weapon)) \
@@ -1564,8 +1965,16 @@ func _auto_aim_fire(weapon: Dictionary, use_super: bool) -> void:
 		_fire_player(weapon, v, v.length())
 	elif not use_super:
 		_fire_player(weapon, player.facing, weapon.range)
-	# A tapped Super with no target keeps its charge instead of firing blind;
-	# drag from the button to aim it manually.
+	elif int(weapon.get("style", -1)) == Kits.Style.DOWNHILL:
+		# Downhill is travel as much as damage, so with nobody in reach a tap
+		# still sets off down the hill — rotating, or leaving a fight — rather
+		# than sitting on the charge. It runs the way the player is already
+		# going, falling back to their facing when standing still.
+		var run := Vector3(player.velocity.x, 0.0, player.velocity.z)
+		_fire_player(weapon, run.normalized() if run.length() > 0.5 else player.facing,
+				float(weapon.range))
+	# Any other tapped Super with no target keeps its charge instead of firing
+	# blind; drag from the button to aim it manually.
 
 func _update_concealment() -> void:
 	if player == null or not is_instance_valid(player):
@@ -1630,7 +2039,8 @@ func _net_all_ready() -> bool:
 ## assigned a shuffled spawn index (spawn count comes from the map's S tiles).
 func _net_host_start() -> void:
 	_match_seq += 1
-	var spawn_idx: Array = range(Arena.MAP.count("S"))
+	# Wifi play is Showdown only, so the spawn count comes from that map.
+	var spawn_idx: Array = range(Arena.SHOWDOWN_MAP.count("S"))
 	spawn_idx.shuffle()
 	var roster: Array = []
 	var ids: Array = Net.players.keys()
@@ -1654,7 +2064,7 @@ func _start_from_roster(roster: Array) -> void:
 	_match_ready = false
 	for c in get_children():
 		if c is Arena or c is GasRing or c is Fighter or c is Projectile or c is Lob or c is Boomerang \
-				or c is HackySack:
+				or c is HackySack or c is Ball or c is CupMode:
 			c.queue_free()
 	for c in get_tree().get_nodes_in_group("lootbox") + get_tree().get_nodes_in_group("cube"):
 		c.queue_free()
@@ -1940,6 +2350,12 @@ func _net_box_broken(box_name: String, cube_id: int, pos: Vector3) -> void:
 	_spawn_cube(pos, cube_id)   # visual only: clients never connect pickup
 
 @rpc("authority", "call_remote", "reliable")
+func _net_cube_dropped(cube_id: int, pos: Vector3) -> void:
+	if net_host:
+		return
+	_spawn_cube(pos, cube_id)   # visual only: clients never connect pickup
+
+@rpc("authority", "call_remote", "reliable")
 func _net_cube_gone(cube_name: String, collector_idx: int) -> void:
 	if net_host:
 		return
@@ -1957,5 +2373,6 @@ func _net_wall_broken(wall_name: String) -> void:
 		return
 	for w in get_tree().get_nodes_in_group("breakable"):
 		if String(w.name) == wall_name:
+			arena.open_at(w.global_position)
 			w.queue_free()
 			break

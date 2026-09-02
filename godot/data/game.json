@@ -46,14 +46,14 @@
    "text": "Gems drop from the center of the Dining Hall. Hold 10 for the countdown to win."
   },
   {
-   "id": "brawl_ball",
-   "name": "BRAWL BALL",
+   "id": "nobles_cup",
+   "name": "NOBLES CUP",
    "sub": "3v3",
    "players": "3 vs 3",
    "color": "#2f7bff",
-   "icon": "token",
+   "icon": "brawl_ball",
    "map": "Lower Field",
-   "text": "Score two goals on the Lower Field before the other team. Supers break walls."
+   "text": "Carry the ball down the Lower Field and put it in the net. First to two goals takes the Cup \u2014 hold the ball and you can only kick, and a tie at full time goes to overtime with every wall levelled."
   },
   {
    "id": "heist",

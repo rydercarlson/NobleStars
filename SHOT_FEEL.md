@@ -326,6 +326,22 @@ screen cap in section 4 binds before the body-width band does.
 | Anders Pop Off | 5.60 | 2.8 | 0.48 | 15.7 | 2.80 | .36 | .11 | 0.22 |
 | Hammy shot | 5.60 | 5.5 | 0.62 | 20.2 | 3.60 | .55 | **.30** | 1.20 |
 | Hammy Super | 5.60 | 6.0 | 0.70 | 18.5 | 3.30 | .65 | .40 | 1.35 |
+| Ayaan slalom | 6.16 | 4.5 | 0.46 | 18.8 | 3.05 | .52 | .27 | 1.43 |
+| Ayaan Downhill | 6.16 | 5.5 | — | 11.7 | 1.90 | — | — | — |
+
+**Ayaan's row is computed on his AXIAL speed, not his shot speed, and at the top
+of his range band.** His range is a band and so is his swerve: the shot ends
+where it was aimed, from 2.8 tiles (a 58° braid) to 4.5 (one 27° arc) — see
+CHARACTER_BUILDING §7. The row reports the 4.5 end, because that is where a
+dodge window is hardest to earn, and there the 27° swerve means the shot closes
+on its target at `J0(0.47) = 0.95` of the 18.8 m/s it actually travels: 17.8
+m/s. The braided end gives up 24% instead of 5%, but only over 2.8 tiles, so it
+never binds. lead/hit at 1.43 sits just inside the 1.45 top of the band, which
+is what fixes his ratio at 3.05 — the house 3.1 pushes it over.
+
+Anything that turns speed into a flight time has to go through `Kits.aim_speed`
+rather than reading `weapon.speed`, or it leads him short — `bot_brain._aim_point`
+and `main._aim_lead` both do.
 
 **Caveat on the AOE rows.** `lead/hit` treats the blast radius as hit width,
 which overstates forgiveness for anything that resolves where it *lands* rather
@@ -381,24 +397,36 @@ All of the following shipped in the same pass.
 
 ### Still open
 
-- **Damage.** eDPS is per-second so the formula is untouched, but the **A**
-  factor is not: `lead/hit` roughly halved across the roster and the fighter is
-  44% wider, so measured hit rates are materially higher than when A was set.
-  Leon's `A = 1.40` came off a 39% hit rate that no longer holds. Re-derive from
-  `NS3_SIM`, reading `hits/atk` before `win%`.
 - **Bot match lead.** `LEAD_MATCH_MIN/MAX` (0.15–0.45) was tuned against 0.38s
-  flights. At 0.5s flights a 0.15-lead bot now misses by 1.4 m against 2.0 m of
-  hit width, so it grazes rather than whiffing — arguably the intended
-  sloppiness, but worth a look in the sim before deciding.
-- **Melee closing time** roughly doubles (Henry onto Hammy: 1.1s → 2.1s). Brawl
-  Stars' equivalent is 2.7s, so we are still ahead, but §8 of
-  `CHARACTER_BUILDING.md` already warns the sim under-rates melee.
+  flights. At ~0.55s flights a 0.15-lead bot misses by less than it used to, so
+  it grazes rather than whiffing — arguably the intended sloppiness, but worth a
+  look now that everything else has settled.
+- **Melee is judged, not measured.** `A` is derived from measured hit rate for
+  ranged kits, but the sim inflates melee (bots walk in straight lines: Henry
+  reads 93% in-sim against 85% from play), so Henry, Sanjit and Kovacs keep
+  hand-set values. Their numbers need a playtest, not a longer sim.
+- **Hammy's uptime.** His delivery is fine at 83% and his damage is now
+  correctly priced, but he gets 5.1 attacks a life on 3500 health and finishes
+  last. The damage formula has no lever for that; the fix is his health tier,
+  which is a character decision.
 - **Wall height.** Walls are 1.5 m boxes and fighters are now ~2.5 m of scaled
   model. Brawl Stars keeps cover and brawlers about the same height; ours no
   longer do, so cover reads shorter than it plays.
 - **`TILE` is still 2.0 m** against a 1.30 m fighter, so cover is 1.5
   body-widths where Brawl Stars' is 1.0 (§5.5). Closer than the 2.2 it was, and
   no longer worth an arena re-author on its own.
+
+### Done since
+
+- **The arena is 39×39** = 60 body-widths at the 1.30 m fighter, matching Brawl
+  Stars' Showdown map in the unit that matters. `Tools/gen_showdown_map.py` is
+  now parameterised — terrain is authored in design units on the original
+  33-grid and scaled by `S = N/33`, with `N = 60 × FIGHTER_RADIUS`. Watch the
+  density read-out on any future resize: radii scale but a wall clump is a fixed
+  number of *tiles*, so the field grows by S² while wall cover does not.
+- **Damage re-derived** from measured hit rates — see
+  `CHARACTER_BUILDING.md` §3, which now bands `A` off `hits/atk` instead of
+  judging it.
 
 ---
 

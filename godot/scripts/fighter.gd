@@ -6,6 +6,9 @@ extends CharacterBody3D
 var kit: Dictionary
 var display_name := "Fighter"
 var is_player := false
+## Team-mode index (Nobles Cup): 0 or 1. Showdown leaves it at -1, which means
+## "no allies" — is_ally() is false for everyone, so free-for-all is unchanged.
+var team := -1
 
 var max_health := Kits.BASE_MAX_HEALTH
 var health := Kits.BASE_MAX_HEALTH
@@ -15,6 +18,9 @@ var max_ammo := Kits.MAX_AMMO
 ## sack is alive, so his single pip only starts refilling once the rally ends
 ## rather than ticking back during it.
 var ammo_locked := false
+## Anders' consecutive catches. Lives on the fighter because the sack is
+## destroyed on every catch — it seeds the next throw's damage step.
+var sack_streak := 0
 var reload := Kits.AMMO_RECHARGE_SECONDS   # seconds per ammo pip; set from the kit
 ## Minimum gap between two attacks, derived from `reload`. Without it a whole
 ## magazine leaves the barrel in one flick — see SHOT_FEEL.md section 8.
@@ -26,9 +32,13 @@ var last_damage_at := -100.0
 var facing := Vector3.FORWARD
 
 var knockback_vel := Vector3.ZERO
-var dash: Dictionary = {}   # empty = not dashing
+var dash: Dictionary = {}   # empty = not dashing; `steer` marks a Downhill ride
 var leap: Dictionary = {}   # empty = grounded; used by jump-smash Supers
 var disconnected_until := -1.0
+## Ayaan's snow spray. `slow_factor` multiplies move speed until `slow_until`;
+## `tick` puts it back to 1.0.
+var slow_until := -1.0
+var slow_factor := 1.0
 
 # Hammy's three-hit rhythm. Keeping it on the fighter makes the trait identical
 # for humans and bots and lets the HUD show the current streak.
@@ -48,6 +58,8 @@ var _skel: Skeleton3D
 var _foot_bones: PackedInt32Array = []
 var _foot_rest_y := 0.0
 var _attack_anim_until := 0.0
+var _attack_anim_fast_at := INF
+var _attack_anim_end_speed_scale := 1.0
 var _pending_popup := 0
 var _heat_glow: MeshInstance3D
 var _burn_glow: MeshInstance3D
@@ -56,8 +68,26 @@ var _burn_glow: MeshInstance3D
 func is_dead() -> bool:
 	return health <= 0
 
+## Nobles Cup only. Two Showdown fighters are never allies even though both
+## carry team -1, so an unset team must never match itself.
+func is_ally(other: Fighter) -> bool:
+	return team >= 0 and other != self and other.team == team
+
 func is_dashing() -> bool:
 	return not dash.is_empty()
+
+## A steered, time-bounded dash: Ayaan's Downhill. It rides the same `dash`
+## channel on purpose, so every guard that already asks `is_dashing()` — no
+## shooting mid-dash, for the player and the bots alike — covers the ride too.
+func is_riding() -> bool:
+	return bool(dash.get("steer", false))
+
+## How much of a Downhill run is left, 1.0 down to 0.0 — the timer bar the HUD
+## paints over his head. Zero when there is no ride, so callers can ask flatly.
+func ride_fraction() -> float:
+	if not is_riding():
+		return 0.0
+	return clampf(1.0 - float(dash.elapsed) / maxf(0.01, float(dash.duration)), 0.0, 1.0)
 
 func is_leaping() -> bool:
 	return not leap.is_empty()
@@ -85,7 +115,11 @@ func _ready() -> void:
 	max_ammo = float(kit.get("ammo", Kits.MAX_AMMO))
 	ammo = max_ammo
 	collision_layer = 1 << 2                  # fighters
-	collision_mask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 5)  # walls|water|fighters|boxes
+	# Fighters do NOT mask each other: bodies walk straight over one another, as
+	# they do in Brawl Stars, so a teammate can never wall you into a corner and
+	# a crowd around a loot box does not turn into a shoving match. The layer
+	# stays on, because shots, boomerangs and melee sweeps all still find them.
+	collision_mask = (1 << 0) | (1 << 1) | (1 << 5)  # walls|water|boxes
 
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
@@ -95,6 +129,8 @@ func _ready() -> void:
 	col.position.y = 0.8
 	add_child(col)
 
+	if team >= 0:
+		_setup_team_ring()
 	if kit.has("model"):
 		_setup_model()
 	else:
@@ -205,6 +241,25 @@ func set_held_item_visible(shown: bool) -> void:
 	if _held_item:
 		_held_item.visible = shown
 
+## Nobles Cup team marker: a flat ring on the ground under the fighter. It has
+## to sit outside the body rather than tint it, because five of eight kits wear
+## a GLB whose materials are the character's own and must not be recoloured.
+func _setup_team_ring() -> void:
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = Kits.FIGHTER_RADIUS * 0.92
+	torus.outer_radius = Kits.FIGHTER_RADIUS * 1.24
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Arena.TEAM_COLORS[team]
+	mat.emission_enabled = true
+	mat.emission = Arena.TEAM_COLORS[team]
+	mat.emission_energy_multiplier = 0.6
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	torus.material = mat
+	ring.mesh = torus
+	ring.position.y = 0.06
+	add_child(ring)
+
 ## Placeholder capsule for kits without a model yet.
 func _setup_capsule() -> void:
 	_body_mesh = MeshInstance3D.new()
@@ -240,6 +295,8 @@ func update_animation(game_now: float) -> void:
 		return
 	_ground_feet()
 	if game_now < _attack_anim_until:
+		if _anim.current_animation_position >= _attack_anim_fast_at:
+			_anim.speed_scale = _attack_anim_end_speed_scale
 		return
 	var clips: Dictionary = kit.clips
 	var moving := velocity.length() > 0.5
@@ -262,6 +319,7 @@ func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 	if _anim == null:
 		return
 	var clips: Dictionary = kit.clips
+	var prefix := "super" if is_super else "attack"
 	var clip_name: String = clips.get("super", clips.attack) if is_super else clips.attack
 	var speed: float = clips.get("super_speed", clips.get("attack_speed", 1.0)) if is_super \
 			else clips.get("attack_speed", 1.0)
@@ -275,22 +333,59 @@ func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 		_anim.seek(seek_to, true)
 	var a: Animation = _anim.get_animation(clip_name)
 	if a:
-		_attack_anim_until = game_now + (a.length - seek_to) / speed
+		var end_at := clampf(float(clips.get(prefix + "_end", a.length)), seek_to, a.length)
+		var fast_at := clampf(float(clips.get(prefix + "_fast_at", end_at)), seek_to, end_at)
+		var end_speed := maxf(0.01, float(clips.get(prefix + "_end_speed", speed)))
+		# AnimationPlayer's custom speed is `speed`; speed_scale changes only the
+		# tail once it crosses fast_at. Keeping the timing calculation identical
+		# prevents movement from taking control before the cropped take is done.
+		_attack_anim_fast_at = fast_at
+		_attack_anim_end_speed_scale = end_speed / maxf(0.01, speed)
+		_attack_anim_until = game_now + (fast_at - seek_to) / speed \
+				+ (end_at - fast_at) / end_speed
 
 func apply_movement(input_dir: Vector3) -> void:
 	if is_leaping():
 		velocity = Vector3.ZERO
 		return
 	if is_dashing():
+		# A ride CARVES: it swings toward the stick at `turn_rate` rad/s rather
+		# than snapping to it, so a change of direction costs ground and reads as
+		# a turn rather than a pivot. Letting go holds the current heading, so the
+		# run coasts on instead of stopping dead. The rate is the whole feel of
+		# the Super — see the tuning history on the kit.
+		# A plain dash ignores input entirely and holds the line it launched on.
+		if is_riding() and input_dir.length() > 0.1:
+			var want := input_dir.normalized()
+			var limit: float = float(dash.turn_rate) * get_physics_process_delta_time()
+			var swing: float = (dash.direction as Vector3).signed_angle_to(want, Vector3.UP)
+			dash.direction = (dash.direction as Vector3).rotated(
+					Vector3.UP, clampf(swing, -limit, limit)).normalized()
+			face_direction(dash.direction)
 		velocity = dash.direction * dash.weapon.speed
 		move_and_slide()
 		return
-	var speed: float = kit.get("move_speed", Kits.MOVE_SPEED)
+	var speed: float = float(kit.get("move_speed", Kits.MOVE_SPEED)) * slow_factor
 	velocity = input_dir * speed + knockback_vel
 	move_and_slide()
 	if input_dir.length() > 0.1:
 		facing = input_dir.normalized()
 		rotation.y = atan2(-facing.x, -facing.z)
+
+## Distance a knockback impulse of strength 1.0 actually travels. The decay is
+## `v *= 0.0001 ** delta`, i.e. v(t) = v0 * e^(-9.21t), so the integral is
+## v0 / 9.21. Converting the other way lets a lunge be authored in metres.
+const IMPULSE_TRAVEL := 0.1086
+
+## A short forward hop on a melee strike, so a combo carries the fighter in.
+## Rides the knockback channel deliberately: it decays in about 0.08s, so it
+## reads as a lunge rather than a slide, it is summed with input in
+## apply_movement so the player keeps steering throughout, and move_and_slide
+## already stops it dead against a wall.
+func lunge(direction: Vector3, distance: float) -> void:
+	if distance <= 0.0 or direction.length() < 0.01:
+		return
+	knockback_vel += direction.normalized() * (distance / IMPULSE_TRAVEL)
 
 func face_direction(dir: Vector3) -> void:
 	var flat := Vector3(dir.x, 0, dir.z)
@@ -305,9 +400,22 @@ func begin_dash(weapon: Dictionary, direction: Vector3) -> void:
 	face_direction(direction)
 	collision_mask = (1 << 0) | (1 << 5)   # walls + boxes only: dash crosses water
 
+## Ayaan's Downhill. Bounded by TIME rather than by distance, and steered every
+## frame in apply_movement, so `remaining` never counts down. Same collision mask
+## as a dash: fighters are hit by the ride's own contact test, and the skis
+## glide over water on top of that.
+func begin_ride(weapon: Dictionary, direction: Vector3) -> void:
+	dash = {"weapon": weapon, "direction": direction.normalized(), "remaining": INF,
+			"hit": [], "crossed_water": false, "steer": true, "elapsed": 0.0,
+			"turn_rate": float(weapon.get("turn_rate", 4.0)),
+			"duration": float(weapon.get("duration", 2.0)),
+			"last_pos": global_position}
+	face_direction(direction)
+	collision_mask = (1 << 0) | (1 << 5)
+
 func end_dash() -> void:
 	dash = {}
-	collision_mask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 5)
+	collision_mask = (1 << 0) | (1 << 1) | (1 << 5)
 
 func begin_leap(weapon: Dictionary, direction: Vector3, distance: float) -> void:
 	var dir := direction.normalized()
@@ -395,6 +503,14 @@ func take_damage(amount: int, now: float) -> void:
 func receive_knockback(direction: Vector3, strength: float) -> void:
 	knockback_vel += direction.normalized() * strength
 
+## Ayaan's snow spray. Overlapping sprays take the STRONGEST slow and the
+## LATEST expiry, so skiing through the same crowd twice never shortens the
+## first one — the same "only ever extend" rule apply_disconnect uses.
+func apply_slow(game_now: float, duration: float, factor: float) -> void:
+	slow_factor = factor if game_now >= slow_until else minf(slow_factor, factor)
+	slow_until = maxf(slow_until, game_now + duration)
+	_popup("SLOWED", Color(0.65, 0.9, 1.0))
+
 func collect_cube() -> void:
 	cubes += 1
 	max_health += Kits.HEALTH_PER_CUBE
@@ -402,6 +518,8 @@ func collect_cube() -> void:
 	_popup("+%d HP" % Kits.HEALTH_PER_CUBE, Color(0.85, 0.45, 1.0))
 
 func tick(delta: float, now: float) -> void:
+	if slow_factor < 1.0 and now >= slow_until:
+		slow_factor = 1.0
 	if ammo < max_ammo and not ammo_locked:
 		ammo = min(max_ammo, ammo + delta / reload)
 	if not is_dead() and health < max_health and now - last_damage_at > Kits.REGEN_DELAY:
@@ -416,7 +534,50 @@ func die() -> void:
 	tw.tween_property(self, "scale", Vector3(0.1, 0.1, 0.1), 0.35)
 	tw.tween_callback(queue_free)
 
+## Nobles Cup death: the fighter is coming back, so it is parked rather than
+## freed. Everything that walks `fighters` already skips is_dead(), and health
+## stays at 0 until respawn() so it keeps skipping them.
+func knock_out() -> void:
+	velocity = Vector3.ZERO
+	knockback_vel = Vector3.ZERO
+	dash = {}
+	leap = {}
+	visible = false
+	# Off every layer and mask: a parked fighter must not block a shot, soak a
+	# melee sweep, or stop the ball rolling over the spot where it fell.
+	collision_layer = 0
+	collision_mask = 0
+	if _anim:
+		_anim.stop()
+
+func respawn(pos: Vector3, game_now: float) -> void:
+	position = pos
+	health = max_health
+	ammo = max_ammo
+	# Super charge does not survive: a fighter who trades its life for a Super
+	# it never spent should not come straight back holding it.
+	super_charge = 0.0
+	heat_hits = 0
+	sack_streak = 0
+	ammo_locked = false
+	burn_until = -1.0
+	on_fire_until = -1.0
+	disconnected_until = -1.0
+	slow_until = -1.0
+	slow_factor = 1.0
+	last_damage_at = game_now
+	next_attack_at = -1.0
+	scale = Vector3.ONE
+	visible = true
+	collision_layer = 1 << 2
+	collision_mask = (1 << 0) | (1 << 1) | (1 << 5)
+	reset_physics_interpolation()
+	if _anim:
+		_anim.play(kit.clips.idle)
+
 func set_concealed(hidden: bool, self_view: bool) -> void:
+	if is_dead():
+		return   # knocked out in Nobles Cup: respawn() owns `visible`, not this
 	if self_view:
 		if _material:
 			_material.albedo_color.a = 0.55 if hidden else 1.0
