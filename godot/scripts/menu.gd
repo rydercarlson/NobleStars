@@ -344,11 +344,17 @@ func currency(kind: String) -> int:
 	return SaveGame.coins
 
 ## Re-reads every visible currency pill, counting up to the new value.
+##
+## Validity is checked BEFORE the typed local: a pill belonging to a screen that
+## has since closed is a freed instance, and merely assigning one to a `Label`
+## throws. That aborted the whole function on the first stale entry, so the
+## counters stopped animating, the list never got pruned, and it threw again on
+## every grant for the rest of the session.
 func refresh_currencies() -> void:
 	var live: Array = []
 	for entry in _currency_labels:
-		var label: Label = entry.label
-		if is_instance_valid(label):
+		if is_instance_valid(entry.label):
+			var label: Label = entry.label
 			live.append(entry)
 			count_to(label, currency(str(entry.kind)))
 	_currency_labels = live
@@ -503,8 +509,10 @@ func fly_to(at: Vector2, kind: String = "coins", count: int = 8) -> void:
 func _currency_target(kind: String) -> Control:
 	var found: Control = null
 	for entry in _currency_labels:
+		if not is_instance_valid(entry.label):
+			continue   # see refresh_currencies: the assignment below would throw
 		var label: Label = entry.label
-		if is_instance_valid(label) and str(entry.kind) == kind and label.is_visible_in_tree():
+		if str(entry.kind) == kind and label.is_visible_in_tree():
 			found = label
 	return found
 
