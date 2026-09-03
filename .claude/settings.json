@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Reimporting Godot project...",
+            "timeout": 60,
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in */godot/*.gd) g=\"${f%%/godot/*}/godot\"; [ -f \"$g/project.godot\" ] && /Applications/Godot.app/Contents/MacOS/Godot --path \"$g\" --headless --import >/dev/null 2>&1 ;; esac; } 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(/Applications/Godot.app/Contents/MacOS/Godot *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(python3 Tools/fix_meshy_glb.py *)"
+    ]
+  }
+}

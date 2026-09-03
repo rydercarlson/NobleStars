@@ -104,6 +104,31 @@ const BATTLE_MUSIC := "res://assets/menu/audio/clash_carnival.mp3"
 
 var _music: AudioStreamPlayer
 
+## Match SFX. Every sound is synthesized at runtime by MenuAudio, so the match
+## borrows the menu's engine wholesale rather than growing a second one and the
+## game still ships no audio files. Null under NS3_SIM, where a headless batch
+## at 10x speed has no use for audio and every _render would be wasted work.
+var sfx: MenuAudio
+
+## Distance falloff for a sound that happened somewhere on the map. Inside NEAR
+## it plays at its own level; past FAR it is not played at all. The match camera
+## shows about 23 m, so a shot from the far corner of the view is already well
+## down and one fired off-screen is gone.
+const SFX_NEAR := 6.0
+const SFX_FAR := 30.0
+## Where the match is heard from — the player while they are alive, and wherever
+## they fell afterwards. Tracked rather than read off `cam`, whose transform is
+## an overhead position that would put every sound tens of metres away.
+var _listener := Vector3.ZERO
+## Damage resolves per pellet, so a nine-pellet shotgun would fire nine impacts
+## on one frame. One is all you can hear anyway.
+const IMPACT_GAP := 0.05
+var _last_impact_at := -1.0
+var _last_count_beep := -1
+var _low_health_at := -1.0
+var _last_ammo_pips := 0
+var _last_empty_click := -1.0
+
 func _start_battle_music() -> void:
 	if not SaveGame.music_on or not ResourceLoader.exists(BATTLE_MUSIC):
 		return
@@ -122,6 +147,9 @@ func _start_battle_music() -> void:
 func _ready() -> void:
 	SaveGame.ensure_loaded()   # NS3_KIT runs skip the menu, so load here too
 	_start_battle_music()
+	if not sim_active:
+		sfx = MenuAudio.new()
+		add_child(sfx)
 	net_active = Net.active
 	net_host = net_active and multiplayer.is_server()
 	authoritative = not net_active or net_host
@@ -281,6 +309,10 @@ func start_match() -> void:
 		c.queue_free()
 	fighters.clear()
 	brains.clear()
+	_last_count_beep = -1
+	_last_impact_at = -1.0
+	_low_health_at = -1.0
+	_last_ammo_pips = int(Kits.MAX_AMMO)   # spawning full is not a reload
 
 	# Mode hook. Nobles Cup swaps the map, the roster and the win condition;
 	# everything below the branch is Showdown's and stays that way. NS3_MODE
@@ -484,10 +516,67 @@ func _spawn_cube(pos: Vector3, cube_id := -1) -> void:
 			# collect this same cube during that window.
 			area.set_meta("claimed", true)
 			area.queue_free()
+			sfx_at("cube_pickup", area.global_position, 1.0)
 			body.collect_cube()
 			if net_host:
 				_net_cube_gone.rpc(String(area.name), net_fighters.find(body)))
 	add_child(area)
+
+# MARK: sfx
+
+## NS3_SFX_LOG=1 prints every sound as it fires. Synthesized audio is easy to
+## mis-hear as missing when it is only quiet, so this is how you tell "the hook
+## never ran" from "turn it up".
+var _sfx_log := OS.get_environment("NS3_SFX_LOG") != ""
+
+## One sound that happened at a place on the map: attenuated by its distance
+## from the listener and nudged off-pitch, because a stream of bit-identical
+## samples reads as a loop rather than as gunfire.
+func sfx_at(sound: String, at: Vector3, gain_db := 0.0, pitch_var := 0.06) -> void:
+	if sfx == null:
+		return
+	var d: float = at.distance_to(_listener)
+	if d > SFX_FAR:
+		return
+	if _sfx_log:
+		print("[sfx] %-14s %5.1f m" % [sound, d])
+	var fade: float = clampf((d - SFX_NEAR) / (SFX_FAR - SFX_NEAR), 0.0, 1.0)
+	sfx.play_at(sound, gain_db - 6.0 - 24.0 * fade,
+			1.0 + randf_range(-pitch_var, pitch_var))
+
+## A sound with no place on the map — the countdown, the results sting, the
+## whistle. Always at full level, never pitched.
+func sfx_ui(sound: String, gain_db := 0.0) -> void:
+	if sfx != null:
+		if _sfx_log:
+			print("[sfx] %-14s   ui" % sound)
+		sfx.play_at(sound, gain_db - 4.0, 1.0)
+
+## Which synthesized shape a weapon fires. Keyed off `style` rather than off the
+## kit, so a new character inherits a sound from the style it picks and only
+## needs an entry here if it introduces a style.
+func _attack_sound(weapon: Dictionary) -> String:
+	match int(weapon.style):
+		Kits.Style.PELLETS:
+			# A spread reads as a shotgun; one projectile reads as a rifle.
+			return "shot_shotgun" if int(weapon.pellets) > 2 else "shot_single"
+		Kits.Style.LOB, Kits.Style.DISCONNECT:
+			return "shot_lob"
+		Kits.Style.MELEE:
+			return "melee_swing"
+		Kits.Style.BOOMERANG:
+			return "shot_boomerang"
+		Kits.Style.SHOCKWAVE, Kits.Style.JUMP_SMASH, Kits.Style.POP_OFF:
+			return "shockwave"
+		Kits.Style.BUTTONS:
+			return "shot_button"
+		Kits.Style.KEEP_IT_UP:
+			return "shot_sack"
+		Kits.Style.SLALOM:
+			return "shot_curve"
+		Kits.Style.DASH, Kits.Style.DOWNHILL:
+			return "super_fire"
+	return "shot_single"
 
 # MARK: combat
 
@@ -496,8 +585,10 @@ func _spawn_cube(pos: Vector3, cube_id := -1) -> void:
 func _live(f) -> Fighter:
 	return f if is_instance_valid(f) else null
 
+## `impact_sound` is what the connection sounds like; melee passes its own so a
+## swing that lands does not sound like a bullet arriving.
 func deal_damage(amount: int, target: Fighter, attacker: Fighter,
-		kb_dir := Vector3.ZERO, kb_strength := 0.0) -> void:
+		kb_dir := Vector3.ZERO, kb_strength := 0.0, impact_sound := "impact") -> void:
 	if not authoritative:   # client-side attacks are visual only
 		return
 	if target.is_dead():
@@ -509,8 +600,16 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 	target.take_damage(amount, now)
 	if kb_strength > 0.0:
 		target.receive_knockback(kb_dir, kb_strength)
+	if now - _last_impact_at >= IMPACT_GAP:
+		_last_impact_at = now
+		sfx_at(impact_sound, target.global_position)
 	if attacker != null:
+		var was_charged: bool = attacker.is_super_ready()
 		attacker.charge_super(amount)
+		# The moment the bar fills is the only cue the player gets that the
+		# Super is available without looking away from the fight.
+		if attacker == player and not was_charged and attacker.is_super_ready():
+			sfx_ui("super_ready", 1.0)
 		if sim_active:
 			_sim_kit(attacker.kit.name).damage += amount
 			_sim_kit(attacker.kit.name).hits += 1
@@ -532,6 +631,10 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 	var unit := Vector3(dir.x, 0, dir.z).normalized()
 	f.face_direction(unit)
 	f.play_attack_animation(now, is_super)
+	# A Super is its own sound whatever style it borrows: it is the loudest
+	# thing that happens in a match and has to cut through the shot it replaces.
+	sfx_at("super_fire" if is_super else _attack_sound(weapon), f.global_position,
+			3.0 if is_super else 0.0)
 	match int(weapon.style):
 		Kits.Style.PELLETS:
 			var shot_weapon := weapon
@@ -838,6 +941,7 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 		if authoritative:
 			if net_host:
 				_net_wall_broken.rpc(String(body.name))
+			sfx_at("wall_break", body.global_position, 1.0)
 			arena.open_at(body.global_position)
 			body.queue_free()
 	elif not body.is_in_group("water"):
@@ -1095,7 +1199,7 @@ func _melee(f: Fighter, weapon: Dictionary, unit: Vector3, sweep := 1.0) -> void
 			continue
 		if not has_line_of_sight(f.global_position, target.global_position):
 			continue
-		deal_damage(dmg, target, f, unit, weapon.knockback)
+		deal_damage(dmg, target, f, unit, weapon.knockback, "melee_hit")
 	for box in get_tree().get_nodes_in_group("lootbox"):
 		var v = box.global_position - f.global_position
 		v.y = 0
@@ -1165,6 +1269,7 @@ func _damage_lootbox(box: Node, amount: int) -> void:
 		# before spawning its drop.
 		box.set_meta("broken", true)
 		box.remove_from_group("lootbox")
+		sfx_at("box_break", box.global_position, 2.0)
 		var pos: Vector3 = box.global_position - Vector3(0, 0.5, 0)
 		var box_name := String(box.name)
 		box.queue_free()
@@ -1377,6 +1482,9 @@ func gas_safe_center() -> Vector3:
 # MARK: match flow
 
 func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
+	# Ahead of the Cup branch: a Cup death is a setback rather than an exit, but
+	# it still wants the sound.
+	sfx_at("elimination", f.global_position, 3.0)
 	if cup != null:
 		# Nobles Cup: the fighter is parked and comes back, and the roster it
 		# was counted in never shrinks, so none of the Showdown flow applies.
@@ -1460,6 +1568,7 @@ func _end_match(rank: int, victory: bool) -> void:
 	move_stick.release()
 	aim_stick.release()
 	super_stick.release()
+	sfx_ui("victory" if victory else "defeat", 2.0)
 	results_title.text = ("VICTORY!" if victory else "DEFEATED") + "\nYou placed #%d of 10" % rank
 	results_title.add_theme_color_override("font_color",
 		Color(1.0, 0.85, 0.2) if victory else Color(0.95, 0.4, 0.35))
@@ -1480,6 +1589,7 @@ func end_cup_match(blue: int, red: int) -> void:
 	super_stick.release()
 	var won := blue > red
 	var drew := blue == red
+	sfx_ui("victory" if won else "defeat", 2.0)
 	results_title.text = "%s\n%d — %d" % [
 			"VICTORY!" if won else ("DRAW" if drew else "DEFEATED"), blue, red]
 	results_title.add_theme_color_override("font_color",
@@ -1578,6 +1688,7 @@ func _physics_process(delta: float) -> void:
 					phase = Phase.PLAYING
 					_hide_versus()
 					center_label.text = "FIGHT!"
+					sfx_ui("count_go", 3.0)
 					get_tree().create_timer(0.8).timeout.connect(func() -> void:
 						if phase == Phase.PLAYING:
 							center_label.text = "")
@@ -1588,8 +1699,10 @@ func _physics_process(delta: float) -> void:
 				elif versus != null and is_instance_valid(versus):
 					versus.update(int(ceil(PREMATCH_INTRO_AT - elapsed)), elapsed / PREMATCH,
 							elapsed >= PREMATCH_INTRO_AT)
+					_count_beep(int(ceil(PREMATCH_INTRO_AT - elapsed)))
 				else:
 					center_label.text = str(int(ceil(remaining)))
+					_count_beep(int(ceil(remaining)))
 				for f in fighters:
 					f.apply_movement(Vector3.ZERO)
 			Phase.PLAYING:
@@ -1601,6 +1714,10 @@ func _physics_process(delta: float) -> void:
 					else:
 						start_match()
 
+	# The match is heard from wherever the player is; once they are gone it
+	# stays where they fell rather than snapping to the origin.
+	if player != null and is_instance_valid(player) and not player.is_dead():
+		_listener = player.global_position
 	for f in fighters:
 		f.update_animation(now)
 	_update_aim_indicator()
@@ -1887,6 +2004,8 @@ func _run_playing(delta: float) -> void:
 	if gas:
 		var vulnerable := fighters.filter(func(f): return not (god_mode and f == player))
 		for f in gas.tick(now, vulnerable):
+			if f == player:
+				sfx_ui("gas_tick", -8.0)   # only your own burn is worth hearing
 			if f.is_dead():
 				_eliminate(f, "")
 
@@ -1925,6 +2044,12 @@ func _fire_player(weapon: Dictionary, dir: Vector3, dist: float) -> void:
 			perform_attack(player, weapon, dir, dist)
 	elif player.consume_ammo(now):
 		perform_attack(player, weapon, dir, dist)
+	elif player.ammo < 1.0 and now - _last_empty_click >= 0.3:
+		# Out of ammo, as opposed to still inside the attack cooldown — the
+		# cooldown blocks several times a second and clicking through it would
+		# be constant. Held fire still repeats, but at a rate you can hear.
+		_last_empty_click = now
+		sfx_ui("empty_click", -6.0)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if player == null or not is_instance_valid(player):
@@ -2087,6 +2212,30 @@ func _update_status() -> void:
 	super_btn.set_charge(player.super_charge)
 	status_label.text = "%s   HP %d/%d   ammo %.1f   cubes %d" % [
 		player.kit.name, player.health, player.max_health, player.ammo, player.cubes]
+	# A pip crossing a whole number is a shot you have got back. Watched here
+	# rather than signalled from fighter.gd, which regenerates ammo for bots too
+	# and has no business knowing about audio.
+	var pips := int(player.ammo)
+	if phase == Phase.PLAYING and pips > _last_ammo_pips:
+		sfx_ui("reload_tick", -12.0)
+	_last_ammo_pips = pips
+	# A slow pulse under a quarter health, so the decision to break off is one
+	# you can make without watching the bar.
+	if phase == Phase.PLAYING and not player.is_dead() \
+			and float(player.health) / maxf(1.0, float(player.max_health)) < 0.25:
+		if now - _low_health_at >= 1.6:
+			_low_health_at = now
+			sfx_ui("low_health", -8.0)
+	else:
+		_low_health_at = -1.0
+
+## One beep per second of the pre-match countdown, on the second the number on
+## screen changes rather than on a timer of its own.
+func _count_beep(count: int) -> void:
+	if count == _last_count_beep or count <= 0 or count > 5:
+		return
+	_last_count_beep = count
+	sfx_ui("count_beep", -2.0)
 
 func _shot_check() -> void:
 	if _shot_times.is_empty() or _shot_prefix == "":
@@ -2094,7 +2243,9 @@ func _shot_check() -> void:
 	if now >= _shot_times[0]:
 		var t: float = _shot_times.pop_front()
 		var img := get_viewport().get_texture().get_image()
-		img.save_png("%s_%d.png" % [_shot_prefix, int(t)])
+		var out: String = Session.shot_path("%s_%d.png" % [_shot_prefix, int(t)])
+		img.save_png(out)
+		print("NS3_SHOTS wrote ", ProjectSettings.globalize_path(out))
 		if _shot_times.is_empty():
 			get_tree().quit()
 

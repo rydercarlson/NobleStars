@@ -531,7 +531,9 @@ func _wire_debug_screenshot() -> void:
 	if shot == "":
 		return
 	get_tree().create_timer(2.0).timeout.connect(func() -> void:
-		get_viewport().get_texture().get_image().save_png(shot)
+		var out: String = Session.shot_path(shot)
+		get_viewport().get_texture().get_image().save_png(out)
+		print("NS3_MENU_SHOT wrote ", ProjectSettings.globalize_path(out))
 		get_tree().quit())
 
 ## The faint diagonal weave the CSS lays over every screen backdrop.
