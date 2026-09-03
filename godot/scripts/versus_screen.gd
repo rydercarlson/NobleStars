@@ -6,13 +6,13 @@ extends Control
 ## your own card raised and outlined; a big VS sits between the rows, the mode
 ## and map in the top-left corner, and "Match starts in N" counts down in the
 ## bottom-right. In the last stretch the cards clear and the mode's name and
-## objective take the screen, the way the map fly-over does, and the battle
-## sting plays as the screen lands.
+## objective take the screen, the way the map fly-over does.
 ##
-## Showdown lists all ten solo fighters, five a row, with only your card blue.
-## Nobles Cup lists the two teams of three.
+## Showdown is "every brawler for themselves": the ten fighters fill the screen
+## as a wall of tall cards, two rows of five, each on its own kit colour with
+## your card outlined, the tagline along the bottom and the counter in the
+## corner — no VS, no sides. Nobles Cup lists the two teams of three.
 
-const STING := "res://assets/menu/audio/battle_start.mp3"
 const MODE_TITLE := {"showdown": "SHOWDOWN", "cup": "NOBLES CUP"}
 const MODE_SUB := {"showdown": "Solo · Castle Courtyard", "cup": "3v3 · Lower Field"}
 const MODE_GOAL := {"showdown": "Be the last one standing", "cup": "Score three goals to win"}
@@ -53,6 +53,9 @@ func build(mode: String, top: Array, bottom: Array, you: Node) -> void:
 	add_child(dim)
 
 	var vp: Vector2 = get_viewport_rect().size
+	if mode != "cup":
+		_build_wall(top + bottom, you, vp)
+		return
 	_chip = _mode_chip(mode)
 	_chip.position = Vector2(24, 18)
 	add_child(_chip)
@@ -102,32 +105,7 @@ func build(mode: String, top: Array, bottom: Array, you: Node) -> void:
 	vst.tween_property(_vs, "modulate:a", 1.0, 0.12)
 	vst.parallel().tween_property(_vs, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-	_count_plate = _counter()
-	_count_plate.position = Vector2(vp.x - 250 - 24, vp.y - 84 - 30)
-	add_child(_count_plate)
-
-	# The thin loader across the bottom edge.
-	var bar := ColorRect.new()
-	bar.color = Color(1, 1, 1, 0.18)
-	bar.position = Vector2(vp.x * 0.3, vp.y - 12)
-	bar.size = Vector2(vp.x * 0.4, 5)
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bar)
-	_bar_fill = ColorRect.new()
-	_bar_fill.color = Color(1, 1, 1, 0.9)
-	_bar_fill.position = bar.position
-	_bar_fill.size = Vector2(0, 5)
-	_bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_bar_fill)
-
-	_intro = _mode_intro(mode)
-	_intro.visible = false
-	add_child(_intro)
-
-	modulate.a = 0.0
-	var tw := create_tween()
-	tw.tween_property(self, "modulate:a", 1.0, 0.2)
-	_play_sting()
+	_finish(vp)
 
 ## Progress 0..1 through the whole pre-match; the count is the seconds left on
 ## the card stretch, and past `intro_at` the rows clear for the mode title.
@@ -151,20 +129,75 @@ func dismiss() -> void:
 
 # MARK: pieces
 
+## Showdown: ten cards, two rows of five, the player's card first in the
+## bottom row. Cards are as tall as the rows allow so the wall fills the screen.
+func _build_wall(fighters: Array, you: Node, vp: Vector2) -> void:
+	var ordered: Array = []
+	for f in fighters:
+		if f != you:
+			ordered.append(f)
+	var n: int = ordered.size() + (1 if you != null else 0)
+	var cols: int = 5
+	var rows: int = int(ceil(float(n) / float(cols)))
+	var gap: float = 10.0
+	var side: float = 26.0
+	var top_pad: float = 20.0
+	var tag_h: float = 64.0
+	var card_w: float = (vp.x - 2.0 * side - (cols - 1) * gap) / float(cols)
+	var card_h: float = (vp.y - top_pad - tag_h - (rows - 1) * gap - 30.0) / float(rows)
+	var slots: Array = []
+	# top row: first five others; bottom row: you, then the rest
+	for i in mini(5, ordered.size()):
+		slots.append(ordered[i])
+	if you != null:
+		slots.append(you)
+	for i in range(5, ordered.size()):
+		slots.append(ordered[i])
+	for i in slots.size():
+		var col: int = i % cols
+		var row: int = i / cols
+		var f: Node = slots[i]
+		var c: Control = _card(f, you, card_w, card_h, f == you)
+		c.position = Vector2(side + col * (card_w + gap), top_pad + row * (card_h + gap))
+		add_child(c)
+		_cards.append(c)
+		_slide_in(c, Vector2(0, -50 if row == 0 else 50), 0.04 * i)
+	var tag: Label = MenuUI.display("EVERY BRAWLER FOR THEMSELVES!", 34, Color.WHITE, 7)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tag.size = Vector2(vp.x - 320, tag_h)
+	tag.position = Vector2(20, vp.y - tag_h - 22)
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(tag)
+	_cards.append(tag)
+	_finish(vp)
+
+## Everything both layouts share after the cards: counter, loader, intro.
+func _finish(vp: Vector2) -> void:
+	_count_plate = _counter()
+	_count_plate.position = Vector2(vp.x - 250 - 24, vp.y - 84 - 30)
+	add_child(_count_plate)
+	var bar := ColorRect.new()
+	bar.color = Color(1, 1, 1, 0.18)
+	bar.position = Vector2(vp.x * 0.3, vp.y - 12)
+	bar.size = Vector2(vp.x * 0.4, 5)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(bar)
+	_bar_fill = ColorRect.new()
+	_bar_fill.color = Color(1, 1, 1, 0.9)
+	_bar_fill.position = bar.position
+	_bar_fill.size = Vector2(0, 5)
+	_bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_bar_fill)
+	_intro = _mode_intro(_mode)
+	_intro.visible = false
+	add_child(_intro)
+	modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(self, "modulate:a", 1.0, 0.2)
+
 func _fit() -> void:
 	position = Vector2.ZERO
 	size = get_viewport_rect().size
-
-func _play_sting() -> void:
-	if not ResourceLoader.exists(STING):
-		return
-	var p := AudioStreamPlayer.new()
-	p.stream = load(STING)
-	p.volume_db = -4.0
-	p.bus = "Master"
-	add_child(p)
-	p.finished.connect(p.queue_free)
-	p.play()
 
 func _slide_in(c: Control, from: Vector2, delay: float) -> void:
 	var target: Vector2 = c.position
@@ -191,9 +224,16 @@ func _panel(color: Color, radius: int, border: Color = INK, width: int = 3) -> P
 func _card(f: Node, you: Node, w: float, h: float, mine: bool) -> Control:
 	var kit: Dictionary = f.get("kit") if f.get("kit") != null else {}
 	var id: String = str(kit.get("name", "")).to_lower()
-	var team_blue: bool = mine or (_mode == "cup" and you != null and f.get("team") == you.get("team"))
-	var hi: Color = BLUE if team_blue else (RED if _mode == "cup" else GREY)
-	var lo: Color = BLUE_LO if team_blue else (RED_LO if _mode == "cup" else GREY_LO)
+	var team_blue: bool = _mode == "cup" and (mine or (you != null and f.get("team") == you.get("team")))
+	var kit_col: Color = kit.get("color", GREY)
+	var hi: Color
+	var lo: Color
+	if _mode == "cup":
+		hi = BLUE if team_blue else RED
+		lo = BLUE_LO if team_blue else RED_LO
+	else:
+		hi = kit_col.lerp(Color.WHITE, 0.1)
+		lo = kit_col.darkened(0.45)
 	var card := _panel(lo, 14, Color.WHITE if mine else INK, 4 if mine else 3)
 	card.size = Vector2(w, h)
 	card.clip_contents = true

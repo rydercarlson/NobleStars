@@ -67,29 +67,15 @@ func _ready() -> void:
 	mat.emission_energy_multiplier = 0.35
 	sphere.material = mat
 	_mesh.mesh = sphere
-	# The Meshy soccer ball when it shipped, else the plain sphere. Only the
-	# mesh is swapped, so the rolling in _process keeps turning the same node.
-	if ResourceLoader.exists(BALL_MODEL):
-		var scene: PackedScene = load(BALL_MODEL)
-		var root: Node3D = scene.instantiate() if scene != null else null
-		if root != null:
-			for mi in root.find_children("*", "MeshInstance3D", true, false):
-				if mi.mesh == null:
-					continue
-				_mesh.mesh = mi.mesh
-				var aabb: AABB = mi.mesh.get_aabb()
-				var span: float = maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
-				_mesh.scale = Vector3.ONE * (RADIUS * 2.0 / maxf(span, 0.01))
-				for si in mi.mesh.get_surface_count():
-					var m = mi.mesh.surface_get_material(si)
-					if m is BaseMaterial3D:
-						m.metallic = 0.0
-						m.albedo_color = Color(1.0, 1.0, 1.0)
-						m.emission_enabled = true      # same bush-readability trick, and
-						m.emission = Color(0.6, 0.6, 0.56)   # a match ball reads bright
-						m.emission_energy_multiplier = 0.45
-				break
-			root.queue_free()
+	# A match ball: the classic twelve-pentagon pattern drawn by a shader from
+	# the sphere's own surface directions, so it needs no texture and no UV
+	# seam. (The Meshy ball's bake covered only the side the photo saw — the
+	# far half rendered as broken glass — so its mesh is not used.)
+	var ball_mat := ShaderMaterial.new()
+	ball_mat.shader = _soccer_shader()
+	sphere.material = ball_mat
+	sphere.radial_segments = 48
+	sphere.rings = 24
 	add_child(_mesh)
 
 	# A flat disc under the ball: with the steep match camera a ball in the air
@@ -239,3 +225,47 @@ func _spin_by(travel: Vector3) -> void:
 	if axis.length() < 0.0001:
 		return
 	_mesh.rotate(axis.normalized(), flat.length() / RADIUS)
+
+## Truncated-icosahedron panels: a point is inside the pentagon around the
+## nearest icosahedron vertex when that vertex beats every neighbour by more
+## than a margin; a thin dark seam runs where two panels are equally near.
+static func _soccer_shader() -> Shader:
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode cull_back;
+varying vec3 obj_dir;
+void vertex() {
+	obj_dir = normalize(VERTEX);
+}
+void fragment() {
+	float phi = 1.6180339887;
+	vec3 v[12];
+	v[0] = normalize(vec3(0.0, 1.0, phi));  v[1] = normalize(vec3(0.0, -1.0, phi));
+	v[2] = normalize(vec3(0.0, 1.0, -phi)); v[3] = normalize(vec3(0.0, -1.0, -phi));
+	v[4] = normalize(vec3(1.0, phi, 0.0));  v[5] = normalize(vec3(-1.0, phi, 0.0));
+	v[6] = normalize(vec3(1.0, -phi, 0.0)); v[7] = normalize(vec3(-1.0, -phi, 0.0));
+	v[8] = normalize(vec3(phi, 0.0, 1.0));  v[9] = normalize(vec3(-phi, 0.0, 1.0));
+	v[10] = normalize(vec3(phi, 0.0, -1.0)); v[11] = normalize(vec3(-phi, 0.0, -1.0));
+	vec3 d = normalize(obj_dir);
+	float best = -2.0; float second = -2.0;
+	for (int i = 0; i < 12; i++) {
+		float c = dot(d, v[i]);
+		if (c > best) { second = best; best = c; }
+		else if (c > second) { second = c; }
+	}
+	float gap = best - second;
+	float pent = smoothstep(0.075, 0.095, gap);     // deep inside a pentagon
+	float seam = 1.0 - smoothstep(0.0, 0.012, gap); // ridge between panels
+	vec3 white = vec3(0.96, 0.96, 0.93);
+	vec3 black = vec3(0.10, 0.10, 0.11);
+	vec3 col = mix(white, black, pent);
+	col = mix(col, vec3(0.16, 0.16, 0.17), seam * 0.85);
+	ALBEDO = col;
+	ROUGHNESS = 0.55;
+	METALLIC = 0.0;
+	EMISSION = col * 0.22;   // keeps it readable inside a bush
+}
+"""
+	return sh
+

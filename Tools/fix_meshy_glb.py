@@ -698,6 +698,118 @@ def _jpeg_size(raw):
     return 0, 0
 
 
+def read_accessor(j, blob, index):
+    """An accessor's data as a numpy array (rows x components)."""
+    import numpy as _np
+    acc = j['accessors'][index]
+    bv = j['bufferViews'][acc['bufferView']]
+    ctype = {5120: _np.int8, 5121: _np.uint8, 5122: _np.int16, 5123: _np.uint16,
+             5125: _np.uint32, 5126: _np.float32}[acc['componentType']]
+    ncomp = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}[acc['type']]
+    off = bv.get('byteOffset', 0) + acc.get('byteOffset', 0)
+    stride = bv.get('byteStride', 0)
+    count = acc['count']
+    item = _np.dtype(ctype).itemsize * ncomp
+    if stride and stride != item:
+        raw = _np.frombuffer(blob, dtype=_np.uint8, count=stride * (count - 1) + item, offset=off)
+        rows = _np.lib.stride_tricks.as_strided(raw, shape=(count, item), strides=(stride, 1))
+        return _np.ascontiguousarray(rows).view(ctype).reshape(count, ncomp)
+    return _np.frombuffer(blob, dtype=ctype, count=count * ncomp, offset=off).reshape(count, ncomp)
+
+
+def simplify_mesh(j, blob, log, target_tris):
+    """Vertex-clustering decimation for unskinned props. Meshy hands back ~8k
+    triangles for a grass clump or a gas puff; instanced a few hundred times
+    that is millions of triangles a frame. Vertices are snapped to a grid
+    sized to land near `target_tris`, duplicate and degenerate triangles are
+    dropped, and positions/normals/UVs are rebuilt as new accessors. Skinned
+    meshes are left alone — their joints and weights would need the same
+    treatment and the characters are not the problem.
+    """
+    if j.get('skins'):
+        log('simplify skipped: skinned mesh')
+        return blob
+    import numpy as _np
+    total_before = 0
+    total_after = 0
+    for mesh in j['meshes']:
+        for prim in mesh['primitives']:
+            attrs = prim['attributes']
+            if 'POSITION' not in attrs or 'indices' not in prim:
+                continue
+            pos = read_accessor(j, blob, attrs['POSITION']).astype(_np.float64)
+            idx = read_accessor(j, blob, prim['indices']).reshape(-1).astype(_np.int64)
+            tris_before = len(idx) // 3
+            total_before += tris_before
+            nrm = read_accessor(j, blob, attrs['NORMAL']) if 'NORMAL' in attrs else None
+            uv = read_accessor(j, blob, attrs['TEXCOORD_0']) if 'TEXCOORD_0' in attrs else None
+            lo = pos.min(axis=0); hi = pos.max(axis=0); diag = float(_np.linalg.norm(hi - lo)) or 1.0
+            best = None
+            for cells in (12, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96):
+                cell = diag / cells
+                key = _np.floor((pos - lo) / cell).astype(_np.int64)
+                flat = key[:, 0] * 73856093 ^ key[:, 1] * 19349663 ^ key[:, 2] * 83492791
+                uniq, remap = _np.unique(flat, return_inverse=True)
+                t = remap[idx].reshape(-1, 3)
+                keep = (t[:, 0] != t[:, 1]) & (t[:, 1] != t[:, 2]) & (t[:, 0] != t[:, 2])
+                t = t[keep]
+                # drop duplicates regardless of winding start
+                srt = _np.sort(t, axis=1)
+                _, first = _np.unique(srt, axis=0, return_index=True)
+                t = t[_np.sort(first)]
+                n_tris = len(t)
+                best = (cells, remap, t, len(uniq))
+                if n_tris >= target_tris:
+                    break
+            cells, remap, t, n_uniq = best
+            # representative vertex per cluster: the first one seen
+            rep_index = _np.full(n_uniq, -1, dtype=_np.int64)
+            for vi, ci in enumerate(remap):
+                if rep_index[ci] < 0:
+                    rep_index[ci] = vi
+            used = _np.unique(t)
+            packed = _np.full(n_uniq, -1, dtype=_np.int64)
+            packed[used] = _np.arange(len(used))
+            new_idx = packed[t].reshape(-1).astype(_np.uint32)
+            src = rep_index[used]
+            new_pos = pos[src].astype(_np.float32)
+            new_nrm = nrm[src].astype(_np.float32) if nrm is not None else None
+            new_uv = uv[src].astype(_np.float32) if uv is not None else None
+            # append fresh buffers
+            def add_view(arr, target=None):
+                nonlocal blob
+                raw = arr.tobytes()
+                pad = (-len(blob)) % 4
+                blob = blob + b'\x00' * pad
+                off = len(blob)
+                blob = blob + raw
+                bv = {'buffer': 0, 'byteOffset': off, 'byteLength': len(raw)}
+                if target:
+                    bv['target'] = target
+                j['bufferViews'].append(bv)
+                return len(j['bufferViews']) - 1
+            def add_acc(arr, ctype, comp, view, minmax=False):
+                acc = {'bufferView': view, 'componentType': ctype, 'count': int(len(arr)), 'type': comp}
+                if minmax:
+                    acc['min'] = [float(v) for v in arr.min(axis=0)]
+                    acc['max'] = [float(v) for v in arr.max(axis=0)]
+                j['accessors'].append(acc)
+                return len(j['accessors']) - 1
+            attrs['POSITION'] = add_acc(new_pos, 5126, 'VEC3', add_view(new_pos, 34962), True)
+            if new_nrm is not None:
+                attrs['NORMAL'] = add_acc(new_nrm, 5126, 'VEC3', add_view(new_nrm, 34962))
+            if new_uv is not None:
+                attrs['TEXCOORD_0'] = add_acc(new_uv, 5126, 'VEC2', add_view(new_uv, 34962))
+            for extra in list(attrs.keys()):
+                if extra not in ('POSITION', 'NORMAL', 'TEXCOORD_0'):
+                    del attrs[extra]     # tangents/colours would be stale
+            prim['indices'] = add_acc(new_idx, 5125, 'SCALAR', add_view(new_idx, 34963))
+            total_after += len(new_idx) // 3
+    j['buffers'][0]['byteLength'] = len(blob)
+    log(f"simplified {total_before} -> {total_after} triangles (target {target_tris})")
+    return blob
+
+
 def resize_textures(j, blob, log, max_side):
     """Downsample embedded textures to `max_side`. Meshy ships 4k and 8k bakes
     for characters that draw a few hundred pixels tall; the oversized ones cost
@@ -787,6 +899,8 @@ def main():
     ap.add_argument('-o', '--output')
     ap.add_argument('--no-idle', action='store_true')
     ap.add_argument('--no-attack', action='store_true')
+    ap.add_argument('--simplify', type=int, default=0,
+                    help="decimate unskinned meshes to about N triangles")
     ap.add_argument('--texture-size', type=int, default=0,
                     help="downsample embedded textures to at most N pixels")
     ap.add_argument('--split-held-item', choices=['left', 'right'],
@@ -813,6 +927,8 @@ def main():
         add_attack(j, blob, log)
     if args.split_held_item and j.get('skins'):
         split_held_item(j, blob, log, args.split_held_item)
+    if args.simplify:
+        blob = simplify_mesh(j, blob, log, args.simplify)
     if args.texture_size:
         resize_textures(j, blob, log, args.texture_size)
     blob = repack(j, blob, log)
