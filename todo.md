@@ -4,6 +4,40 @@ Running list of the major fixes and gaps in the Godot 3D game (`godot/`). Roughl
 priority-ordered inside each section. v1 SpriteKit (`NobleStars/`) is maintenance
 only and is not tracked here.
 
+## Generating assets ourselves
+
+Most of what is still missing does **not** need Meshy or hand-drawn art. Three
+pipelines already exist in this repo and between them cover nearly everything
+below; the handful of exceptions are called out at the end.
+
+**1. Synthesized audio — zero files.** `scripts/menu/menu_audio.gd` (`MenuAudio`)
+is a complete runtime synth: sine/triangle/square/saw/noise oscillators,
+envelopes and an 8-voice pool rendered into `AudioStreamWAV` buffers on first
+play. That is why the menu ships with no SFX files at all. `main.gd` does not
+use it. Every combat sound in the Sound section can be a new entry in that same
+table rather than a recording — shot, impact, melee whoosh, reload tick, empty
+click, Super charge, elimination, cube pickup, gas tick, goal horn, whistle.
+
+**2. Headless render — portraits, cards, map thumbnails.** `NS3_MENU_SHOT`
+already proves the engine boots headless, poses a fighter and writes a PNG. A
+`tools/render_portraits.gd` on the same rig as `menu_stage.gd` can shoot every
+portrait and full-body card straight off the GLBs. That removes Meshy from the
+portrait pipeline for the seven kits that already have a model, and means the
+art regenerates for free whenever a model changes. The same trick shoots map
+thumbnails from the arena camera.
+
+**3. Script-drawn 2D — icons and badges.** v1 did exactly this: every 2D sprite
+in the SpriteKit game comes out of `Tools/generate_sprites.swift`. Pins,
+gadget/gear/Star Power/Hypercharge badges, currency and mode icons, the club
+badge and the app icon are all flat vector shapes, and are better generated
+deterministically than drawn once and lost.
+
+**What genuinely cannot be self-generated:** the Nova and Ayaan character models
+(Meshy, or a modeller), skin variants of existing characters, real music, and
+the voicelines — which need the actual people the characters are based on and
+therefore have the longest lead time of anything in this file. Start booking
+those before anything else on the list.
+
 ## Character models & animation
 
 - [x] **Feet sinking through the floor.** Meshy's run/attack clips drop the hips
@@ -17,9 +51,13 @@ only and is not tracked here.
       `run_fast_*` clips Meshy shipped (`run_fast_3`, `RunFast`, `run_fast_10`,
       `run_fast_3_inplace`) need no lift at all — try them as the `run` clip in
       `kits.gd` instead, or smooth the lift over a few frames.
-- [ ] **Nova and Anders still render as capsules.** They have no `model` key in
-      `kits.gd`, so they fall back to `_setup_capsule`. Nova is a placeholder
-      character; Anders needs a Meshy pass through `Tools/fix_meshy_glb.py`.
+- [ ] **Nova and Ayaan still render as capsules.** They have no `model` key in
+      `kits.gd`, so they fall back to `_setup_capsule` in the match *and* on the
+      menu stage. Nova is the sole starter, so a capsule is the first thing a
+      new player ever sees. Anders and Hammy are wired now (`kits.gd:481`,
+      `:559`) — this line used to name them. The two that remain need a Meshy
+      pass through `Tools/fix_meshy_glb.py`; they are the only entries in this
+      file that cannot be produced by one of the three pipelines above.
 - [ ] **Death is a shrink tween.** `fighter.gd:die` scales the fighter to nothing
       over 0.35s — wire a real death clip (or a fall) now that the models have
       skeletons.
@@ -45,21 +83,38 @@ only and is not tracked here.
       the pass screen parses rather than the web build's 40.
       `trophyRoad` **is** wired now — the screen reads the nested
       `{trophies, reward}` shape and renders all six reward kinds.
-- [ ] **Leon, Anders and Hammy have no named unlock.** The v0.5 trophy road
-      unlocks Sanjit, Tony, Kovacs and Henry only, so those three are reachable
-      only through a shop Star Drop. Decide whether they get road milestones,
-      pass tiers, or stay Star-Drop-only.
-- [ ] **The 13 duplicate `icons/*.webp`** (coin, gem, trophy, gear, lock, …) are
-      shadowed by same-named `svg/*.svg`, which `MenuUI.icon_texture` prefers.
-      Harmless, but they are dead bytes in the export until one set is dropped.
-- [ ] **Nova and Anders have no portrait or card art** — they fall back to a
-      colour chip until they get models.
+- [ ] **Leon, Anders, Hammy and Ayaan have no named unlock.** The v0.5 trophy
+      road unlocks Sanjit, Tony, Kovacs and Henry only, so those four are
+      reachable only through a shop Star Drop. Decide whether they get road
+      milestones, pass tiers, or stay Star-Drop-only.
+- [ ] **Dead asset bytes.** The 13 duplicate `icons/*.webp` (coin, gem, trophy,
+      gear, lock, …) are shadowed by same-named `svg/*.svg`, which
+      `MenuUI.icon_texture` prefers; and `assets/Fox.glb` (162 KB) is referenced
+      by nothing at all. Harmless, but they ride along in every export.
+- [ ] **Portrait and card art has four holes.** Portraits are missing for Nova
+      and Ayaan (7 of 9 exist); full-body cards are missing for Nova, Anders,
+      Hammy and Ayaan (5 of 9). Missing art falls back to a flat colour chip on
+      the roster grid, the detail screen, the shop's skin cards and the
+      friends/leaderboard rows. **This does not need Meshy** — pipeline 2 above
+      renders both straight off the GLBs for everyone who has one, which is
+      seven of the nine today.
+- [ ] **Menu art that the JSON already describes but nothing draws.** The shop
+      lists five skins and only two have art (`decor/skin_leon_homecoming`,
+      `skin_tony_fieldday`) — and `shop_screen.gd:_skin_card` draws the plain
+      portrait anyway, so even those two never appear. Also unillustrated:
+      per-brawler gadget/gear/Star Power/Hypercharge badges (the data is in
+      `brawlers.json`, only generic icons exist), pins (`brawlers.json` carries
+      a `pins` count and there is no pin art at all), player avatars for the
+      profile popup and friends rows, map thumbnails for the events screen, and
+      the club badge. All of it is pipeline 2 or 3.
 
 ## Arena & visuals
 
-- [ ] **Arena visual pass.** The floor is one flat green plane, walls are plain
-      boxes, bushes are stacked spheres. Needs real materials, tile variation,
-      and readable wall silhouettes at the top-down camera angle.
+- [ ] **Arena visual pass.** The floor is one flat green plane
+      (`arena.gd:_build`), walls are plain boxes, water is a translucent blue
+      slab. Needs real materials, tile variation, and readable wall silhouettes
+      at the top-down camera angle. Bushes are done — see below. All shader and
+      mesh work; no art files needed.
 - [ ] **Camera framing.** Fighters read very small at the current height —
       revisit the zoom/tilt so character models are actually legible.
 - [x] **Power cubes are the Meshy token again.** Re-landed from `72d806f`:
@@ -73,15 +128,54 @@ only and is not tracked here.
       replicates so the bars stay honest in wifi play.
 - [ ] **No impact VFX.** Shots, melee arcs, and shockwaves have no hit particles
       or muzzle flash; only the damage popup sells a hit.
-- [ ] **Water and bush tiles are untextured colour blocks**, and a modelled
-      fighter standing in a bush gets no self-view tell at all —
-      `fighter.gd:set_concealed` only fades the capsule fallback's material.
+- [x] **Bushes read as tiles, not scattered clumps.** Brawl Stars bushes
+      fill their tile and merge into one dark contiguous mass with a crisp
+      outline, and the darkness *is* the affordance that says "you can hide
+      here". Ours currently does the opposite on purpose: `_build_bushes`
+      jitters every `tall_grass.glb` instance by a random yaw and a 0.92–1.12
+      scale specifically so a field of them does not read as a tiled texture.
+      Shipped as two instanced layers per bush tile:
+      - A flat **skirt** quad sized exactly to `Kits.TILE`, so a patch of them
+        meets edge to edge with no seam and becomes one contiguous dark shape.
+        This is what actually makes a bush read as a tile; the clump on top is
+        only volume.
+      - The skirt's outline is **merge-aware**: `_open_edges` packs "this side
+        has no bush neighbour" into the MultiMesh's `INSTANCE_CUSTOM`, and
+        `SKIRT_SHADER` draws the rim only on those sides, so a 3x3 patch is one
+        shape rather than nine squares in a grid.
+      - The **canopy** lost its yaw and scale jitter (which existed precisely to
+        stop a field reading as tiled) and is scaled to overhang its tile by 8%
+        so neighbouring clumps interlock. `CANOPY_TINT` and `SKIRT_FILL` put it
+        well below the floor green, which is what makes a patch read as cover.
+- [x] **The bush reveal radius is visible.** The *logic* was already exactly
+      Brawl Stars': `main.gd:can_see` hides anyone standing on a `b` tile beyond
+      `Kits.TILE * 2.0`, and `_update_concealment` fades the player while
+      hiding distant enemies outright. Nothing shows the player where that
+      radius ends, though — in Brawl Stars the foliage around you goes
+      translucent and cuts a visible window in the bush field, which is what
+      makes "a certain number of tiles around you" legible. Both bush layers now
+      run a shader that fades any instance within `reveal_center`, which
+      `_update_concealment` points at the player every physics frame — so what
+      you can see through is exactly what you can be seen through. The 2-tile
+      constant that used to be duplicated at `main.gd:1301` and `main.gd:2069`
+      is now `Kits.BUSH_REVEAL`, and the shader reads the same one.
+- [ ] **A modelled fighter in a bush has no self-view tell.**
+      `fighter.gd:set_concealed` only fades the capsule fallback's material, so
+      seven of the nine fighters get no feedback at all that they are concealed.
+      The reveal shader above is half of this — the bush around you now opens
+      up — but the fighter standing in it still does not fade. (Bushes
+      themselves are no longer
+      untextured blocks — `tall_grass.glb` landed in `08a6b5e` and the stacked
+      spheres survive only as `_build_bushes_fallback`. Water is still a flat
+      translucent slab.)
 
 ## Game systems
 
-- [ ] **Only Showdown exists.** `Session.mode` and the `_mode` hook at the top of
-      `main.gd:start_match` are the branch points; every other mode in
-      `mode_select.gd` is a locked dummy.
+- [ ] **Two modes exist.** Showdown, and Nobles Cup (`cup_mode.gd` + `ball.gd`).
+      `Session.mode` and the mode branch at the top of `main.gd:start_match` are
+      where the next one goes; every other event card is still a locked dummy.
+      Nobles Cup also wants real pitch dressing — goal frames, pitch lines, and
+      a ball that is something better than the white sphere in `ball.gd:53`.
 - [ ] **Shop, Trophy Road, and Settings are placeholder screens** — dummy cards,
       nothing purchasable, no settings actually persist.
 - [ ] **Balance pass.** Run `NS3_SIM=<n>` (headless) across the seven kits and
@@ -103,11 +197,36 @@ only and is not tracked here.
 
 ## Ship
 
+- [ ] **The app icon is a placeholder.** `godot/icon.png` is a flat gold star on
+      navy at 1024x1024, and there is no iOS launch art. Script-drawable
+      (pipeline 3), and needed before a build on a phone looks like a real game.
+- [ ] **Character textures are uncapped and the bundle is enormous.** All seven
+      `assets/*_texture_0.png.import` files carry `process/size_limit=0` against
+      4096x4096 sources — henry 16.6 MB, leon 20 MB, kovacs 17 MB. `assets/` is
+      254 MB and `.godot/imported` is 106 MB. `power_cube` already proves the
+      fix (`process/size_limit=512` took it from 16.6 MB to 582 KB); apply the
+      same cap to the characters and reimport before any device build.
 - [ ] **Get a build onto a real iPhone.** Simulator builds are blocked upstream
       (godotengine/godot#118161 — simulator `libgodot.a` is x86_64-only), so the
       arm64 device slice is the only path until fixed templates ship.
 - [ ] **The generated pbxproj needs six placeholder lines deleted by hand**
       (`$additional_pbx_*`, `$pbx_embeded_frameworks`) before `xcodebuild` will
       parse it — script this into the export step.
-- [ ] **No sound at all.** SFX for shots, hits, eliminations, and the gas ring,
-      plus voicelines recorded by the people the characters are based on.
+- [ ] **The match is completely silent.** `main.gd` loads `clash_carnival.mp3`
+      and nothing else; there is no SFX path in the match at all. Nearly all of
+      it is synthesizable through `MenuAudio` (pipeline 1) rather than recorded:
+      - *Combat:* shot per weapon class (shotgun, lob, melee, sniper, boomerang,
+        controller-button, hacky sack, curveball), projectile impact, melee
+        whoosh and connect, reload tick, empty-mag click.
+      - *Feedback:* Super charged, Super fired, elimination, loot-box break,
+        power-cube pickup, gas-ring damage tick, low-health warning.
+      - *Match flow:* countdown and go, victory and defeat stings, results-screen
+        reward chimes for trophies, coins and Pass tokens.
+      - *Nobles Cup:* kick, Super Shot, goal horn, whistle, kickoff, wall break.
+- [ ] **Voicelines.** Nine fighters x spawn / attack / Super / defeat / victory,
+      recorded by the people the characters are based on. Cannot be generated —
+      it needs real people in a room, so it is the longest lead time in this
+      file and should be booked before the code hook exists.
+- [ ] **More music.** Two tracks ship (`lobby_vibes`, `clash_carnival`). Wants at
+      least a results/victory sting, and a second battle track so Cup and
+      Showdown do not sound identical.

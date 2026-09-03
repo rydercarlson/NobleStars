@@ -9,6 +9,12 @@ class_name Kits
 
 const TILE := 2.0
 
+## How far you can see into a bush, and how far a bush field opens up around
+## you. main.gd:can_see hides anyone standing on a bush tile beyond this, and
+## arena.gd fades the canopy inside it so the radius is something you can see
+## rather than something you have to learn.
+const BUSH_REVEAL := TILE * 2.0
+
 ## Fighter width — the unit every "body-width" figure in SHOT_FEEL.md is in.
 ## 1.30 m across. The match camera shows 23 m, so that is 17.7 fighters wide
 ## against the ~21 brawlers Brawl Stars fits on screen: deliberately chunkier,

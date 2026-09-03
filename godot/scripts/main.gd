@@ -1297,7 +1297,7 @@ func has_line_of_sight(from: Vector3, to: Vector3) -> bool:
 ## line-of-sight check. Bushes still conceal either way.
 func can_see(viewer: Fighter, target: Fighter, through_walls := false) -> bool:
 	var dist := viewer.global_position.distance_to(target.global_position)
-	if arena.tile_at(target.global_position) == "b" and dist > Kits.TILE * 2.0:
+	if arena.tile_at(target.global_position) == "b" and dist > Kits.BUSH_REVEAL:
 		return false
 	return through_walls or has_line_of_sight(viewer.global_position, target.global_position)
 
@@ -2061,12 +2061,15 @@ func _auto_aim_fire(weapon: Dictionary, use_super: bool) -> void:
 func _update_concealment() -> void:
 	if player == null or not is_instance_valid(player):
 		return
+	# The bush canopy opens up around the player over the same radius that
+	# decides who is concealed, so the shader and can_see() cannot drift apart.
+	arena.set_reveal_center(player.global_position)
 	for f in fighters:
 		var in_bush := arena.tile_at(f.global_position) == "b"
 		if f == player:
 			f.set_concealed(in_bush, true)
 		else:
-			var near := f.global_position.distance_to(player.global_position) < Kits.TILE * 2.0
+			var near := f.global_position.distance_to(player.global_position) < Kits.BUSH_REVEAL
 			f.set_concealed(in_bush and not near, false)
 
 func _process(_delta: float) -> void:
