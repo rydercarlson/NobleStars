@@ -375,3 +375,52 @@ those before anything else on the list.
 - [ ] **More music.** Two tracks ship (`lobby_vibes`, `clash_carnival`). Wants at
       least a results/victory sting, and a second battle track so Cup and
       Showdown do not sound identical.
+
+## Tooling & workflow
+
+The answer to "which Godot plugins should we install" turned out to be **none**,
+and that is worth recording so it is not re-litigated. `gdtoolkit` (`gdlint` /
+`gdformat`) was measured against all 44 files: 145 findings, of which two were
+real (`ball.gd:135` and `menu_popups.gd:54`, both unused arguments). The rest
+were 81 `class-definitions-order`, 26 `mixed-tabs-and-spaces` that are every one
+of them intentional continuation alignment, and 26 `max-line-length` at its
+default 100. `gdformat` would additionally rewrite the deliberate paren
+alignment in `kits.gd`'s tier tables and the shader strings in `arena.gd`.
+Editor addons have nothing to attach to when the `.tscn` files are empty shells
+and everything is built in code, and the Godot MCP servers bridge a *live
+editor* — the workflow the `NS3_*` env hooks exist to avoid. What the project
+wanted was configuration, not packages.
+
+- [x] **The reimport footgun is handled automatically.** A `PostToolUse` hook in
+      `.claude/settings.json` runs `Godot --headless --import` after any edit to
+      a `godot/**/*.gd`. Skipping that import makes class members silently
+      vanish at runtime, which is the single nastiest failure mode in this
+      project because it produces no error at edit time. The hook derives the
+      project directory from the edited file rather than hardcoding a path, and
+      costs 1.2s. **A new `.claude/` is not picked up until `/hooks` is opened
+      once or the session restarts** — the settings watcher only watches
+      directories that had a settings file at session start.
+- [x] **Permission allowlist for the Godot binary** and read-only git, also in
+      `.claude/settings.json`. One limitation worth knowing: prefix rules match
+      from the start of the command, so the `NS3_KIT=nova … Godot …` form does
+      not match — the env var comes first. Only the bare `Godot …` form is
+      covered.
+- [x] **Debug screenshots no longer write into the project.** `NS3_SHOTS` and
+      `NS3_MENU_SHOT` handed an environment-supplied path straight to
+      `save_png`, and a relative path resolves against `res://` — so
+      `NS3_SHOTS=shot:1` wrote `shot_1.png` into the project, where the next
+      `--import` swept it up as a game asset that then had to be found and
+      removed before committing. `Session.shot_path` now sends anything not
+      absolute to `user://`, and both hooks print where they actually wrote.
+- [x] **`godot/.godot/` is gitignored** and its 422 files untracked. It was 52 MB
+      of import and shader cache that churns on every reimport, and it made up
+      most of the volume of recent commits — `aee0066` was 101 files, nearly all
+      of it cache. Verified regenerable rather than assumed: a copy of the
+      project with no `.godot` cold-imports in 5.3s with no errors and runs a
+      full `NS3_SIM` match. **A fresh clone must import once** before the project
+      will open or run.
+- [ ] **No GDScript language server is wired into Claude Code.** `.gd` files get
+      no go-to-definition, no find-references, no diagnostics. Godot ships a
+      language server but only serves it while the editor is open, so this would
+      mean keeping the editor running alongside. Marginal at 13k lines where
+      grep works, but it is the one piece of real tooling still missing.
