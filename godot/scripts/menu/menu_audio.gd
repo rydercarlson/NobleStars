@@ -5,9 +5,18 @@ extends Node
 ## plays, so the menu still ships with zero audio files. Same sound names, same
 ## shapes — click, back, open, purchase, error, play, hit, reward, tick, found
 ## — plus the procedural chord-pad music loop.
+##
+## `main.gd` uses the same engine for the match (see `play_at`), so the combat
+## table below is synthesized exactly like the menu's and the game still ships
+## no audio files at all. Combat names are prefixed by what they are rather
+## than by who plays them — `shot_*`, `melee_*`, `cup_*` — so a new kit picks an
+## existing shape off `_attack_sound` instead of needing its own.
 
 const RATE := 22050
-const VOICES := 8
+## A match is far busier than a menu: a nine-pellet shotgun, its impacts and a
+## bot firing across the map can all land inside one frame, and at 8 voices the
+## round-robin was cutting sounds off part-way through.
+const VOICES := 16
 
 enum Wave { SINE, TRIANGLE, SQUARE, SAW, NOISE }
 
@@ -38,6 +47,25 @@ func play(sound: String = "click") -> void:
 	_next = (_next + 1) % _players.size()
 	p.stream = stream
 	p.volume_db = -6.0
+	p.pitch_scale = 1.0   # a voice reused after play_at would keep its pitch
+	p.play()
+
+## The match's entry point: same table, but the caller sets the level and the
+## pitch. Both matter in a way they never did in a menu — a shot from the far
+## corner of the view must not arrive at the level of one under the camera, and
+## a burst of identical samples reads as a loop rather than as gunfire, which is
+## what the pitch jitter breaks up.
+func play_at(sound: String, volume_db: float, pitch := 1.0) -> void:
+	if not SaveGame.sfx_on:
+		return
+	var stream: AudioStreamWAV = _stream(sound)
+	if stream == null:
+		return
+	var p: AudioStreamPlayer = _players[_next]
+	_next = (_next + 1) % _players.size()
+	p.stream = stream
+	p.volume_db = volume_db
+	p.pitch_scale = clampf(pitch, 0.1, 4.0)
 	p.play()
 
 ## The lobby track if one shipped, else the synthesized chord pad. Keeping the
@@ -143,6 +171,180 @@ func _render(sound: String) -> PackedFloat32Array:
 			return b
 		"music":
 			return _render_music()
+	return _render_combat(sound)
+
+# MARK: combat table
+#
+# Shapes, not instruments. A weapon sound here is a transient (noise), a body
+# (a falling sine or triangle) and sometimes a top edge (a square), because that
+# is what still reads as an impact through a phone speaker, where everything
+# below ~150 Hz is gone. The durations are short on purpose: these fire several
+# times a second and a long tail turns a firefight into mush.
+func _render_combat(sound: String) -> PackedFloat32Array:
+	match sound:
+		# -- weapons -------------------------------------------------------
+		"shot_shotgun":
+			var b: PackedFloat32Array = _buffer(0.3)
+			_tone(b, 0.0, 0.10, 0.0, 0.0, Wave.NOISE, 0.34, 0.001, 0.055)
+			_tone(b, 0.0, 0.22, 220.0, 70.0, Wave.SINE, 0.5, 0.002, 0.09)
+			_tone(b, 0.0, 0.06, 1400.0, 600.0, Wave.SQUARE, 0.1, 0.001, 0.03)
+			return b
+		"shot_single":
+			var b: PackedFloat32Array = _buffer(0.28)
+			_tone(b, 0.0, 0.06, 0.0, 0.0, Wave.NOISE, 0.22, 0.001, 0.03)
+			_tone(b, 0.0, 0.18, 900.0, 180.0, Wave.SQUARE, 0.26, 0.001, 0.07)
+			_tone(b, 0.0, 0.22, 160.0, 60.0, Wave.SINE, 0.4, 0.002, 0.1)
+			return b
+		"shot_lob":
+			var b: PackedFloat32Array = _buffer(0.36)
+			_tone(b, 0.0, 0.28, 260.0, 620.0, Wave.TRIANGLE, 0.22, 0.03, 0.16)
+			_tone(b, 0.0, 0.16, 0.0, 0.0, Wave.NOISE, 0.1, 0.03, 0.1)
+			return b
+		"shot_button":
+			var b: PackedFloat32Array = _buffer(0.2)
+			_tone(b, 0.0, 0.12, 880.0, 1320.0, Wave.SQUARE, 0.16, 0.002, 0.05)
+			_tone(b, 0.0, 0.05, 0.0, 0.0, Wave.NOISE, 0.06, 0.001, 0.03)
+			return b
+		"shot_boomerang":
+			var b: PackedFloat32Array = _buffer(0.44)
+			# Five clipped pulses climbing in pitch: a spin you can count.
+			for i in 5:
+				_tone(b, i * 0.055, 0.08, 520.0 + i * 45.0, 700.0 + i * 45.0,
+						Wave.TRIANGLE, 0.12, 0.004, 0.04)
+			_tone(b, 0.0, 0.3, 300.0, 480.0, Wave.SINE, 0.1, 0.02, 0.2)
+			return b
+		"shot_sack":
+			var b: PackedFloat32Array = _buffer(0.24)
+			_tone(b, 0.0, 0.14, 320.0, 120.0, Wave.TRIANGLE, 0.34, 0.002, 0.07)
+			_tone(b, 0.0, 0.05, 0.0, 0.0, Wave.NOISE, 0.14, 0.001, 0.03)
+			return b
+		"shot_curve":
+			var b: PackedFloat32Array = _buffer(0.38)
+			_tone(b, 0.0, 0.3, 700.0, 1150.0, Wave.SINE, 0.16, 0.03, 0.2)
+			_tone(b, 0.0, 0.12, 0.0, 0.0, Wave.NOISE, 0.07, 0.02, 0.08)
+			return b
+		"melee_swing":
+			var b: PackedFloat32Array = _buffer(0.32)
+			_tone(b, 0.0, 0.22, 0.0, 0.0, Wave.NOISE, 0.2, 0.05, 0.1)
+			_tone(b, 0.0, 0.2, 520.0, 150.0, Wave.TRIANGLE, 0.16, 0.04, 0.1)
+			return b
+		"shockwave":
+			var b: PackedFloat32Array = _buffer(0.58)
+			_tone(b, 0.0, 0.45, 120.0, 34.0, Wave.SINE, 0.75, 0.004, 0.22)
+			_tone(b, 0.0, 0.22, 0.0, 0.0, Wave.NOISE, 0.24, 0.004, 0.13)
+			_tone(b, 0.0, 0.3, 240.0, 60.0, Wave.TRIANGLE, 0.24, 0.006, 0.16)
+			return b
+		# -- connections ---------------------------------------------------
+		"impact":
+			var b: PackedFloat32Array = _buffer(0.22)
+			_tone(b, 0.0, 0.14, 420.0, 120.0, Wave.TRIANGLE, 0.34, 0.001, 0.055)
+			_tone(b, 0.0, 0.05, 0.0, 0.0, Wave.NOISE, 0.16, 0.001, 0.03)
+			return b
+		"melee_hit":
+			var b: PackedFloat32Array = _buffer(0.3)
+			_tone(b, 0.0, 0.22, 200.0, 48.0, Wave.SINE, 0.62, 0.002, 0.1)
+			_tone(b, 0.0, 0.06, 0.0, 0.0, Wave.NOISE, 0.26, 0.001, 0.04)
+			return b
+		"box_break":
+			var b: PackedFloat32Array = _buffer(0.5)
+			_tone(b, 0.0, 0.3, 0.0, 0.0, Wave.NOISE, 0.34, 0.002, 0.14)
+			_tone(b, 0.0, 0.26, 300.0, 70.0, Wave.SAW, 0.3, 0.003, 0.13)
+			for i in 3:   # splinters falling away after the crack
+				_tone(b, 0.06 + i * 0.05, 0.1, 700.0 - i * 120.0, 400.0 - i * 100.0,
+						Wave.TRIANGLE, 0.12, 0.002, 0.05)
+			return b
+		"wall_break":
+			var b: PackedFloat32Array = _buffer(0.46)
+			_tone(b, 0.0, 0.3, 0.0, 0.0, Wave.NOISE, 0.3, 0.003, 0.15)
+			_tone(b, 0.0, 0.25, 180.0, 50.0, Wave.SINE, 0.4, 0.003, 0.12)
+			return b
+		# -- feedback ------------------------------------------------------
+		"super_ready":
+			var b: PackedFloat32Array = _buffer(0.7)
+			var notes: Array = [523.0, 784.0, 1046.0]
+			for i in notes.size():
+				_tone(b, i * 0.08, 0.42, notes[i], notes[i], Wave.SINE, 0.22, 0.005, 0.3)
+			_tone(b, 0.0, 0.5, 130.0, 260.0, Wave.TRIANGLE, 0.12, 0.05, 0.35)
+			return b
+		"super_fire":
+			var b: PackedFloat32Array = _buffer(0.72)
+			_tone(b, 0.0, 0.3, 90.0, 320.0, Wave.SAW, 0.34, 0.02, 0.2)
+			_tone(b, 0.06, 0.45, 180.0, 45.0, Wave.SINE, 0.7, 0.004, 0.25)
+			_tone(b, 0.0, 0.25, 0.0, 0.0, Wave.NOISE, 0.24, 0.01, 0.16)
+			return b
+		"elimination":
+			var b: PackedFloat32Array = _buffer(0.6)
+			_tone(b, 0.0, 0.45, 440.0, 110.0, Wave.SQUARE, 0.22, 0.004, 0.3)
+			_tone(b, 0.0, 0.4, 220.0, 55.0, Wave.SINE, 0.4, 0.006, 0.26)
+			return b
+		"cube_pickup":
+			var b: PackedFloat32Array = _buffer(0.36)
+			_tone(b, 0.0, 0.22, 1046.0, 1046.0, Wave.SINE, 0.22, 0.003, 0.16)
+			_tone(b, 0.05, 0.24, 1568.0, 1568.0, Wave.SINE, 0.18, 0.003, 0.17)
+			return b
+		"gas_tick":
+			var b: PackedFloat32Array = _buffer(0.24)
+			_tone(b, 0.0, 0.18, 0.0, 0.0, Wave.NOISE, 0.13, 0.02, 0.1)
+			_tone(b, 0.0, 0.12, 300.0, 180.0, Wave.TRIANGLE, 0.08, 0.01, 0.07)
+			return b
+		"low_health":
+			var b: PackedFloat32Array = _buffer(0.5)
+			for i in 2:
+				_tone(b, i * 0.18, 0.14, 880.0, 880.0, Wave.SQUARE, 0.14, 0.004, 0.08)
+			return b
+		"reload_tick":
+			var b: PackedFloat32Array = _buffer(0.12)
+			_tone(b, 0.0, 0.08, 1200.0, 1600.0, Wave.SQUARE, 0.1, 0.002, 0.04)
+			return b
+		"empty_click":
+			var b: PackedFloat32Array = _buffer(0.14)
+			_tone(b, 0.0, 0.05, 0.0, 0.0, Wave.NOISE, 0.14, 0.001, 0.025)
+			_tone(b, 0.0, 0.06, 300.0, 160.0, Wave.SQUARE, 0.1, 0.001, 0.03)
+			return b
+		# -- match flow ----------------------------------------------------
+		"count_beep":
+			var b: PackedFloat32Array = _buffer(0.3)
+			_tone(b, 0.0, 0.2, 660.0, 660.0, Wave.SQUARE, 0.18, 0.004, 0.12)
+			return b
+		"count_go":
+			var b: PackedFloat32Array = _buffer(0.7)
+			_tone(b, 0.0, 0.4, 1046.0, 1046.0, Wave.SQUARE, 0.24, 0.004, 0.3)
+			_tone(b, 0.0, 0.35, 130.0, 65.0, Wave.SAW, 0.4, 0.005, 0.25)
+			return b
+		"victory":
+			var b: PackedFloat32Array = _buffer(1.5)
+			var fanfare: Array = [[523.0, 0.0], [659.0, 0.12], [784.0, 0.24],
+					[1046.0, 0.36], [1318.0, 0.52]]
+			for n in fanfare:
+				_tone(b, n[1], 0.5, n[0], n[0], Wave.SQUARE, 0.17, 0.005, 0.4)
+			_tone(b, 0.0, 0.9, 130.0, 130.0, Wave.TRIANGLE, 0.16, 0.02, 0.6)
+			return b
+		"defeat":
+			var b: PackedFloat32Array = _buffer(1.3)
+			var fall: Array = [[392.0, 0.0], [349.0, 0.18], [294.0, 0.36], [233.0, 0.54]]
+			for n in fall:
+				_tone(b, n[1], 0.55, n[0], n[0], Wave.TRIANGLE, 0.2, 0.008, 0.45)
+			return b
+		# -- Nobles Cup ----------------------------------------------------
+		"cup_kick":
+			var b: PackedFloat32Array = _buffer(0.3)
+			_tone(b, 0.0, 0.2, 260.0, 70.0, Wave.SINE, 0.6, 0.002, 0.09)
+			_tone(b, 0.0, 0.06, 0.0, 0.0, Wave.NOISE, 0.2, 0.001, 0.035)
+			return b
+		"cup_goal":
+			var b: PackedFloat32Array = _buffer(1.4)
+			# Two-tone air horn, the third note late so it reads as a stadium
+			# horn rather than as a chord.
+			_tone(b, 0.0, 1.0, 392.0, 392.0, Wave.SAW, 0.2, 0.03, 0.9)
+			_tone(b, 0.0, 1.0, 523.0, 523.0, Wave.SAW, 0.16, 0.03, 0.9)
+			_tone(b, 0.35, 0.85, 659.0, 659.0, Wave.SAW, 0.14, 0.04, 0.8)
+			return b
+		"cup_whistle":
+			var b: PackedFloat32Array = _buffer(0.62)
+			_tone(b, 0.0, 0.45, 2200.0, 2350.0, Wave.SINE, 0.16, 0.01, 0.35)
+			_tone(b, 0.0, 0.45, 2900.0, 3050.0, Wave.SINE, 0.08, 0.01, 0.3)
+			_tone(b, 0.0, 0.12, 0.0, 0.0, Wave.NOISE, 0.06, 0.01, 0.08)
+			return b
 	return _render("click")
 
 ## Slow major-key pad with a pulsing bass — one four-chord loop, then repeat.

@@ -271,6 +271,17 @@ those before anything else on the list.
       LOBBY calls `Net.leave()` and then the same blocking
       `change_scene_to_file` as the blue-screen item above, so leaving a match
       stalls the same way entering one does.
+- [ ] **A Nobles Cup goal does not reset the pitch.** `CupMode._goal_check` →
+      `kickoff()` moves everyone back to their spawns and re-places the ball,
+      but it leaves two things behind. Health is whatever each fighter had when
+      the goal went in, so a team that just conceded can be handed the restart
+      at a sliver of health and lose the next one immediately — a kickoff should
+      put **everyone back to full**, the way a respawn already does. And
+      **projectiles in flight survive the whistle**: a lob or a boomerang thrown
+      a moment before the goal is still travelling through the reset and lands
+      on someone standing on the centre spot. Both are in `kickoff()` — heal
+      every fighter, and free the `Projectile` / `Lob` / `Boomerang` /
+      `HackySack` children the way `main.gd:start_match` already does.
 - [ ] **No camera move when someone scores.** A Nobles Cup goal resolves in
       `cup_mode.gd` with the score label ticking over and a kickoff freeze, but
       the camera stays locked on the player the whole time. It should pan to the
@@ -319,17 +330,33 @@ those before anything else on the list.
 - [ ] **The generated pbxproj needs six placeholder lines deleted by hand**
       (`$additional_pbx_*`, `$pbx_embeded_frameworks`) before `xcodebuild` will
       parse it — script this into the export step.
-- [ ] **The match is completely silent.** `main.gd` loads `clash_carnival.mp3`
-      and nothing else; there is no SFX path in the match at all. Nearly all of
-      it is synthesizable through `MenuAudio` (pipeline 1) rather than recorded:
-      - *Combat:* shot per weapon class (shotgun, lob, melee, sniper, boomerang,
-        controller-button, hacky sack, curveball), projectile impact, melee
-        whoosh and connect, reload tick, empty-mag click.
-      - *Feedback:* Super charged, Super fired, elimination, loot-box break,
-        power-cube pickup, gas-ring damage tick, low-health warning.
-      - *Match flow:* countdown and go, victory and defeat stings, results-screen
-        reward chimes for trophies, coins and Pass tokens.
-      - *Nobles Cup:* kick, Super Shot, goal horn, whistle, kickoff, wall break.
+- [x] **The match has sound.** 28 combat sounds synthesized through `MenuAudio`
+      (pipeline 1), so the game still ships zero audio files. Covered: a shot
+      per weapon class, projectile impact and a separate melee connect, melee
+      whoosh, reload tick, empty-mag click, Super charged and Super fired,
+      elimination, loot-box break, wall break, power-cube pickup, gas tick,
+      low-health pulse, countdown and go, victory and defeat stings, and Nobles
+      Cup's kick, goal horn and whistle.
+      - `main.gd:sfx_at` attenuates by distance from the listener (full level
+        inside 6 m, gone by 30 m — the camera shows ~23 m) and jitters the pitch
+        ±6%, without which a burst of identical samples reads as one looping
+        tone rather than as gunfire. `sfx_ui` is the unattenuated path for the
+        countdown, the stings and the whistle.
+      - Sounds are keyed off `weapon.style` in `_attack_sound`, not off the kit,
+        so a new character inherits one from the style it picks.
+      - `MenuAudio.VOICES` went 8 → 16: a nine-pellet shotgun, its impacts and a
+        bot firing across the map can all land in one frame, and the round-robin
+        was cutting sounds off part-way through.
+      - **`_render` falls through to "click" for a name it does not know**, so a
+        typo plays a menu click mid-firefight instead of failing. `Godot --path
+        godot --headless --script res://tools/sfx_probe.gd` renders the whole
+        table and flags any name with no entry of its own, plus anything silent
+        or clipping. Add a name to its list whenever you add one to the table.
+      - `NS3_SFX_LOG=1` prints every sound as it fires, which is how you tell
+        "the hook never ran" from "it is too quiet to notice".
+      - Still open: nothing distinguishes one kit's shotgun from another's, the
+        results screen has no per-reward chime, and there is no positional
+        stereo (everything is mono, attenuated only by distance).
 - [ ] **Drop Brawl Stars SFX in as placeholders first.** Synthesising the table
       above is the ship path, but it is slow to tune blind, and the match is
       silent *today*. Standing in ripped Brawl Stars clips for shot / hit /

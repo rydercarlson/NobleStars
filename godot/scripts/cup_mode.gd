@@ -151,8 +151,10 @@ func kickoff(now: float, opening := false) -> void:
 	ball.last_touch = null
 	_frozen_until = now + KICKOFF_FREEZE
 	# The opening whistle is main.gd's 3-2-1-FIGHT!; only a restart after a
-	# goal needs the score put back up.
+	# goal needs the score put back up, and only that restart is whistled.
 	_banner.text = "" if opening else "%d — %d" % [score[0], score[1]]
+	if not opening:
+		game.sfx_ui("cup_whistle", -2.0)
 
 ## Which way a team is attacking: toward the goal it does NOT defend.
 func _attack_dir(team: int) -> Vector3:
@@ -290,6 +292,7 @@ func _goal_check(now: float) -> bool:
 			else "Somebody"
 	var own := is_instance_valid(ball.last_touch) and ball.last_touch.team == conceded
 	game.feed_label.text = "%s scored%s" % [who, " (own goal)" if own else ""]
+	game.sfx_ui("cup_goal", 2.0)
 	_refresh_hud()
 	if score[scorer] >= GOALS_TO_WIN or overtime:
 		_finish(now)
@@ -362,6 +365,10 @@ func kick(f: Fighter, dir: Vector3, now: float, use_super := false) -> bool:
 	elif not f.consume_ammo(now):
 		return true
 	ball.kick(dir, now, Ball.SUPER_KICK_MULT if use_super else 1.0)
+	# A Super Shot is twice the ball speed, so it gets the Super's own sound
+	# rather than a louder boot.
+	game.sfx_at("super_fire" if use_super else "cup_kick", f.global_position,
+			3.0 if use_super else 0.0)
 	f.face_direction(dir)
 	f.play_attack_animation(now, use_super)
 	return true
