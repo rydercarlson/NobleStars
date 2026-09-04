@@ -3,6 +3,34 @@ extends CharacterBody3D
 ## One fighter (player or bot): stats, movement, dash, billboard health bar,
 ## damage popups. Visual is a colored capsule until Meshy models land.
 
+## How many poses each clip is sampled at when measuring its ground lift. The
+## clips are 1-3s, so 24 steps lands well inside the stride and finding the
+## true minimum does not need more.
+const LIFT_SAMPLES := 24
+## Easing time constant for the lift when the clip changes. The clip change
+## steps the TARGET while the 0.15s animation blend is still interpolating the
+## POSE, so the lift has to ease or the model pops on the frame a run starts;
+## 0.08 puts it at 86% after 0.16s, which tracks that blend closely.
+const LIFT_EASE_TAU := 0.08
+
+## Ground lift per model per clip, in model space. Shared by every fighter
+## wearing the same GLB because it is a property of the model and its clips,
+## not of the fighter: sampling is ~25 skeleton poses per clip, and paying that
+## once per MODEL rather than once per FIGHTER is the difference between a
+## hitch on a six-fighter Nobles Cup spawn and none. Keyed by kit.model.
+static var _lift_cache: Dictionary = {}
+
+## How long a hit flash lasts, and how hard a modelled fighter glows for it.
+## FLASH_ENERGY is emission energy, so it stacks on top of a lit texture and
+## climbs fast: 6.0 erases the character to a white silhouette and even 2.2
+## still washes the face out. Tune it by holding the flash open — set
+## FLASH_SECONDS to ~1.5 temporarily, since five frames is far too short to
+## judge from a screenshot — then put the duration back.
+const FLASH_SECONDS := 0.08
+const FLASH_ENERGY := 1.6
+## What a fighter fades to while standing in a bush, seen by themselves.
+const CONCEAL_ALPHA := 0.55
+
 var kit: Dictionary
 var display_name := "Fighter"
 var is_player := false
@@ -31,6 +59,22 @@ var cubes := 0
 var last_damage_at := -100.0
 var facing := Vector3.FORWARD
 
+## What this fighter did this match, for the results card. Always on — the
+## NS3_SIM table is a separate per-KIT aggregate kept behind `sim_active`, and
+## it answers a different question. Nothing here is cleared by respawn(): a
+## Nobles Cup death is a setback inside one match, not the end of one, so a
+## carrier who scores and then dies keeps the goal. `cubes` is counted here as
+## well as on the fighter because `cubes` itself is zeroed when a body drops
+## its load, and "collected 6" is what the card wants to say.
+var stats := {
+	"damage": 0,      # dealt to other fighters (loot boxes are not fighters)
+	"kills": 0,
+	"cubes": 0,
+	"goals": 0,       # Nobles Cup
+	"saves": 0,       # Nobles Cup
+	"survived": 0.0,  # seconds of PLAYING phase; set when eliminated or at the whistle
+}
+
 var knockback_vel := Vector3.ZERO
 var dash: Dictionary = {}   # empty = not dashing; `steer` marks a Downhill ride
 var leap: Dictionary = {}   # empty = grounded; used by jump-smash Supers
@@ -52,11 +96,25 @@ var burn_source: Fighter = null
 var _body_mesh: MeshInstance3D
 var _material: StandardMaterial3D
 var _model: Node3D
+## Per-instance copies of the model's surface materials — see _setup_model.
+## Empty for the two kits still on the capsule fallback, which is what every
+## modelled-fighter effect below tests instead of testing for a model.
+var _model_mats: Array[BaseMaterial3D] = []
+var _model_emission: Array[Dictionary] = []
+## Which concealment state is currently painted on: -1 until the first call, so
+## that one always lands. set_concealed runs every physics frame for every
+## fighter, and changing a material's transparency mode recompiles a shader.
+var _conceal_applied := -1
 var _anim: AnimationPlayer
 var _held_item: Node3D   # e.g. Sanjit's staff — hidden while his Super flies
 var _skel: Skeleton3D
 var _foot_bones: PackedInt32Array = []
 var _foot_rest_y := 0.0
+## Per-clip ground lift in MODEL space, keyed by clip name — this fighter's row
+## of _lift_cache. Empty for the capsule fallback and for a rig with no
+## AnimationPlayer, which is why _ground_feet can look up a missing clip and
+## get 0.0 rather than having to test for either case.
+var _clip_lift: Dictionary = {}
 var _attack_anim_until := 0.0
 var _attack_anim_fast_at := INF
 var _attack_anim_end_speed_scale := 1.0
@@ -181,12 +239,29 @@ func _setup_model() -> void:
 	add_child(_model)
 	# Meshy exports metallicFactor=1.0; full metal renders black without
 	# reflection probes, so clamp it on every imported surface.
-	for mi in _model.find_children("*", "MeshInstance3D", true, false):
+	#
+	# Done on a per-instance DUPLICATE installed as a surface override, not on
+	# the material the mesh carries: that material lives on a Mesh *resource*
+	# which every fighter wearing the same GLB shares, so the hit flash and the
+	# bush fade below would have fired on all of them at once.
+	for mi: MeshInstance3D in _model.find_children("*", "MeshInstance3D", true, false):
 		var mesh: Mesh = mi.mesh
+		if mesh == null:
+			continue
 		for s in mesh.get_surface_count():
-			var mat = mesh.surface_get_material(s)
-			if mat is BaseMaterial3D:
-				mat.metallic = 0.0
+			var src: Material = mesh.surface_get_material(s)
+			if src is BaseMaterial3D:
+				var m: BaseMaterial3D = (src as BaseMaterial3D).duplicate()
+				m.metallic = 0.0
+				mi.set_surface_override_material(s, m)
+				_model_mats.append(m)
+				# Remembered so a flash restores a model that legitimately
+				# glows to its own emission rather than switching it off.
+				_model_emission.append({
+					"on": m.emission_enabled,
+					"color": m.emission,
+					"energy": m.emission_energy_multiplier,
+				})
 	_held_item = _model.find_child("held_item", true, false)
 	_anim = _model.find_child("AnimationPlayer", true, false)
 	if _anim:
@@ -216,6 +291,39 @@ func _calibrate_feet() -> void:
 	if _anim:
 		_anim.seek(0.0, true)
 	_foot_rest_y = _lowest_foot_y()
+	_clip_lift = _measure_clip_lifts()
+
+## The deepest each of the kit's clips drives the feet below the idle rest pose,
+## which is exactly what foot_probe.gd prints. Values are MODEL space; the
+## conversion to the parent's scale belongs at the point of use in _ground_feet,
+## and pre-scaling them here would apply MODEL_SCALE twice.
+func _measure_clip_lifts() -> Dictionary:
+	if _anim == null:
+		return {}
+	var key: String = str(kit.model)
+	if _lift_cache.has(key):
+		return _lift_cache[key]
+	var table: Dictionary = {}
+	# kit.clips carries tuning floats (attack_speed, super_seek, ...) alongside
+	# the clip names, so only the strings the rig actually has are sampled.
+	for value: Variant in kit.clips.values():
+		if not (value is String) or table.has(value) or not _anim.has_animation(value):
+			continue
+		var clip: String = value
+		var a: Animation = _anim.get_animation(clip)
+		var lowest := INF
+		_anim.play(clip)
+		for i in LIFT_SAMPLES + 1:
+			_anim.seek(a.length * float(i) / float(LIFT_SAMPLES), true)
+			lowest = minf(lowest, _lowest_foot_y())
+		table[clip] = maxf(0.0, _foot_rest_y - lowest)
+	# Sampling leaves the AnimationPlayer on the last clip at an arbitrary time.
+	# _setup_model played the idle clip immediately before calling in here, so
+	# put that back or the fighter renders its first frame mid-attack.
+	_anim.play(kit.clips.idle)
+	_anim.seek(0.0, true)
+	_lift_cache[key] = table
+	return table
 
 ## Height of the lowest foot/toe bone in the model's own space — independent of
 ## the lift `_ground_feet` applies, so the two never chase each other.
@@ -228,13 +336,20 @@ func _lowest_foot_y() -> float:
 	return lowest
 
 ## Lift the model so the planted foot never sinks below its idle resting height.
-## Never pushes down, so a clip that keeps its feet high just stands normally.
-func _ground_feet() -> void:
-	if _skel == null:
+##
+## The lift is a CONSTANT per clip — the deepest the feet reach anywhere in that
+## clip — and not the current frame's sink. Measuring it per frame tracked the
+## stride, so it peaked at the trough of the run and lifted the fighter exactly
+## where it used to sink: the bob moved rather than went away. A constant shifts
+## the whole cycle up by its own worst frame and leaves the stride's natural
+## rise and fall intact. It never pushes down, so a clip whose feet stay high
+## (every `run_fast_*` variant measures 0.000) just stands normally.
+func _ground_feet(delta: float) -> void:
+	if _skel == null or _anim == null:
 		return
-	# The sink is measured in the model's own space, but position is the
-	# parent's, so it has to be scaled by MODEL_SCALE to land on the floor.
-	_model.position.y = maxf(0.0, (_foot_rest_y - _lowest_foot_y()) * _model.scale.y)
+	# Model space out of the table, parent space into `position`.
+	var want: float = float(_clip_lift.get(_anim.current_animation, 0.0)) * _model.scale.y
+	_model.position.y = lerpf(_model.position.y, want, 1.0 - exp(-delta / LIFT_EASE_TAU))
 
 ## Show/hide a model's held item (Sanjit's staff) while a thrown copy flies.
 func set_held_item_visible(shown: bool) -> void:
@@ -293,7 +408,7 @@ func update_animation(game_now: float) -> void:
 		_burn_glow.visible = game_now < burn_until
 	if _anim == null or is_dead():
 		return
-	_ground_feet()
+	_ground_feet(get_physics_process_delta_time())
 	if game_now < _attack_anim_until:
 		if _anim.current_animation_position >= _attack_anim_fast_at:
 			_anim.speed_scale = _attack_anim_end_speed_scale
@@ -494,11 +609,12 @@ func take_damage(amount: int, now: float) -> void:
 	health = max(0, health - amount)
 	last_damage_at = now
 	_pending_popup += amount
-	# Hit flash (capsule placeholder only; models keep their own material)
 	if _material:
 		_material.albedo_color = Color.WHITE
-		get_tree().create_timer(0.07).timeout.connect(
+		get_tree().create_timer(FLASH_SECONDS).timeout.connect(
 			func() -> void: _material.albedo_color = kit.color)
+	else:
+		_flash_model()
 
 func receive_knockback(direction: Vector3, strength: float) -> void:
 	knockback_vel += direction.normalized() * strength
@@ -513,6 +629,7 @@ func apply_slow(game_now: float, duration: float, factor: float) -> void:
 
 func collect_cube() -> void:
 	cubes += 1
+	stats.cubes += 1
 	max_health += Kits.HEALTH_PER_CUBE
 	health += Kits.HEALTH_PER_CUBE
 	_popup("+%d HP" % Kits.HEALTH_PER_CUBE, Color(0.85, 0.45, 1.0))
@@ -575,14 +692,70 @@ func respawn(pos: Vector3, game_now: float) -> void:
 	if _anim:
 		_anim.play(kit.clips.idle)
 
+## A Nobles Cup kickoff for a fighter who is still standing. Everything respawn()
+## restores EXCEPT position (kickoff places them itself) and `super_charge`,
+## which is deliberately kept: losing a Super you had charged would punish the
+## team that just scored, and a fighter who died for one already loses it in
+## respawn(). Without this a team could concede, be handed the restart on a
+## sliver of health, and lose the next one immediately — and a burn lit before
+## the whistle went on ticking through a freeze that holds the victim still.
+func kickoff_restore(game_now: float) -> void:
+	health = max_health
+	ammo = max_ammo
+	ammo_locked = false
+	heat_hits = 0
+	sack_streak = 0
+	burn_until = -1.0
+	on_fire_until = -1.0
+	disconnected_until = -1.0
+	slow_until = -1.0
+	slow_factor = 1.0
+	knockback_vel = Vector3.ZERO
+	dash = {}
+	leap = {}
+	last_damage_at = game_now
+	next_attack_at = -1.0
+
+## Damage feedback on a rigged model. The capsule can simply go white, but a
+## textured character cannot: `albedo_color` MULTIPLIES the texture, so setting
+## it to white is a no-op there. Emission is what reads as a hit on one.
+func _flash_model() -> void:
+	if _model_mats.is_empty():
+		return
+	for m in _model_mats:
+		m.emission_enabled = true
+		m.emission = Color.WHITE
+		m.emission_energy_multiplier = FLASH_ENERGY
+	get_tree().create_timer(FLASH_SECONDS).timeout.connect(_unflash_model)
+
+## Restores what each material was doing before the flash, so overlapping hits
+## are idempotent rather than each one turning the glow off on its way out.
+func _unflash_model() -> void:
+	for i in _model_mats.size():
+		var m: BaseMaterial3D = _model_mats[i]
+		var was: Dictionary = _model_emission[i]
+		m.emission_enabled = bool(was.on)
+		m.emission = was.color
+		m.emission_energy_multiplier = float(was.energy)
+
 func set_concealed(hidden: bool, self_view: bool) -> void:
 	if is_dead():
 		return   # knocked out in Nobles Cup: respawn() owns `visible`, not this
 	if self_view:
+		var want: int = 1 if hidden else 0
+		if want == _conceal_applied:
+			return
+		_conceal_applied = want
 		if _material:
-			_material.albedo_color.a = 0.55 if hidden else 1.0
+			_material.albedo_color.a = CONCEAL_ALPHA if hidden else 1.0
 			_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if hidden else BaseMaterial3D.TRANSPARENCY_DISABLED
-		# Model fighters stay visible to themselves in bushes.
+		for m in _model_mats:
+			m.albedo_color.a = CONCEAL_ALPHA if hidden else 1.0
+			# ALPHA_DEPTH_PRE_PASS rather than plain ALPHA: a character is a
+			# closed solid, and without the prepass you see its own far side
+			# and the inside of its head through the front of it.
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS if hidden \
+					else BaseMaterial3D.TRANSPARENCY_DISABLED
 	else:
 		visible = not hidden
 

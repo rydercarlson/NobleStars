@@ -26,6 +26,10 @@ var brains: Array[BotBrain] = []
 var phase := Phase.COUNTDOWN
 var phase_at := 0.0
 var now := 0.0
+## When the fighting actually started. `now` runs for the life of the scene, so
+## PLAY AGAIN would otherwise report the second match's survival time as the sum
+## of both. Everything on the results card that is a duration measures off this.
+var match_start := 0.0
 
 # HUD
 var hud: CanvasLayer
@@ -40,8 +44,12 @@ var super_stick: TouchStick   # dedicated Super joystick, anchored at the button
 var super_btn: SuperButton
 var fighter_bars: FighterBars
 var results: Control
-var results_title: Label
-var results_award: Label
+## Where the results card itself is built. Cleared and refilled per result, so
+## the overlay root and its dim survive a rematch while the card does not.
+var results_body: Control
+## The "Nova 3 wins!" line a net client gets after its own fighter went down and
+## the host's match ran on without it. Empty and hidden the rest of the time.
+var results_note: Label
 var aim_mesh: MeshInstance3D
 
 # Brawl Stars uses a steep, low-distortion perspective rather than a true
@@ -66,6 +74,11 @@ var auto_fire := float(OS.get_environment("NS3_AUTOFIRE")) if OS.get_environment
 var _last_auto_fire := 0.0
 var _shot_prefix := ""
 var _shot_times: Array[float] = []
+## NS3_END=<sec>: end the match this many seconds after FIGHT!, with whatever
+## placement the player has earned by then. The results card is otherwise only
+## reachable by surviving or dying at an unpredictable moment, which makes it
+## the one screen in the game that cannot be shot with NS3_SHOTS.
+var _force_end_at := float(OS.get_environment("NS3_END")) if OS.get_environment("NS3_END") != "" else 0.0
 
 # NS3_SIM=<n>: balance sim — every fighter (the player slot included) is
 # bot-driven with a random kit, matches restart back-to-back at 10x speed,
@@ -210,10 +223,12 @@ func _ready() -> void:
 		print("[net] match scene up as host")
 		multiplayer.peer_disconnected.connect(_on_net_peer_left)
 		center_label.text = "WAITING…"
+		Loading.done()   # the roster is not built yet, but the wait is the screen
 	elif net_active:
 		print("[net] match scene up as client")
 		Net.host_disconnected.connect(_on_net_host_lost)
 		center_label.text = "CONNECTING…"
+		Loading.done()
 	else:
 		start_match()
 
@@ -241,6 +256,9 @@ func _build_hud() -> void:
 	status_label = _label(Vector2(20, 20), 20, HORIZONTAL_ALIGNMENT_LEFT)
 	_build_results_overlay()
 
+## The overlay root: a dim, and an empty holder the card is built into. Only
+## these two persist — the card itself is thrown away and rebuilt per result,
+## because what it shows differs by mode and a scene can end several matches.
 func _build_results_overlay() -> void:
 	results = Control.new()
 	results.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -248,48 +266,216 @@ func _build_results_overlay() -> void:
 	hud.add_child(results)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.55)
+	dim.color = Color(0.02, 0.03, 0.07, 0.72)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	results.add_child(dim)
+	results.add_child(dim)   # STOP by default, which is what keeps taps off the match
 
-	var vbox := VBoxContainer.new()
-	vbox.set_anchors_preset(Control.PRESET_CENTER)
-	vbox.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	vbox.grow_vertical = Control.GROW_DIRECTION_BOTH
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_theme_constant_override("separation", 22)
-	results.add_child(vbox)
+	results_body = Control.new()
+	results_body.set_anchors_preset(Control.PRESET_FULL_RECT)
+	results_body.mouse_filter = Control.MOUSE_FILTER_IGNORE   # its buttons still take clicks
+	results.add_child(results_body)
 
-	results_title = Label.new()
-	results_title.add_theme_font_size_override("font_size", 52)
-	results_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(results_title)
+## The one way a match result reaches the screen. All three endings (Showdown
+## placement, a Nobles Cup scoreline, and a net client whose own fighter went
+## down while the host's match ran on) funnel through here so they cannot drift
+## apart. `outcome` is +1 win / 0 draw / -1 loss — enough to colour the card.
+## `rows` is the per-match stat table as [label, value] pairs.
+## `board` is an alternative to the portrait-plus-stat-table body: Nobles Cup
+## hands in a full team scoreboard, because a 3v3 result is about what both
+## sides did and not only about you. Showdown and the net client leave it null
+## and get the personal card unchanged.
+func _show_results(outcome: int, headline: String, kit_name: String,
+		award: Dictionary, rows: Array, rematch: bool, board: Control = null) -> void:
+	for c in results_body.get_children():
+		results_body.remove_child(c)
+		c.queue_free()
+	var accent: Color = MenuUI.YELLOW_HI if outcome > 0 else \
+			(MenuUI.TEXT_SOFT if outcome == 0 else Color("#ff8a8a"))
+	var title: String = "VICTORY!" if outcome > 0 else ("DRAW" if outcome == 0 else "DEFEATED")
 
-	results_award = Label.new()
-	results_award.add_theme_font_size_override("font_size", 26)
-	results_award.add_theme_color_override("font_color", Color(1.0, 0.85, 0.25))
-	results_award.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(results_award)
+	var card: PanelContainer = MenuUI.panel("card", 22, 8, 24)
+	card.modulate.a = 0.0   # pop_in is a frame away; don't flash at full opacity first
+	card.custom_minimum_size = Vector2(700, 0)
+	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	card.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	card.grow_vertical = Control.GROW_DIRECTION_BOTH
+	results_body.add_child(card)
 
-	var again := Button.new()
-	again.text = "  PLAY AGAIN  "
-	again.add_theme_font_size_override("font_size", 30)
-	again.visible = authoritative   # net clients wait for the host's rematch
-	again.pressed.connect(func() -> void:
-		results.visible = false
-		if net_host:
-			_net_host_start()
-		else:
-			start_match())
-	vbox.add_child(again)
+	var col: VBoxContainer = MenuUI.vbox(14)
+	card.add_child(col)
 
-	var menu := Button.new()
-	menu.text = "  LOBBY  "
-	menu.add_theme_font_size_override("font_size", 22)
+	var head: Label = MenuUI.display(title, 54, accent, 9)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(head)
+	var sub: Label = MenuUI.display(headline, 26, MenuUI.TEXT_SOFT, 5)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(sub)
+
+	results_note = MenuUI.display("", 20, MenuUI.TEXT_DIM, 4)
+	results_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	results_note.visible = false
+	col.add_child(results_note)
+
+	var body: HBoxContainer = MenuUI.hbox(18)
+	col.add_child(body)
+	# Whichever of the two bodies got built is what _animate_results staggers:
+	# Showdown's stat rows, or Cup's two team columns.
+	var staggered: Control = board
+	if board != null:
+		board.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		body.add_child(board)
+	else:
+		body.add_child(_results_portrait(kit_name, accent))
+		var table: VBoxContainer = MenuUI.vbox(7)
+		table.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		table.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		body.add_child(table)
+		for r: Array in rows:
+			table.add_child(_results_stat_row(str(r[0]), str(r[1])))
+		staggered = table
+
+	col.add_child(_results_rewards(award))
+
+	var buttons: HBoxContainer = MenuUI.hbox(14)
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_child(buttons)
+	if rematch:
+		var again: Button = MenuUI.button("PLAY AGAIN", "green", 30, Vector2(250, 74))
+		again.pressed.connect(func() -> void:
+			results.visible = false
+			if net_host:
+				_net_host_start()
+			else:
+				start_match())
+		buttons.add_child(again)
+	var menu: Button = MenuUI.button("LOBBY", "grey", 26, Vector2(168, 74))
 	menu.pressed.connect(func() -> void:
 		Net.leave()
-		get_tree().change_scene_to_file("res://menu.tscn"))
-	vbox.add_child(menu)
+		Loading.to_menu(get_tree()))
+	buttons.add_child(menu)
+
+	# Nobles Cup's scoreboard and the fighter health bars are added to the HUD
+	# after this overlay is built in _ready, so without this they draw straight
+	# through the card — a frozen 1 — 2 and a clock sitting over the headline.
+	hud.move_child(results, -1)
+	# Raising the card covers what is BEHIND it; Cup's score sits above it and
+	# stayed on screen, printing the scoreline a second time over the top of a
+	# card that already gives it twice. Hidden, not freed: PLAY AGAIN builds a
+	# fresh CupMode with a HUD of its own, and _build_hud sweeps this one.
+	for n in hud.get_children():
+		if n.is_in_group(CupMode.HUD_GROUP):
+			n.visible = false
+	results.visible = true
+	_animate_results(card, staggered)
+
+## Held back a frame: pop_in pivots on `size`, which a container has not worked
+## out until it has sorted its children at least once.
+func _animate_results(card: Control, table: Control) -> void:
+	await get_tree().process_frame
+	if not is_instance_valid(card):
+		return
+	MenuUI.pop_in(card)
+	if is_instance_valid(table):
+		MenuUI.stagger(table, 0.06)
+
+## Your fighter, on the rarity-less dark backdrop the menu cards use. Falls back
+## to the kit's initial in its own colour for Nova and Ayaan, which have no
+## portrait because they have no model yet.
+func _results_portrait(kit_name: String, accent: Color) -> Control:
+	var holder: Panel = MenuUI.card("dark", 16, 6)
+	holder.custom_minimum_size = Vector2(196, 214)
+	holder.add_child(MenuUI.card_backdrop(Color(accent.r, accent.g, accent.b, 0.30)))
+	var id: String = kit_name.to_lower()
+	var tex: Texture2D = MenuData.portrait(id)
+	if tex != null:
+		var pr := TextureRect.new()
+		pr.texture = tex
+		pr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		pr.offset_bottom = -34
+		pr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		holder.add_child(pr)
+	else:
+		var kit: Dictionary = Kits.named(kit_name)
+		var initial: Label = MenuUI.display(kit_name.substr(0, 1).to_upper(), 96,
+				kit.get("color", Color.WHITE), 8)
+		initial.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		initial.offset_bottom = -34
+		initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		holder.add_child(initial)
+	var name_l: Label = MenuUI.display(kit_name.to_upper(), 24, Color.WHITE, 6)
+	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_l.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	name_l.offset_top = -44
+	name_l.offset_bottom = -12
+	holder.add_child(name_l)
+	return holder
+
+## One "DAMAGE DEALT ....... 4,820" line.
+func _results_stat_row(label: String, value: String) -> Control:
+	var row: PanelContainer = MenuUI.dark_panel(11, 0.34, 9)
+	var line: HBoxContainer = MenuUI.hbox(8)
+	row.add_child(line)
+	var l: Label = MenuUI.body(label, 18, MenuUI.TEXT_DIM, true)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(l)
+	var v: Label = MenuUI.display(value, 24, Color.WHITE, 4)
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	line.add_child(v)
+	return row
+
+## Trophies, coins and Pass tokens, each counting up from zero with its own
+## chime — the beat the menu already gives every other reward it hands out.
+func _results_rewards(award: Dictionary) -> Control:
+	var row: HBoxContainer = MenuUI.hbox(12)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(_reward_chip("trophy", int(award.get("trophies", 0)), true, 0.35))
+	row.add_child(_reward_chip("coin", int(award.get("coins", 0)), false, 0.60))
+	row.add_child(_reward_chip("token", int(award.get("tokens", 0)), false, 0.85))
+	return row
+
+func _reward_chip(icon_name: String, amount: int, signed: bool, delay: float) -> Control:
+	var chip: PanelContainer = MenuUI.dark_panel(13, 0.42, 10)
+	var line: HBoxContainer = MenuUI.hbox(7)
+	chip.add_child(line)
+	line.add_child(MenuUI.icon(icon_name, 32))
+	# A trophy loss must read as one, so the sign is always shown for trophies.
+	var tint: Color = Color("#ff8a8a") if (signed and amount < 0) else MenuUI.YELLOW_HI
+	var value: Label = MenuUI.display("", 28, tint, 5)
+	value.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(value)
+	_count_up(value, amount, signed, delay)
+	return chip
+
+func _count_up(l: Label, amount: int, signed: bool, delay: float) -> void:
+	var render := func(v: int) -> String:
+		return ("+%s" % MenuUI.fmt(v)) if (signed and v >= 0) else MenuUI.fmt(v)
+	l.text = render.call(0)
+	var tw := l.create_tween()
+	tw.tween_interval(delay)
+	tw.tween_callback(func() -> void: sfx_ui("reward", 1.0))
+	tw.tween_method(func(v: float) -> void:
+		l.text = render.call(int(round(v))), 0.0, float(amount), 0.55) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+## MM:SS for the survival row.
+func _fmt_clock(seconds: float) -> String:
+	var s: int = int(round(maxf(0.0, seconds)))
+	return "%d:%02d" % [s / 60, s % 60]
+
+## The stat table for a Showdown result. Cup builds its own in end_cup_match.
+func _showdown_rows(f: Fighter) -> Array:
+	if f == null or not is_instance_valid(f):
+		return []
+	return [
+		["DAMAGE DEALT", MenuUI.fmt(int(f.stats.damage))],
+		["ELIMINATIONS", str(int(f.stats.kills))],
+		["POWER CUBES", str(int(f.stats.cubes))],
+		["SURVIVED", _fmt_clock(float(f.stats.survived))],
+	]
 
 func _label(pos: Vector2, size: int, align: int) -> Label:
 	var l := Label.new()
@@ -300,10 +486,60 @@ func _label(pos: Vector2, size: int, align: int) -> Label:
 	hud.add_child(l)
 	return l
 
-func start_match() -> void:
+# MARK: impact VFX
+
+## Styles that leave the barrel. Everything else is a swing, a leap or an area
+## effect, and already has its own MeleeSwipe or Shockwave to sell it — a
+## muzzle flash on a melee lunge would read as a gun going off.
+const MUZZLE_STYLES := [Kits.Style.PELLETS, Kits.Style.LOB, Kits.Style.BOOMERANG,
+		Kits.Style.BUTTONS, Kits.Style.KEEP_IT_UP, Kits.Style.SLALOM]
+
+## The burst where something landed. `travel` is the direction the hit was
+## moving, so shards carry on past the target rather than spraying evenly.
+func _hit_spark(pos: Vector3, travel: Vector3, tint: Color) -> void:
+	var s := HitSpark.new()
+	s.position = Vector3(pos.x, 0.0, pos.z)
+	s.direction = Vector3(travel.x, 0, travel.z)
+	s.tint = tint.lerp(Color(1, 0.95, 0.7), 0.55)
+	s.height = 1.05          # roughly where a shot meets a 1.6 m fighter
+	add_child(s)
+
+## The flash at the barrel. Narrow, short and coreless — it is a hint of where
+## the shot came from, not an event in its own right.
+func _muzzle_flash(f: Fighter, unit: Vector3, weapon: Dictionary) -> void:
+	if not MUZZLE_STYLES.has(int(weapon.style)):
+		return
+	var s := HitSpark.new()
+	s.position = f.global_position + unit * 0.55
+	s.direction = unit
+	s.tint = f.kit.get("color", Color.WHITE)
+	s.cone = 0.42
+	s.spread = 1.5
+	s.shards = 5
+	s.duration = 0.12
+	s.height = 1.0
+	s.core = false
+	add_child(s)
+
+## Everything a weapon has put in the air, and the lingering areas two Supers
+## leave behind. Shared by start_match and CupMode.kickoff so the two lists
+## cannot drift: a lob or a boomerang thrown a moment before a goal would
+## otherwise sail through the reset and land on someone standing on the centre
+## spot. The Ball is deliberately not in here — a kickoff re-places it rather
+## than replacing it, and start_match frees it separately.
+##
+## Freeing a Boomerang is also what gives Sanjit his staff back
+## (`boomerang.gd:_exit_tree`), so nothing here may be skipped for one.
+func clear_in_flight() -> void:
 	for c in get_children():
-		if c is Arena or c is GasRing or c is Fighter or c is Projectile or c is Lob or c is Boomerang \
-				or c is HackySack or c is Ball or c is CupMode:
+		if c is Projectile or c is Lob or c is Boomerang or c is HackySack \
+				or c is MeleeSwipe or c is Shockwave or c is DisconnectZone:
+			c.queue_free()
+
+func start_match() -> void:
+	clear_in_flight()
+	for c in get_children():
+		if c is Arena or c is GasRing or c is Fighter or c is Ball or c is CupMode:
 			c.queue_free()
 	for c in get_tree().get_nodes_in_group("lootbox") + get_tree().get_nodes_in_group("cube"):
 		c.queue_free()
@@ -363,6 +599,7 @@ func start_match() -> void:
 		for f in fighters:
 			_sim_kit(f.kit.name).spawns += 1
 		phase = Phase.PLAYING   # no countdown between sim matches
+		match_start = now
 		center_label.text = ""
 		gas = GasRing.new()
 		add_child(gas)
@@ -374,6 +611,10 @@ func start_match() -> void:
 	for f in fighters:
 		f.reset_physics_interpolation()
 	cam.reset_physics_interpolation()
+	# The arena, the roster and the HUD are all up: this is the first frame
+	# worth looking at, so the loading screen can come off. start_match() awaits
+	# a frame partway through, which is why this cannot live in _ready.
+	Loading.done()
 
 ## What the player brought to the match: the menu's pick, or a random kit when
 ## the balance sim is driving every slot.
@@ -603,7 +844,14 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 	if now - _last_impact_at >= IMPACT_GAP:
 		_last_impact_at = now
 		sfx_at(impact_sound, target.global_position)
+		# Sharing the sound's throttle on purpose: a nine-pellet shotgun would
+		# otherwise stack nine identical bursts on one frame, which reads as one
+		# fat flash rather than as nine hits and costs nine draw calls to do it.
+		var from: Vector3 = kb_dir if kb_strength > 0.0 else \
+				(target.global_position - attacker.global_position if attacker != null else Vector3.ZERO)
+		_hit_spark(target.global_position, from, target.kit.get("color", Color.WHITE))
 	if attacker != null:
+		attacker.stats.damage += amount
 		var was_charged: bool = attacker.is_super_ready()
 		attacker.charge_super(amount)
 		# The moment the bar fills is the only cue the player gets that the
@@ -614,8 +862,10 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 			_sim_kit(attacker.kit.name).damage += amount
 			_sim_kit(attacker.kit.name).hits += 1
 	if target.is_dead():
-		if sim_active and attacker != null:
-			_sim_kit(attacker.kit.name).kills += 1
+		if attacker != null:
+			attacker.stats.kills += 1
+			if sim_active:
+				_sim_kit(attacker.kit.name).kills += 1
 		_eliminate(target, attacker.display_name if attacker != null else "")
 
 func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -> void:
@@ -635,6 +885,7 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 	# thing that happens in a match and has to cut through the shot it replaces.
 	sfx_at("super_fire" if is_super else _attack_sound(weapon), f.global_position,
 			3.0 if is_super else 0.0)
+	_muzzle_flash(f, unit, weapon)
 	match int(weapon.style):
 		Kits.Style.PELLETS:
 			var shot_weapon := weapon
@@ -1485,6 +1736,10 @@ func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
 	# Ahead of the Cup branch: a Cup death is a setback rather than an exit, but
 	# it still wants the sound.
 	sfx_at("elimination", f.global_position, 3.0)
+	# How long they lasted, for the results card. Not set in Nobles Cup, where a
+	# death is a three-second setback and "survived" means nothing.
+	if cup == null:
+		f.stats.survived = maxf(0.0, now - match_start)
 	if cup != null:
 		# Nobles Cup: the fighter is parked and comes back, and the roster it
 		# was counted in never shrinks, so none of the Showdown flow applies.
@@ -1512,7 +1767,7 @@ func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
 		# until one fighter remains (matches only exist host-side).
 		if f == player:
 			player = null
-			_net_show_results(rank, false)
+			_net_show_results(rank, false, f)
 		if fighters.size() <= 1:
 			_net_finish()
 		return
@@ -1569,13 +1824,13 @@ func _end_match(rank: int, victory: bool) -> void:
 	aim_stick.release()
 	super_stick.release()
 	sfx_ui("victory" if victory else "defeat", 2.0)
-	results_title.text = ("VICTORY!" if victory else "DEFEATED") + "\nYou placed #%d of 10" % rank
-	results_title.add_theme_color_override("font_color",
-		Color(1.0, 0.85, 0.2) if victory else Color(0.95, 0.4, 0.35))
+	# A winner is still standing, so their clock stops here; a loser's was
+	# stopped by _eliminate on the way in.
+	if player != null and is_instance_valid(player) and not player.is_dead():
+		player.stats.survived = maxf(0.0, now - match_start)
 	var award: Dictionary = SaveGame.award_match(player.kit.name, rank)
-	results_award.text = "TROPHIES %+d      COINS +%d      PASS +%d" % [
-		award.trophies, award.coins, award.tokens]
-	results.visible = true
+	_show_results(1 if victory else -1, "You placed #%d of 10" % rank,
+			str(player.kit.name), award, _showdown_rows(player), authoritative)
 
 ## Called by CupMode when the whistle goes. Nobles Cup has no placement, so it
 ## borrows Showdown's reward curve at the ranks that pay what a 3v3 result
@@ -1590,15 +1845,139 @@ func end_cup_match(blue: int, red: int) -> void:
 	var won := blue > red
 	var drew := blue == red
 	sfx_ui("victory" if won else "defeat", 2.0)
-	results_title.text = "%s\n%d — %d" % [
-			"VICTORY!" if won else ("DRAW" if drew else "DEFEATED"), blue, red]
-	results_title.add_theme_color_override("font_color",
-			Color(1.0, 0.85, 0.2) if won else
-			(Color(0.85, 0.85, 0.85) if drew else Color(0.95, 0.4, 0.35)))
 	var award: Dictionary = SaveGame.award_match(player.kit.name, 1 if won else (5 if drew else 9))
-	results_award.text = "TROPHIES %+d      COINS +%d      PASS +%d" % [
-			award.trophies, award.coins, award.tokens]
-	results.visible = true
+	_show_results(1 if won else (0 if drew else -1), "%d — %d" % [blue, red],
+			str(player.kit.name), award, [], authoritative,
+			_cup_scoreboard([blue, red]))
+
+## Nobles Cup's end card: a TEAM SCOREBOARD, both sides, every player — the way
+## Brawl Stars ends a Brawl Ball match. It replaced a four-row personal table,
+## which said what you did and nothing about the five people you did it with.
+##
+## This is only possible in Cup. `fighters` never shrinks there, because a death
+## parks the fighter rather than freeing it, so all six are still present at the
+## whistle with their stats intact. Showdown FREES a fighter on elimination, so
+## by the time its results card is built most of the roster is gone — which is
+## why the two modes cannot share this layout, and why Showdown keeps the
+## portrait-and-stat-table body.
+##
+## Survival is not a column: it is meaningless where death costs three seconds.
+## Neither is SAVES, for the reason the old table carried — measured with
+## NS3_SAVE_LOG=1 the ball changes hands about seven times a match and nearly
+## every one is a team collecting its own forward pass, so the column would read
+## 0 for all six. `Fighter.stats.saves` and `CupMode._is_save` stay maintained.
+func _cup_scoreboard(score: Array) -> Control:
+	var board: HBoxContainer = MenuUI.hbox(16)
+	for team in 2:
+		board.add_child(_cup_team_column(team, int(score[team])))
+	return board
+
+## Width of one stat cell. Fixed rather than shrink-to-fit so the three columns
+## line up down the card however wide the damage number gets.
+const CUP_STAT_W := 54.0
+## Matches MenuUI.dark_panel's internal padding, so the key line above the rows
+## sits over the numbers rather than 8px off them.
+const CUP_ROW_PAD := 8
+
+func _cup_team_column(team: int, goals: int) -> Control:
+	var tint: Color = Arena.TEAM_COLORS[team]
+	var column: VBoxContainer = MenuUI.vbox(6)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var head: PanelContainer = MenuUI.dark_panel(11, 0.44, CUP_ROW_PAD)
+	var head_line: HBoxContainer = MenuUI.hbox(8)
+	head.add_child(head_line)
+	# Named by side rather than by colour: "YOUR TEAM" is what the player needs
+	# to find first, and team 0 is always theirs in single-player Cup.
+	var side: Label = MenuUI.display("YOUR TEAM" if team == 0 else "OPPONENTS", 20, tint, 4)
+	side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	side.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head_line.add_child(side)
+	head_line.add_child(MenuUI.display(str(goals), 30, Color.WHITE, 5))
+	column.add_child(head)
+
+	column.add_child(_cup_column_key())
+	for f: Fighter in _cup_team_fighters(team):
+		column.add_child(_cup_player_row(f, tint))
+	return column
+
+## One team's fighters, best contribution first, so whoever decided the match is
+## at the top of their column. Goals outrank damage: a striker who scored once
+## and dealt little did more than a team-mate who chipped away and did not.
+func _cup_team_fighters(team: int) -> Array:
+	var out: Array = []
+	for f: Fighter in fighters:
+		if is_instance_valid(f) and f.team == team:
+			out.append(f)
+	out.sort_custom(func(a: Fighter, b: Fighter) -> bool:
+		if int(a.stats.goals) != int(b.stats.goals):
+			return int(a.stats.goals) > int(b.stats.goals)
+		return int(a.stats.damage) > int(b.stats.damage))
+	return out
+
+func _cup_column_key() -> Control:
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", CUP_ROW_PAD)
+	margin.add_theme_constant_override("margin_right", CUP_ROW_PAD)
+	var line: HBoxContainer = MenuUI.hbox(8)
+	margin.add_child(line)
+	line.add_child(MenuUI.spacer())
+	for key: String in ["G", "K", "DMG"]:
+		var l: Label = MenuUI.body(key, 14, MenuUI.TEXT_DIM, true)
+		l.custom_minimum_size = Vector2(CUP_STAT_W, 0)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		line.add_child(l)
+	return margin
+
+func _cup_player_row(f: Fighter, tint: Color) -> Control:
+	var you: bool = f == player
+	# Your own row is lifted out of its column with a brighter plate and a white
+	# name, so you can find yourself in six without reading the names.
+	var row: PanelContainer = MenuUI.dark_panel(10, 0.52 if you else 0.30, CUP_ROW_PAD)
+	var line: HBoxContainer = MenuUI.hbox(8)
+	row.add_child(line)
+	line.add_child(_cup_face(f, tint))
+	var name_l: Label = MenuUI.body(str(f.display_name).to_upper(), 17,
+			Color.WHITE if you else MenuUI.TEXT_SOFT, true)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(name_l)
+	line.add_child(_cup_stat(str(int(f.stats.goals))))
+	line.add_child(_cup_stat(str(int(f.stats.kills))))
+	line.add_child(_cup_stat(MenuUI.fmt(int(f.stats.damage))))
+	return row
+
+func _cup_stat(text: String) -> Label:
+	var l: Label = MenuUI.display(text, 20, Color.WHITE, 4)
+	l.custom_minimum_size = Vector2(CUP_STAT_W, 0)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return l
+
+## A row's portrait chip, on its team colour. Same fallback as the big card:
+## a kit with no rendered portrait (Nova, Ayaan) shows its initial in kit colour.
+func _cup_face(f: Fighter, tint: Color) -> Control:
+	var holder: Panel = MenuUI.card("dark", 9, 3)
+	holder.custom_minimum_size = Vector2(38, 38)
+	holder.add_child(MenuUI.card_backdrop(Color(tint.r, tint.g, tint.b, 0.34)))
+	var kit_name: String = str(f.kit.name)
+	var tex: Texture2D = MenuData.portrait(kit_name.to_lower())
+	if tex != null:
+		var pr := TextureRect.new()
+		pr.texture = tex
+		pr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		pr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		pr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		holder.add_child(pr)
+	else:
+		var initial: Label = MenuUI.display(kit_name.substr(0, 1).to_upper(), 22,
+				f.kit.get("color", Color.WHITE), 4)
+		initial.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		holder.add_child(initial)
+	return holder
 
 func _update_players_label() -> void:
 	# Nobles Cup shows a score and a clock instead; CupMode owns those labels.
@@ -1686,6 +2065,7 @@ func _physics_process(delta: float) -> void:
 				var remaining: float = (PREMATCH if versus != null else 3.5) - elapsed
 				if remaining <= 0.0:
 					phase = Phase.PLAYING
+					match_start = now
 					_hide_versus()
 					center_label.text = "FIGHT!"
 					sfx_ui("count_go", 3.0)
@@ -1936,6 +2316,14 @@ func _aim_bounce_segments(origin: Vector3, direction: Vector3,
 	return segments
 
 func _run_playing(delta: float) -> void:
+	if _force_end_at > 0.0 and now - match_start >= _force_end_at and not sim_active:
+		_force_end_at = 0.0
+		if cup != null:
+			cup.finished = true
+			end_cup_match(cup.score[0], cup.score[1])
+		elif player != null and is_instance_valid(player):
+			_end_match(fighters.size(), fighters.size() == 1)
+		return
 	# In sim mode the player slot is brain-driven; skip input. After it dies
 	# the node is freed while the match runs on, hence the validity guards.
 	# Nobles Cup holds everyone still through the kickoff beat and once the
@@ -2197,14 +2585,35 @@ func _update_concealment() -> void:
 			var near := f.global_position.distance_to(player.global_position) < Kits.BUSH_REVEAL
 			f.set_concealed(in_bush and not near, false)
 
+## How hard the camera chases: briskly on the player, and a slower glide while
+## it is away on a goal, so a celebration pan reads as a move rather than a cut.
+const CAM_FOLLOW := 0.15
+const CAM_PAN := 0.055
+## Somewhere other than the player to look, until `_cam_focus_until`.
+var _cam_focus := Vector3.ZERO
+var _cam_focus_until := -1.0
+
+## Send the camera somewhere that is not the player for a beat. Used by
+## CupMode when a goal goes in: the freeze that follows already holds input, so
+## nobody loses control of anything while the view is away.
+func focus_camera(at: Vector3, seconds: float) -> void:
+	_cam_focus = at
+	_cam_focus_until = now + seconds
+
 func _process(_delta: float) -> void:
-	if player == null or not is_instance_valid(player):
+	var anchor: Vector3
+	if now < _cam_focus_until:
+		anchor = _cam_focus
+	elif player != null and is_instance_valid(player):
+		anchor = player.global_position
+	else:
 		return
 	# Translate only — rotation is fixed at match start. Re-aiming at the
 	# player every frame yaws/rolls the world whenever the camera lags a
 	# strafing player.
-	var target := player.global_position + CAMERA_OFFSET
-	cam.global_position = cam.global_position.lerp(target, 0.15)
+	var target := anchor + CAMERA_OFFSET
+	cam.global_position = cam.global_position.lerp(target,
+			CAM_PAN if now < _cam_focus_until else CAM_FOLLOW)
 
 func _update_status() -> void:
 	if player == null or not is_instance_valid(player):
@@ -2409,19 +2818,24 @@ func _net_send_snapshot() -> void:
 
 ## Net results overlay: unlike _end_match this never flips the phase — the
 ## host's sim keeps running for whoever is still alive.
-func _net_show_results(rank: int, victory: bool) -> void:
+func _net_show_results(rank: int, victory: bool, who: Fighter = null) -> void:
 	center_label.text = ""
 	move_stick.release()
 	aim_stick.release()
 	super_stick.release()
-	results_title.text = ("VICTORY!" if victory else "DEFEATED") \
-		+ "\nYou placed #%d of %d" % [rank, _net_roster.size()]
-	results_title.add_theme_color_override("font_color",
-		Color(1.0, 0.85, 0.2) if victory else Color(0.95, 0.4, 0.35))
+	if who != null and is_instance_valid(who) and not who.is_dead():
+		who.stats.survived = maxf(0.0, now - match_start)
 	var award: Dictionary = SaveGame.award_match(_my_kit_name, rank)
-	results_award.text = "TROPHIES %+d      COINS +%d      PASS +%d" % [
-		award.trophies, award.coins, award.tokens]
-	results.visible = true
+	_show_results(1 if victory else -1, "You placed #%d of %d" % [rank, _net_roster.size()],
+			_my_kit_name, award, _net_rows(who), authoritative)
+
+## A net client never runs deal_damage — every mutation is host-side and the
+## client only renders snapshots — so the one line it can fill in honestly is
+## the clock it keeps itself. The rest would be a column of zeros.
+func _net_rows(f: Fighter) -> Array:
+	if authoritative:
+		return _showdown_rows(f)
+	return [["SURVIVED", _fmt_clock(maxf(0.0, now - match_start))]]
 
 ## Host: one fighter (or none, if the gas closed) remains — end the match.
 func _net_finish() -> void:
@@ -2431,9 +2845,10 @@ func _net_finish() -> void:
 		idx = net_fighters.find(fighters[0])
 	_net_match_over.rpc(idx)
 	if idx >= 0 and fighters[0] == player:
-		_net_show_results(1, true)
-	elif idx >= 0 and results.visible:
-		results_title.text += "\n%s wins!" % fighters[0].display_name
+		_net_show_results(1, true, player)
+	elif idx >= 0 and results.visible and is_instance_valid(results_note):
+		results_note.text = "%s wins!" % fighters[0].display_name
+		results_note.visible = true
 
 func _on_net_peer_left(id: int) -> void:
 	_peer_inputs.erase(id)
@@ -2447,7 +2862,7 @@ func _on_net_peer_left(id: int) -> void:
 func _on_net_host_lost() -> void:
 	center_label.text = "HOST LEFT"
 	get_tree().create_timer(1.2).timeout.connect(func() -> void:
-		get_tree().change_scene_to_file("res://menu.tscn"))
+		Loading.to_menu(get_tree()))
 
 # MARK: net RPCs (client -> host)
 
@@ -2503,6 +2918,7 @@ func _net_snapshot(phase_h: int, inset: int, left: int, states: Array) -> void:
 	players_label.text = "%d LEFT" % left
 	if phase == Phase.COUNTDOWN and phase_h == int(Phase.PLAYING):
 		phase = Phase.PLAYING
+		match_start = now
 		center_label.text = "FIGHT!"
 		get_tree().create_timer(0.8).timeout.connect(func() -> void:
 			if phase == Phase.PLAYING:
@@ -2570,9 +2986,10 @@ func _net_match_over(idx: int) -> void:
 			and is_instance_valid(net_fighters[idx]):
 		var w: Fighter = net_fighters[idx]
 		if w == player:
-			_net_show_results(1, true)
-		elif results.visible:
-			results_title.text += "\n%s wins!" % w.display_name
+			_net_show_results(1, true, player)
+		elif results.visible and is_instance_valid(results_note):
+			results_note.text = "%s wins!" % w.display_name
+			results_note.visible = true
 
 @rpc("authority", "call_remote", "reliable")
 func _net_box_damaged(box_name: String, hp: int) -> void:

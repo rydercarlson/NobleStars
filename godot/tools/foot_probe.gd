@@ -5,7 +5,7 @@ extends SceneTree
 ##   /Applications/Godot.app/Contents/MacOS/Godot --path godot --headless \
 ##       --script res://tools/foot_probe.gd
 
-const MODELS := ["tony", "henry", "sanjit", "kovacs", "leon"]
+const MODELS := ["tony", "henry", "sanjit", "kovacs", "leon", "anders", "hammy"]
 
 var _done := false
 

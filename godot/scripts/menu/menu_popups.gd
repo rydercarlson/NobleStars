@@ -5,12 +5,12 @@ class_name MenuPopups
 ## Music / SFX / hints toggles, name change, support and reset.
 static func settings(shell: MenuShell) -> MenuPopup:
 	var popup: MenuPopup = shell.popup("Settings")
-	popup.setting_row("Music", "Menu music", _toggle(shell, "music",
+	popup.setting_row("Music", "Menu music", _toggle("music",
 			func(on: bool) -> void: shell.audio.set_music(on)))
 	popup.setting_row("Sound FX", "Button and brawler sounds",
-			_toggle(shell, "sfx", func(_on: bool) -> void: shell.sfx("click")))
+			_toggle("sfx", func(_on: bool) -> void: shell.sfx("click")))
 	popup.setting_row("Hints", "Show tips on the home screen",
-			_toggle(shell, "hints", func(_on: bool) -> void: shell.home.refresh()))
+			_toggle("hints", func(_on: bool) -> void: shell.home.refresh()))
 
 	var change: Button = MenuUI.small_button("CHANGE", "blue")
 	change.pressed.connect(func() -> void:
@@ -50,8 +50,10 @@ static func settings(shell: MenuShell) -> MenuPopup:
 			"Wipes coins, gems, unlocks and settings on this device", reset)
 	return popup
 
-## The pill toggle from the CSS, bound to one of the save's settings flags.
-static func _toggle(shell: MenuShell, key: String, on_change: Callable) -> Button:
+## The pill toggle from the CSS, bound to one of the save's settings flags. It
+## needs no MenuShell of its own: each caller's `on_change` closes over the one
+## it already has.
+static func _toggle(key: String, on_change: Callable) -> Button:
 	var button := Button.new()
 	button.custom_minimum_size = Vector2(124, 58)
 	button.toggle_mode = true

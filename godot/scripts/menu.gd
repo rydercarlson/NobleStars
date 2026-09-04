@@ -40,6 +40,7 @@ func _ready() -> void:
 		return
 	_build_stage()
 	_wire_debug_screenshot()
+	Loading.done()   # lifts the loading screen if we got here from a match
 
 ## Debug hooks that skip the menu entirely. Returns true if one took over.
 func _handle_debug_hooks() -> bool:
@@ -403,7 +404,7 @@ func start_match() -> void:
 	var mode: Dictionary = selected_mode()
 	Session.kit = Kits.named(SaveGame.selected_kit)
 	Session.mode = MenuData.engine_mode(str(mode.id))
-	get_tree().change_scene_to_file("res://game.tscn")
+	Loading.to_match(get_tree())
 
 # MARK: toasts, popups, particles
 
@@ -527,10 +528,18 @@ func _wire_debug_screenshot() -> void:
 		show_screen(start)
 	if detail != "" and not _stack.is_empty() and _stack[-1] is BrawlersScreen:
 		(_stack[-1] as BrawlersScreen).open_detail(MenuData.brawler(detail))
+	# "loading" is not a screen in the stack — it is the transition out of the
+	# menu. Pressing PLAY here is what puts it on screen, and it is done whether
+	# or not a menu shot was asked for, so that pairing it with NS3_SHOTS
+	# instead exercises the whole menu -> loading -> match handoff.
+	if start == "loading":
+		start_match.call_deferred()
 	var shot: String = OS.get_environment("NS3_MENU_SHOT")
 	if shot == "":
 		return
-	get_tree().create_timer(2.0).timeout.connect(func() -> void:
+	# Deliberately inside LoadingScreen.MIN_SHOW, or the match is already up.
+	var delay: float = 0.55 if start == "loading" else 2.0
+	get_tree().create_timer(delay).timeout.connect(func() -> void:
 		var out: String = Session.shot_path(shot)
 		get_viewport().get_texture().get_image().save_png(out)
 		print("NS3_MENU_SHOT wrote ", ProjectSettings.globalize_path(out))

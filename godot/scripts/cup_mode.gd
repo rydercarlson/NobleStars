@@ -16,6 +16,12 @@ const OVERTIME_SECONDS := 60.0
 const RESPAWN_SECONDS := 3.0
 ## Kickoff hold, long enough to read the score and see where the ball is.
 const KICKOFF_FREEZE := 2.0
+## How long the camera stays on the goal that was just conceded. Deliberately
+## shorter than KICKOFF_FREEZE, so the view is already back on the player by the
+## time input is handed over rather than racing there as play restarts.
+const GOAL_CAMERA_HOLD := 1.35
+## How far back toward the centre spot the goal shot is framed, 0..1.
+const GOAL_CAMERA_INSET := 0.3
 ## How close a bot gets before it shoots, and the reach a tap-to-kick treats as
 ## "on goal". Comfortably inside Ball.kick_range() so a shot arrives with pace
 ## left; a Super Shot multiplies both. A bot that fires the moment the goal is
@@ -144,9 +150,14 @@ func kickoff(now: float, opening := false) -> void:
 				f.respawn(spot, now)
 			else:
 				f.position = spot
+				f.kickoff_restore(now)
 				f.reset_physics_interpolation()
 		f.face_direction(_attack_dir(f.team))
 	_respawning.clear()
+	# A lob or a boomerang thrown a moment before the whistle is still in the
+	# air, and the freeze holds everyone still on the centre spot for it to land
+	# on. Ahead of ball.place(), which must not be swept up with it.
+	game.clear_in_flight()
 	ball.place(arena.centre(), now, KICKOFF_FREEZE)
 	ball.last_touch = null
 	_frozen_until = now + KICKOFF_FREEZE
@@ -218,8 +229,52 @@ func _pickup_check(now: float) -> void:
 			best = f
 			best_d = d
 	if best != null:
+		if OS.get_environment("NS3_SAVE_LOG") != "":
+			var og: Vector3 = game.arena.goal_centers[best.team] if best.team >= 0 else Vector3.ZERO
+			var tg: Vector3 = og - ball.position
+			print("[cup] pickup %-10s pace %5.2f  dot %+5.2f  own-half %s  opp-touch %s  -> %s" % [
+					best.display_name, ball.velocity.length(),
+					Vector3(ball.velocity.x, 0, ball.velocity.z).normalized().dot(
+						Vector3(tg.x, 0, tg.z).normalized()),
+					ball.position.distance_to(og) < ball.position.distance_to(game.arena.centre()),
+					is_instance_valid(ball.last_touch) and ball.last_touch.team != best.team,
+					"SAVE" if _is_save(best) else "-"])
+		if _is_save(best):
+			best.stats.saves += 1
 		ball.pick_up(best)
 		game.feed_label.text = "%s has the ball" % best.display_name
+
+## Whether this pickup was a save, for the results card. Deliberately narrow, so
+## the number means something: the ball has to be moving with pace an opponent
+## put on it, travelling toward the goal this fighter defends, and caught in
+## their own half. Scooping up a loose ball at the halfway line is not a save,
+## and neither is collecting your own team's pass back.
+##
+## A save is genuinely rare, and that is not a bug: measured over a full match
+## (NS3_SAVE_LOG=1) the ball changes hands about seven times, and most of those
+## are a team collecting its own forward pass — the `dot` is strongly NEGATIVE,
+## meaning the ball is running away from the catcher's goal rather than at it.
+## The case this counts is the one `_goal_check` already has a rule for: a
+## defender scooping a shot off their own line. Thresholds are set just above a
+## ball that is merely trickling (Ball.STOP_SPEED is 0.6) rather than tuned for
+## frequency, so re-measure before moving them.
+const SAVE_SPEED := 2.5
+const SAVE_DOT := 0.35
+
+func _is_save(catcher: Fighter) -> bool:
+	if catcher.team < 0:
+		return false
+	var pace: Vector3 = ball.velocity
+	if pace.length() < SAVE_SPEED:
+		return false
+	if not is_instance_valid(ball.last_touch) or ball.last_touch.team == catcher.team:
+		return false
+	var own_goal: Vector3 = game.arena.goal_centers[catcher.team]
+	var to_goal: Vector3 = own_goal - ball.position
+	if Vector3(pace.x, 0, pace.z).normalized().dot(Vector3(to_goal.x, 0, to_goal.z).normalized()) < SAVE_DOT:
+		return false
+	# In their own half: closer to the goal they defend than to the centre spot.
+	return ball.position.distance_to(own_goal) < ball.position.distance_to(game.arena.centre())
 
 func _respawn_check(now: float) -> void:
 	for entry in _respawning.duplicate():
@@ -291,8 +346,18 @@ func _goal_check(now: float) -> bool:
 	var who: String = ball.last_touch.display_name if is_instance_valid(ball.last_touch) \
 			else "Somebody"
 	var own := is_instance_valid(ball.last_touch) and ball.last_touch.team == conceded
+	if is_instance_valid(ball.last_touch) and not own:
+		ball.last_touch.stats.goals += 1
 	game.feed_label.text = "%s scored%s" % [who, " (own goal)" if own else ""]
 	game.sfx_ui("cup_goal", 2.0)
+	# Hold on the goal that was just conceded through most of the kickoff
+	# freeze, then hand the camera back in time for play to restart. Ahead of
+	# kickoff(), which teleports everyone — the point is not to watch that.
+	# Pulled back onto the pitch rather than sat on the goal line: a goal is at
+	# the very edge of the map, so framing it dead centre fills the top half of
+	# the screen with sky past the end of the arena.
+	game.focus_camera(game.arena.goal_centers[conceded].lerp(game.arena.centre(),
+			GOAL_CAMERA_INSET), GOAL_CAMERA_HOLD)
 	_refresh_hud()
 	if score[scorer] >= GOALS_TO_WIN or overtime:
 		_finish(now)

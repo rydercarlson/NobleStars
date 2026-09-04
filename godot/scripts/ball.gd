@@ -132,7 +132,9 @@ func kick(dir: Vector3, now: float, speed_mult := 1.0) -> void:
 	velocity = unit * KICK_SPEED * speed_mult
 	free_at = now + 0.28
 
-func tick(delta: float, now: float, arena: Arena) -> void:
+## `_now` is unused: the ball's only clock is `free_at`, which kick() stamps and
+## cup_mode reads. The parameter stays so both call sites there read alike.
+func tick(delta: float, _now: float, arena: Arena) -> void:
 	if carrier != null:
 		if not is_instance_valid(carrier) or carrier.is_dead():
 			# cup_mode drops it properly; this is only the safety net.

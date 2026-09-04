@@ -216,12 +216,15 @@ func _skin_card(skin: Dictionary) -> Panel:
 
 	var column := MenuUI.vbox(6)
 	MenuUI.card_body(card, 16).add_child(column)
-	var brawler_id: String = str(skin.get("brawler", ""))
 	var art_holder := CenterContainer.new()
 	art_holder.custom_minimum_size = Vector2(0, 132)
 	column.add_child(art_holder)
 	var art := TextureRect.new()
-	art.texture = MenuData.portrait(brawler_id)
+	# The skin's own illustration where one has been drawn — two of the five
+	# have — and the plain portrait where none has. The card used to show the
+	# portrait unconditionally, so skin_leon_homecoming and skin_tony_fieldday
+	# shipped in the build and were never once drawn on screen.
+	art.texture = MenuData.skin_art(skin)
 	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	art.custom_minimum_size = Vector2(132, 132)

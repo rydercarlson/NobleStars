@@ -129,6 +129,9 @@ func _build_panel() -> Control:
 
 	column.add_child(_ability("A", Color("#d84a10"), Color("#ff9a5c"), brawler.attack))
 	column.add_child(_ability("S", MenuUI.YELLOW_LO, MenuUI.YELLOW_HI, brawler.super))
+	var loadout: Control = _build_loadout()
+	if loadout != null:
+		column.add_child(loadout)
 	column.add_child(MenuUI.spacer())
 
 	var actions := MenuUI.hbox(16)
@@ -149,6 +152,55 @@ func _build_panel() -> Control:
 	actions.add_child(_select_button)
 	column.add_child(actions)
 	return scroll
+
+## Gadget / Star Power / Gear / Hypercharge, named in brawlers.json. Nothing
+## in the match reads them yet — they are copy, the way the roles and the
+## attack write-ups are — so this only ever displays what the JSON carries and
+## returns null for a kit that carries none, rather than showing four empty
+## slots for Nova and Ayaan.
+const LOADOUT_ROWS := [
+	["gadget", "Gadget", "gadget"],
+	["star_power", "Star Power", "star_power"],
+	["gear", "Gear", "gear"],
+	["hypercharge", "Hypercharge", "hypercharge"],
+]
+
+func _build_loadout() -> Control:
+	var loadout: Dictionary = brawler.get("loadout", {})
+	# Gathered before the grid is built: a GridContainer made and then dropped
+	# is an orphan node, not a freed one.
+	var filled: Array = []
+	for row in LOADOUT_ROWS:
+		var value: String = str(loadout.get(row[0], ""))
+		if value != "":
+			filled.append([str(row[2]), str(row[1]), value])
+	if filled.is_empty():
+		return null
+	var grid: GridContainer = MenuUI.grid(2, 12)
+	for slot: Array in filled:
+		grid.add_child(_loadout_slot(slot[0], slot[1], slot[2]))
+	return grid
+
+## Same two-column rhythm as the stat grid above it, with the slot's icon
+## standing in for the stat name so the block reads as a different kind of row.
+func _loadout_slot(icon_name: String, kind: String, value: String) -> PanelContainer:
+	var p: PanelContainer = MenuUI.dark_panel(12, 0.35, 12)
+	# Without this the grid sizes each cell to its content and the two columns
+	# come out narrower than the stat rows above, which wraps "Extra Clip".
+	# _stat gets the same width for free from the spacer() inside it.
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var row := MenuUI.hbox(10)
+	p.add_child(row)
+	row.add_child(MenuUI.icon(icon_name, 30))
+	var text := MenuUI.vbox(0)
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	text.add_child(MenuUI.body(kind.to_upper(), 16, MenuUI.TEXT_DIM))
+	# 22, not the stat grid's 30: half the panel width has to hold two words
+	# ("Extra Clip", "Hall Pass") beside an icon without wrapping them.
+	text.add_child(MenuUI.wrap(MenuUI.display(value, 22, MenuUI.TEXT, 0)))
+	row.add_child(text)
+	return p
 
 func _stat(key: String, value: String) -> PanelContainer:
 	var p: PanelContainer = MenuUI.dark_panel(12, 0.35, 12)

@@ -13,6 +13,7 @@ const BRAWLERS_PATH := "res://data/brawlers.json"
 const GAME_PATH := "res://data/game.json"
 const PORTRAIT_DIR := "res://assets/menu/portraits/"
 const CARD_DIR := "res://assets/menu/cards/"
+const DECOR_DIR := "res://assets/menu/decor/"
 
 static var loaded := false
 static var brawlers: Array = []        # merged entries, roster order
@@ -70,6 +71,16 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 			"reload": reload_label(float(kit.get("reload", Kits.RELOAD_NORMAL))),
 		},
 	}
+	# v0.5 loadout copy, straight from the JSON — there is no Kits counterpart
+	# because the game does not simulate gadgets, gears, Star Powers or
+	# Hypercharges yet. A kit with no JSON entry (Nova, Ayaan) gets four empty
+	# strings, and the detail screen draws only the rows that are filled.
+	out["loadout"] = {
+		"gadget": str(entry.get("gadget", "")),
+		"star_power": str(entry.get("starPower", "")),
+		"gear": str(entry.get("gear", "")),
+		"hypercharge": str(entry.get("hypercharge", "")),
+	}
 	var atk: Dictionary = entry.get("attack", {})
 	out["attack"] = {
 		"name": str(atk.get("name", out.role if out.role != "" else "Attack")),
@@ -113,6 +124,25 @@ static func card_art(id: String) -> Texture2D:
 	if not ResourceLoader.exists(path):
 		return null
 	return load(path) as Texture2D
+
+## A shop skin's own illustration, named by its `art` key in game.json and
+## drawn from the decor folder. Only two of the five skins have been drawn, so
+## this falls back to the brawler's plain portrait — which is what the card used
+## to show unconditionally, art or no art. Give a skin an `art` key the moment
+## its file lands and the card picks it up.
+static func skin_art(skin: Dictionary) -> Texture2D:
+	var art: String = str(skin.get("art", ""))
+	if art != "":
+		var path: String = DECOR_DIR + art + ".webp"
+		if ResourceLoader.exists(path):
+			return load(path) as Texture2D
+	return portrait(str(skin.get("brawler", "")))
+
+## Whether this skin has art of its own rather than a portrait standing in —
+## the card frames the two differently.
+static func has_skin_art(skin: Dictionary) -> bool:
+	var art: String = str(skin.get("art", ""))
+	return art != "" and ResourceLoader.exists(DECOR_DIR + art + ".webp")
 
 static func modes() -> Array:
 	ensure_loaded()
