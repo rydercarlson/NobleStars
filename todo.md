@@ -394,9 +394,53 @@ those before anything else on the list.
 - [ ] **Balance pass.** Run `NS3_SIM=<n>` (headless) across the seven kits and
       tune against `CHARACTER_BUILDING.md`; damage is derived from the tier
       tables, never picked by taste. Nova is a placeholder — don't tune her.
-- [ ] **Bots ignore terrain.** `bot_brain.gd` handles targeting, lead aiming, and
-      unsticking well, but it never uses walls as cover or bushes to ambush —
-      the two things that make Showdown read as a real fight.
+- [x] **Bots use walls as cover and bushes to ambush.** Both are expressed the
+      way every other decision in `bot_brain.gd` is — a point to walk toward —
+      so they drop into the `_pick_move` ladder without disturbing the
+      priorities around them. Verify either one with `NS3_BOT_LOG=1`.
+      - **Cover** triggers on the two moments a bot has nothing to trade: below
+        30% health (which already fled, and now flees *somewhere*), or holding
+        an empty magazine within 1.2x weapon range of someone who can actually
+        see it. `_find_cover` scores every tile in a 4-tile window that has a
+        wall on the line to the enemy, preferring the shortest trip — the walk
+        is the part that gets you shot — with a smaller term that stops a bot
+        backing so far out that returning means re-crossing the same ground.
+        Arriving, it stands still and reloads rather than jittering on the tile.
+      - **Ambush** is the bush half. Idle bots (ranked below loot — a cube in
+        hand beats a hiding place) walk to the nearest reachable bush and wait
+        there, and a bot already in one holds still instead of breaking cover to
+        meet a target it can see. That asymmetry is real and was previously
+        never sought: `main.gd:can_see` tests the *target's* tile, so a bot in a
+        bush sees out while staying unseen past `Kits.BUSH_REVEAL`.
+      - **Both are time-boxed, and that is load-bearing.** Lurking runs
+        `AMBUSH_HOLD` then rests for 4-8s of wandering before another bush is
+        considered; without the rest a bot that spawns beside one never leaves
+        it and the match stops converging. A hidden bot also gives a target
+        `AMBUSH_PATIENCE` to walk into range before closing itself, or an
+        ambusher whose target never approaches simply stops playing.
+      - **Every terrain query is sampled against the ASCII map**
+        (`Arena.tile_at`), not raycast: it costs no physics, agrees exactly with
+        `blocks_movement` and with a wall `Arena.open_at` has shot out, and is
+        cheap enough to score a whole window on one think tick. Only `#` blocks
+        sight — water and bushes do not.
+      - Two costs found by measuring rather than reasoning, both now guarded:
+        a bot at point-blank rescanned the window every `COVER_HOLD` and could
+        never find anything (there is no line to break with someone on top of
+        you — `COVER_MIN_ENEMY`), and caching only *successful* searches left a
+        bot with nothing to hide behind rescanning every think tick for as long
+        as it stayed in trouble. Failed searches are cached too.
+      - A/B'd at 20 headless matches a side. Damage per spawn is up slightly
+        across the board — cover makes fights last longer — average placement is
+        flat, and no kit's `hits/atk` collapsed toward zero, which was the
+        failure mode being watched for. Win% moved by up to 10pp in both
+        directions, which at ~20 spawns per kit is noise, not a balance finding;
+        the balance pass above is still open and unaffected.
+- [ ] **Bots still don't use terrain offensively.** What landed above is
+      defensive and idle behaviour. A bot never breaks *its own* line of sight
+      to reposition mid-fight, never pushes a target into the gas, and never
+      picks the approach that stays behind cover — it walks the straight line to
+      its ideal range and strafes there. `Arena.route_to_goal`'s BFS is the
+      shape a cover-aware approach would want, generalised off the goal mouths.
 
 ## Multiplayer
 

@@ -70,6 +70,59 @@ const AIM_ERROR_SIM_MAX := 2.0
 
 var _aim_error_sim := randf_range(AIM_ERROR_SIM_MIN, AIM_ERROR_SIM_MAX)
 
+# MARK: terrain state
+#
+# Bots read the arena for two things only: a wall to break line of sight with
+# while they are useless, and a bush to be unseen in. Both are expressed the way
+# every other decision here is — a point to walk toward — so they drop into the
+# `_pick_move` ladder without disturbing the priorities around them.
+#
+# Every terrain query is sampled against the ASCII map (`Arena.tile_at`) rather
+# than raycast. That is deliberate: it costs no physics, it agrees exactly with
+# `blocks_movement` and with a wall that `Arena.open_at` has shot out, and it is
+# cheap enough to score a whole window of candidate tiles on one think tick.
+
+## How far out, in tiles, a bot looks for cover and for a bush. Four tiles is
+## about two seconds of walking at 4 m/s — far enough to find a wall on an open
+## map, near enough that the walk itself is not the thing that kills you.
+const COVER_SCAN := 4
+const BUSH_SCAN := 5
+## Ignore candidates we are already standing on: a "cover" tile half a metre
+## away is the tile we are being shot on.
+const COVER_MIN_TILES := 1.0
+## Below this the search is not worth running: there is no line to break with
+## someone standing on top of you, and walking to a wall past them is strictly
+## worse than the strafe the caller already falls back to. Measured — a bot at
+## point-blank was re-scanning the whole window every COVER_HOLD and finding
+## nothing, every time.
+const COVER_MIN_ENEMY := Kits.TILE * 1.5
+## How long a chosen cover tile is kept before it is re-scored. Re-picking every
+## think tick made bots oscillate between two equally good walls.
+const COVER_HOLD := 1.2
+## How long a bot will sit in a bush with nothing to shoot before it gets bored
+## and goes back to wandering, and how long it wanders before it may hide again.
+const AMBUSH_HOLD := 6.0
+const AMBUSH_REST_MIN := 4.0
+const AMBUSH_REST_MAX := 8.0
+## How long a hidden bot waits for a target to walk into range before giving up
+## and closing the distance itself. Without a cap an ambusher whose target never
+## approaches simply stops playing.
+const AMBUSH_PATIENCE := 3.0
+
+## NS3_BOT_LOG=1 prints every time a bot takes cover, settles into a bush, or
+## holds an ambush. Terrain use is easy to mistake for missing when it is merely
+## rare, so this is how you tell "the rule never matched" from "the situation
+## never arose" — the same job NS3_SAVE_LOG does for Nobles Cup saves.
+static var _log := OS.get_environment("NS3_BOT_LOG") != ""
+
+var _cover_point := Vector3.ZERO
+var _cover_until := 0.0
+var _ambush_point := Vector3.ZERO
+var _ambush_until := 0.0
+var _ambush_ready_at := 0.0
+## When the current uninterrupted spell of lurking began; -1 when not lurking.
+var _lurk_since := -1.0
+
 func _init(f: Fighter) -> void:
 	fighter = f
 	# Fire on the kit's own ammo economy, not a constant. A flat 1.0-1.6s roll
@@ -283,7 +336,19 @@ func _pick_move(now: float, game) -> Vector3:
 		return _dir_to(game.gas_safe_center())
 
 	var enemy := _target
-	if enemy and fighter.health < fighter.max_health * 0.3:
+	var hurt: bool = enemy != null and fighter.health < fighter.max_health * 0.3
+	# The two moments a bot has nothing to trade and should spend the walk to a
+	# wall: nearly dead, or holding an empty magazine in someone's sights.
+	if enemy and (hurt or _pinned_without_ammo(game, enemy)):
+		var spot := _cover_spot(now, game, enemy)
+		if spot != Vector3.ZERO:
+			# Standing in it already — hold, rather than jittering on the tile.
+			# Reloading behind a wall is the whole point of having walked here.
+			if pos.distance_to(spot) <= Kits.TILE * 0.5:
+				return Vector3.ZERO
+			return _dir_to(spot)
+	if hurt:
+		# Nothing to hide behind: the open-ground retreat, unchanged.
 		var flee := _dir_from(enemy.global_position) + _dir_to(game.gas_safe_center()) * 0.5
 		if flee.length() < 0.3:  # enemy is between us and center; strafe out instead
 			var away := _dir_from(enemy.global_position)
@@ -298,6 +363,10 @@ func _pick_move(now: float, game) -> Vector3:
 		# one lands. Those kits set their own ideal_range_mult (Nova: 0.30).
 		var mult: float = fighter.kit.get("ideal_range_mult", 0.7)
 		var ideal: float = max(Kits.TILE * 0.9, fighter.kit.weapon.range * mult)
+		# Unseen in a bush: let them walk onto us instead of breaking cover to
+		# meet them in the open. Holding still is the ambush.
+		if _should_lurk(now, game, pos, dist, ideal):
+			return Vector3.ZERO
 		var toward := _dir_to(enemy.global_position)
 		if dist > ideal * 1.2:
 			return toward
@@ -308,11 +377,191 @@ func _pick_move(now: float, game) -> Vector3:
 	var loot = game.nearest_loot(pos)
 	if loot != null:
 		return _dir_to(loot)
+	# Nothing to fight and nothing to collect: wait somewhere that hides us
+	# rather than pacing the open. Ranked below loot on purpose — a cube in hand
+	# beats a good hiding place.
+	var lurk := _ambush_spot(now, game, pos)
+	if lurk != Vector3.ZERO:
+		if pos.distance_to(lurk) <= Kits.TILE * 0.5:
+			return Vector3.ZERO
+		return _dir_to(lurk)
 	if _wander_target == Vector3.ZERO or now >= _repick_at \
 			or pos.distance_to(_wander_target) < Kits.TILE:
 		_wander_target = game.random_wander_point(pos)
 		_repick_at = now + randf_range(2.5, 4.5)
 	return _dir_to(_wander_target)
+
+# MARK: terrain
+
+## Whether an empty magazine is worth walking away from: only while someone who
+## can actually see us is close enough to punish it. `ammo_locked` kits (Anders
+## mid-rally) are excluded because their ammo will not come back for waiting.
+func _pinned_without_ammo(game, enemy: Fighter) -> bool:
+	if fighter.ammo >= 1.0 or fighter.ammo_locked:
+		return false
+	var dist := fighter.global_position.distance_to(enemy.global_position)
+	return dist <= float(fighter.kit.weapon.range) * 1.2 and game.can_see(enemy, fighter)
+
+## Where to stand so `enemy` loses sight of us. Vector3.ZERO when there is
+## nothing to hide behind, which leaves the caller's own retreat in place.
+##
+## A chosen tile is kept for COVER_HOLD rather than re-scored every think, and
+## is dropped early the moment it stops being cover — an enemy who walks around
+## the wall makes the spot we picked worthless, and standing in it is worse than
+## having never gone.
+func _cover_spot(now: float, game, enemy: Fighter) -> Vector3:
+	var eye := enemy.global_position
+	if fighter.global_position.distance_to(eye) < COVER_MIN_ENEMY:
+		return Vector3.ZERO
+	var arena: Arena = game.arena
+	# Inside the hold, reuse the last answer — including a failed one. Caching
+	# only successes meant a bot with nothing to hide behind rescanned the whole
+	# window every think tick for as long as it stayed in trouble, which is
+	# exactly the situation it is already losing.
+	if now < _cover_until:
+		if _cover_point == Vector3.ZERO:
+			return Vector3.ZERO
+		if game.gas_contains(_cover_point) and _wall_between(arena, _cover_point, eye):
+			return _cover_point
+	_cover_point = _find_cover(game, arena, fighter.global_position, eye)
+	_cover_until = now + COVER_HOLD
+	if _log:
+		var reach := fighter.global_position.distance_to(eye)
+		if _cover_point == Vector3.ZERO:
+			print("[bot] %s wanted cover from %.1fm and found none" % [fighter.kit.name, reach])
+		else:
+			print("[bot] %s takes cover %.1fm away (enemy %.1fm, hp %d%%)" % [fighter.kit.name,
+					fighter.global_position.distance_to(_cover_point), reach,
+					int(100.0 * fighter.health / fighter.max_health)])
+	return _cover_point
+
+## The best tile within COVER_SCAN that has a wall on the line to `eye`.
+## Candidates are filtered cheapest-first: the wall test rejects most of an open
+## window, and only survivors pay for the walkability check.
+func _find_cover(game, arena: Arena, pos: Vector3, eye: Vector3) -> Vector3:
+	var col := int(floor(pos.x / Kits.TILE))
+	var row := int(floor(pos.z / Kits.TILE))
+	var best := Vector3.ZERO
+	var best_score := -INF
+	for dr in range(-COVER_SCAN, COVER_SCAN + 1):
+		for dc in range(-COVER_SCAN, COVER_SCAN + 1):
+			var c := col + dc
+			var r := row + dr
+			if c < 0 or c >= arena.columns or r < 0 or r >= arena.row_count:
+				continue
+			var centre: Vector3 = arena.tile_center(c, r)
+			var trip := pos.distance_to(centre)
+			if trip < Kits.TILE * COVER_MIN_TILES or trip > Kits.TILE * float(COVER_SCAN):
+				continue
+			if arena.blocks_movement(centre) or not game.gas_contains(centre):
+				continue
+			if not _wall_between(arena, centre, eye):
+				continue
+			if not _walkable_line(arena, pos, centre):
+				continue
+			# Nearest cover that still leaves us in the fight. The trip is the
+			# part that gets us shot, so it dominates; the second term keeps a
+			# bot from backing so far out that coming back means re-crossing the
+			# same open ground it just fled across.
+			var score := -trip - absf(centre.distance_to(eye) - _engage_range) * 0.25
+			if score > best_score:
+				best_score = score
+				best = centre
+	return best
+
+## The bush to go and wait in, or Vector3.ZERO to carry on wandering. Lurking is
+## time-boxed at both ends: AMBUSH_HOLD in the bush, then a rest spent wandering
+## before another one is looked for. Without the rest, a bot that spawns beside
+## a bush never leaves it and the match stops converging.
+func _ambush_spot(now: float, game, pos: Vector3) -> Vector3:
+	if _ambush_point != Vector3.ZERO:
+		if now >= _ambush_until or not game.gas_contains(_ambush_point):
+			_ambush_point = Vector3.ZERO
+			_ambush_ready_at = now + randf_range(AMBUSH_REST_MIN, AMBUSH_REST_MAX)
+			return Vector3.ZERO
+		return _ambush_point
+	if now < _ambush_ready_at:
+		return Vector3.ZERO
+	var found := _find_bush(game, game.arena, pos)
+	if found == Vector3.ZERO:
+		# Nothing in reach: don't rescan the same window every think tick.
+		_ambush_ready_at = now + 2.0
+		return Vector3.ZERO
+	_ambush_point = found
+	_ambush_until = now + randf_range(AMBUSH_HOLD * 0.7, AMBUSH_HOLD * 1.3)
+	if _log:
+		print("[bot] %s settles into a bush %.1fm away" % [fighter.kit.name,
+				pos.distance_to(_ambush_point)])
+	return _ambush_point
+
+## Nearest reachable bush tile still inside the gas.
+func _find_bush(game, arena: Arena, pos: Vector3) -> Vector3:
+	var col := int(floor(pos.x / Kits.TILE))
+	var row := int(floor(pos.z / Kits.TILE))
+	var best := Vector3.ZERO
+	var best_trip := INF
+	for dr in range(-BUSH_SCAN, BUSH_SCAN + 1):
+		for dc in range(-BUSH_SCAN, BUSH_SCAN + 1):
+			var c := col + dc
+			var r := row + dr
+			if c < 0 or c >= arena.columns or r < 0 or r >= arena.row_count:
+				continue
+			var centre: Vector3 = arena.tile_center(c, r)
+			if arena.tile_at(centre) != "b":
+				continue
+			var trip := pos.distance_to(centre)
+			if trip >= best_trip or not game.gas_contains(centre):
+				continue
+			if not _walkable_line(arena, pos, centre):
+				continue
+			best_trip = trip
+			best = centre
+	return best
+
+## Whether to hold still in a bush rather than close on a target.
+##
+## `main.gd:can_see` hides a fighter standing on a `b` tile from anyone further
+## than `Kits.BUSH_REVEAL`, and it tests the *target's* tile — so a bot in a bush
+## sees out while staying unseen. That asymmetry is the whole advantage, and it
+## is spent the moment the bot walks into the open to meet someone.
+func _should_lurk(now: float, game, pos: Vector3, dist: float, ideal: float) -> bool:
+	var arena: Arena = game.arena
+	if arena.tile_at(pos) != "b" or dist <= Kits.BUSH_REVEAL:
+		_lurk_since = -1.0   # in the open, or already found: fight normally
+		return false
+	# Hidden and already in range — stand and shoot. `decide` fires from here
+	# without any help from the movement vector.
+	if dist <= ideal:
+		return true
+	if _lurk_since < 0.0:
+		_lurk_since = now
+		if _log:
+			print("[bot] %s lurks on %s at %.1fm" % [fighter.kit.name,
+					_target.kit.name if _target != null else "?", dist])
+	return now - _lurk_since < AMBUSH_PATIENCE
+
+## Whether a wall stands between two points. Sampled against the map rather than
+## raycast, so it costs no physics and agrees with a wall that `Arena.open_at`
+## has already shot out. Only `#` blocks sight — water and bushes do not.
+func _wall_between(arena: Arena, a: Vector3, b: Vector3) -> bool:
+	var span := b - a
+	span.y = 0.0
+	var steps := int(ceil(span.length() / (Kits.TILE * 0.5)))
+	for i in range(1, steps):
+		if arena.tile_at(a + span * (float(i) / float(steps))) == "#":
+			return true
+	return false
+
+## Whether a fighter can walk straight from one point to another. Mirrors
+## `Arena._clear_line`, kept here so the bot depends only on Arena's public API.
+func _walkable_line(arena: Arena, from: Vector3, to: Vector3) -> bool:
+	var span := to - from
+	span.y = 0.0
+	var steps := int(ceil(span.length() / (Kits.TILE * 0.4)))
+	for i in range(1, steps + 1):
+		if arena.blocks_movement(from + span * (float(i) / float(steps))):
+			return false
+	return true
 
 ## Detours keep the same side across consecutive stalls (wall-follow) instead
 ## of re-rolling a random side each time, which made blocked bots ping-pong.
