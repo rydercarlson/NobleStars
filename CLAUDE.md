@@ -121,4 +121,25 @@ Run it: `/Applications/Godot.app/Contents/MacOS/Godot --path godot` (add `--head
 
 **Getting it onto a phone.** `xcrun devicectl` is the tool, and `connectionProperties` from `xcrun devicectl list devices --json-output <path>` is the only signal that tracks reality: `transportType` (`None` = not connected), `pairingState` (`pairingInProgress` = a Trust prompt is waiting on the phone) and `tunnelState`. **`system_profiler SPUSBDataType` does NOT enumerate iPhones on this Mac** — it reported zero the entire time a wired transport was live, and reading it as ground truth led to a long, wrong hunt for a bad cable. Also do not grep device state for `available`: `unavailable` contains it.
 
-Signing is the part no script can do. `xcodebuild -allowProvisioningUpdates` fails with `No Account for Team "<id>"` when Xcode has no authenticated Apple ID, and **being signed in under Xcode → Settings → Accounts is not sufficient** — until a team is picked in the target's Signing & Capabilities, `defaults read com.apple.dt.Xcode IDEProvisioningTeams` is absent and `~/Library/MobileDevice/Provisioning Profiles/` stays empty. Those two are the check for whether signing will work; the certificates in the keychain are not.
+**Signing: `No Account for Team` usually means a signing-identity CONFLICT, not a missing account.** Godot writes `CODE_SIGN_IDENTITY = "Apple Distribution"` into the Release configuration while also setting `CODE_SIGN_STYLE = Automatic`. Xcode will not reconcile those, and the conflict poisons provisioning for the whole target — including Debug — which surfaces from the command line as `No Account for Team "<id>"` and `No profiles for '<bundle>' were found`. Both point at the account, and the account is fine. An evening went into that misdirection; what identified it was the Signing & Capabilities pane in the Xcode GUI, which says plainly `noblestars3d has conflicting provisioning settings`. **When signing fails, open the project and read that pane before touching accounts.**
+
+The fix is in the preset, so re-exports stay correct — this game is side-loaded onto phones and never shipped to the App Store, so Development signing is right for both configurations:
+
+```
+application/code_sign_identity_debug="Apple Development"
+application/code_sign_identity_release="Apple Development"
+application/export_method_release=1     # development, not App Store (0)
+```
+
+With that, `xcodebuild -allowProvisioningUpdates` signs and builds with no GUI step at all. Note that `~/Library/MobileDevice/Provisioning Profiles/` can be EMPTY and `defaults read com.apple.dt.Xcode IDEProvisioningTeams` absent even on a build that then succeeds — they look like the signing health check and are not one.
+
+**Install and launch from the command line**, no Xcode needed:
+
+```sh
+APP=$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 6 -name 'noblestars3d.app' -path '*Debug-iphoneos*' -print -quit)
+xcrun devicectl device install app --device <udid> "$APP"
+xcrun devicectl device process launch --device <udid> com.ryder.noblestars3d
+xcrun devicectl device info processes --device <udid> | grep noblestars3d   # still alive?
+```
+
+That last line matters: a Godot iOS build can launch and die immediately on a texture or shader problem, and the launch command reports success either way. On a free Apple ID the app stops launching after 7 days and has to be reinstalled.
