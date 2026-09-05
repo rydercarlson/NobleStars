@@ -717,6 +717,46 @@ def read_accessor(j, blob, index):
     return _np.frombuffer(blob, dtype=ctype, count=count * ncomp, offset=off).reshape(count, ncomp)
 
 
+def anchor_hips(j, blob, log):
+    """Strip horizontal root motion from clips that travel. The game moves the
+    body itself — a dash, a leap, a ride — and plays the clip on top, so a clip
+    whose hips also cover ground draws the mesh sliding away from its own
+    collision capsule. Any clip whose Hips node drifts more than `threshold`
+    metres in X/Z gets its horizontal hip translation pinned to the first
+    frame; the vertical bob is kept, because that is the jump.
+    """
+    import numpy as _np
+    hips = [i for i, n in enumerate(j['nodes']) if n.get('name') == 'Hips']
+    if not hips:
+        return
+    hips = hips[0]
+    # Meshy rigs keep bone translations in centimetres under a 0.01-scaled
+    # armature, so the threshold is taken off the rig itself: half the resting
+    # hip height is more ground than any in-place clip covers, and far less
+    # than a clip that actually travels.
+    rest = j['nodes'][hips].get('translation', [0.0, 0.0, 0.0])
+    threshold = max(1e-6, 0.5 * abs(float(rest[1])))
+    for anim in j.get('animations', []):
+        for ch in anim['channels']:
+            if ch['target']['node'] != hips or ch['target']['path'] != 'translation':
+                continue
+            samp = anim['samplers'][ch['sampler']]
+            acc = j['accessors'][samp['output']]
+            vals = read_accessor(j, blob, samp['output']).astype(_np.float32).copy()
+            drift = float(_np.max(_np.linalg.norm(vals[:, [0, 2]] - vals[0, [0, 2]], axis=1)))
+            if drift < threshold:
+                continue
+            vals[:, 0] = vals[0, 0]
+            vals[:, 2] = vals[0, 2]
+            bv = j['bufferViews'][acc['bufferView']]
+            off = bv.get('byteOffset', 0) + acc.get('byteOffset', 0)
+            raw = vals.tobytes()
+            blob[off:off + len(raw)] = raw
+            acc['min'] = [float(v) for v in vals.min(axis=0)]
+            acc['max'] = [float(v) for v in vals.max(axis=0)]
+            log(f"anchored hips in '{anim.get('name')}' — root motion of {drift / threshold * 0.5:.1f} hip-heights pinned")
+
+
 def simplify_mesh(j, blob, log, target_tris):
     """Vertex-clustering decimation for unskinned props. Meshy hands back ~8k
     triangles for a grass clump or a gas puff; instanced a few hundred times
@@ -916,6 +956,7 @@ def main():
 
     print(f"{os.path.basename(args.input)}  ({before/1e6:.1f} MB)")
     drop_junk_clips(j, log)
+    anchor_hips(j, blob, log)
     fix_material(j, log)
     flatten_uniform_mr(j, blob, log)
     drop_unused_textures(j, log)

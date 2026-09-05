@@ -129,6 +129,8 @@ var _capsule_albedo := Color.WHITE
 var _conceal_applied := -1
 var _anim: AnimationPlayer
 var _held_item: Node3D   # e.g. Sanjit's staff — hidden while his Super flies
+var _gear: Node3D        # e.g. Ayaan's skis — shown from the Super's cast to the ride's end
+var _gear_bones: PackedInt32Array = []   # LeftFoot, RightFoot, LeftToeBase, RightToeBase
 var _skel: Skeleton3D
 var _foot_bones: PackedInt32Array = []
 var _foot_rest_y := 0.0
@@ -292,6 +294,7 @@ func _setup_model() -> void:
 					"energy": m.emission_energy_multiplier,
 				})
 	_held_item = _model.find_child("held_item", true, false)
+	_setup_gear()
 	_anim = _model.find_child("AnimationPlayer", true, false)
 	if _anim:
 		var clips: Dictionary = kit.clips
@@ -374,6 +377,7 @@ func _lowest_foot_y() -> float:
 ## rise and fall intact. It never pushes down, so a clip whose feet stay high
 ## (every `run_fast_*` variant measures 0.000) just stands normally.
 func _ground_feet(delta: float) -> void:
+	_follow_feet()
 	if _skel == null or _anim == null:
 		return
 	# Model space out of the table, parent space into `position`.
@@ -384,6 +388,73 @@ func _ground_feet(delta: float) -> void:
 func set_held_item_visible(shown: bool) -> void:
 	if _held_item:
 		_held_item.visible = shown
+
+## Kit gear worn only for the Super — Ayaan's skis. Built once under the model
+## so it follows the facing and the foot lift, hidden until the cast.
+func _setup_gear() -> void:
+	_gear = null
+	if not kit.has("gear"):
+		return
+	var gear: Dictionary = kit.gear
+	var path: String = str(gear.get("model", ""))
+	if path == "" or not ResourceLoader.exists(path):
+		return
+	var scene: PackedScene = load(path)
+	if scene == null:
+		return
+	_gear = scene.instantiate()
+	_gear.name = "gear"
+	_gear.top_level = false
+	var rot: Vector3 = gear.get("rotation_deg", Vector3.ZERO)
+	_gear.rotation_degrees = rot
+	_gear.scale = gear.get("scale", Vector3.ONE)
+	_gear.position = gear.get("offset", Vector3.ZERO)
+	_gear.visible = false
+	for mi in _gear.find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null:
+			continue
+		for si in mi.mesh.get_surface_count():
+			var m = mi.mesh.surface_get_material(si)
+			if m is BaseMaterial3D:
+				m.metallic = 0.0
+	_model.add_child(_gear)
+
+func set_gear_visible(shown: bool) -> void:
+	if _gear:
+		_gear.visible = shown
+		if shown:
+			_follow_feet()
+
+## The skis ride the feet: every frame they are placed at the midpoint of the
+## two foot bones, kept level in yaw with the body, and pitched with the feet,
+## so when the jump tucks his legs the skis come up with them instead of
+## waiting on the floor to be landed on.
+func _follow_feet() -> void:
+	if _gear == null or not _gear.visible or _skel == null:
+		return
+	if _gear_bones.is_empty():
+		for bone_name in ["LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase"]:
+			_gear_bones.append(_skel.find_bone(bone_name))
+		if _gear_bones[0] < 0 or _gear_bones[1] < 0:
+			return
+	var gear: Dictionary = kit.gear
+	var offset: Vector3 = gear.get("offset", Vector3.ZERO)
+	var base_rot: Vector3 = gear.get("rotation_deg", Vector3.ZERO)
+	var lf: Vector3 = _skel.to_global(_skel.get_bone_global_pose(_gear_bones[0]).origin)
+	var rf: Vector3 = _skel.to_global(_skel.get_bone_global_pose(_gear_bones[1]).origin)
+	var mid: Vector3 = _model.to_local((lf + rf) * 0.5)
+	# the foot bone sits above the sole; `offset.y` is measured from it
+	_gear.position = Vector3(mid.x + offset.x, mid.y + offset.y - 0.19, mid.z + offset.z)
+	var pitch := 0.0
+	# Foot tilt as the bone's rotation away from its rest, about the model's
+	# X axis, averaged over both feet: level at rest, up as the toes come up.
+	for k in 2:
+		var rest_basis: Basis = _skel.get_bone_global_rest(_gear_bones[k]).basis
+		var now_basis: Basis = _skel.get_bone_global_pose(_gear_bones[k]).basis
+		pitch += (rest_basis.inverse() * now_basis).get_euler().x * 0.5
+	# stiff skis: half the foot's tilt, and never past 25 degrees
+	pitch = clampf(pitch * 0.5, deg_to_rad(-25.0), deg_to_rad(25.0))
+	_gear.rotation_degrees = Vector3(base_rot.x + rad_to_deg(pitch), base_rot.y, base_rot.z)
 
 ## Nobles Cup team marker: a flat ring on the ground under the fighter. It has
 ## to sit outside the body rather than tint it, because five of eight kits wear
@@ -465,6 +536,8 @@ func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 		return
 	var clips: Dictionary = kit.clips
 	var prefix := "super" if is_super else "attack"
+	if is_super:
+		set_gear_visible(true)
 	var clip_name: String = clips.get("super", clips.attack) if is_super else clips.attack
 	var speed: float = clips.get("super_speed", clips.get("attack_speed", 1.0)) if is_super \
 			else clips.get("attack_speed", 1.0)
@@ -594,6 +667,7 @@ func begin_ride(weapon: Dictionary, direction: Vector3) -> void:
 
 func end_dash() -> void:
 	dash = {}
+	set_gear_visible(false)
 	collision_mask = (1 << 0) | (1 << 1) | (1 << 5)
 
 func begin_leap(weapon: Dictionary, direction: Vector3, distance: float) -> void:
@@ -803,6 +877,7 @@ func knock_out() -> void:
 	knockback_vel = Vector3.ZERO
 	forget_knock()
 	dash = {}
+	set_gear_visible(false)
 	leap = {}
 	# Off every layer and mask FIRST, and before the pop has finished: a fighter
 	# that is going down must stop blocking a shot, soaking a melee sweep or
@@ -950,6 +1025,7 @@ func kickoff_restore(game_now: float) -> void:
 	forget_knock()
 	dash = {}
 	leap = {}
+	set_gear_visible(false)
 	last_damage_at = game_now
 	next_attack_at = -1.0
 

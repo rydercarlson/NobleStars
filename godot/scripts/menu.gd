@@ -242,15 +242,7 @@ func show_screen(name: String) -> void:
 		"profile":
 			MenuPopups.profile(self)
 		"wifi", "friends":
-			var room := RoomScreen.new()
-			room.menu = self
-			room.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			var host := MenuScreen.new()
-			host.menu = self
-			host.screen_name = "wifi"
-			push_screen(host)
-			host.add_child(room)
-			room.refresh()   # the old shell refreshed a screen when it showed it
+			push_screen(WifiScreen.new())
 
 func _update_stage_dim() -> void:
 	# A pushed screen covers the stage completely, so the 3D view is not merely

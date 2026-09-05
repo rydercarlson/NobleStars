@@ -637,6 +637,25 @@ static func ayaan() -> Dictionary:
 	return {
 		"name": "Ayaan", "color": Color(0.62, 0.88, 1.0),
 		"role": "Carver",
+		"model": "res://assets/ayaan.glb",
+		# Measured off the export. Punch_Combo_3's first hit peaks at 0.90s, so
+		# seeking to 0.60 at 2.5x lands it ~0.12s after the cast, and the take is
+		# cropped after that first hit rather than playing all three (3.3s).
+		# Jump_Over_Obstacle is airborne 0.50-1.15s and runs out to 2.07s; the
+		# ride is 2.0s, so from 0.15 at 1x the leap comes in the first half of
+		# the ride and the run-out fills the rest. Its 4.9 m of forward root
+		# motion is pinned by the pipeline — the ride moves the body.
+		"clips": {"idle": "Idle", "run": "Running", "attack": "Punch_Combo_3",
+				  "attack_speed": 2.5, "attack_seek": 0.6, "attack_end": 1.15,
+				  "super": "Jump_Over_Obstacle", "super_speed": 1.0, "super_seek": 0.15},
+		# The skis. One mesh holds the pair, modelled standing on end (length
+		# along Y, both tips curling to -Z), so it is laid flat with a quarter
+		# turn about X, narrowed to sit under the feet (0.24 m apart at rest)
+		# and shortened to 1.7 m. Worn from the Super's cast to the ride's end.
+		"gear": {"model": "res://assets/skis.glb",
+				 "rotation_deg": Vector3(90, 0, 0),
+				 "scale": Vector3(0.6, 0.9, 0.8),
+				 "offset": Vector3(0, 0.07, 0.05)},
 		"desc": "Two snow shots that meet exactly where you aim: one wide arc far out, a tight braid up close.",
 		"super_desc": "Downhill: plants his poles and launches into a two-second run you carve with the stick, bulldozing anyone in the way and spraying snow that slows.",
 		"max_health": HEALTH_NORMAL,
