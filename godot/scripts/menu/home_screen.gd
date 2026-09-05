@@ -1,258 +1,276 @@
 class_name HomeScreen
 extends Control
-## The home HUD, rebuilt from web-menu/index.html + the #home rules in
-## styles.css: profile plate and season plate top-left, currencies and the menu
-## button top-right, the painted button columns down each side, and the mode
-## plate + PLAY on the bottom right. Every offset below is the CSS one.
+## The home screen: a game programme's roster page.
+##
+## Three columns over the live fighter. The left flank is who he is and what he
+## is worth in numbers; the right flank is what he does and what you have done
+## with him; the middle is him, standing on the centre spot. A top rule carries
+## identity and currency, a bottom rule carries the destinations, the mode and
+## PLAY.
+##
+## Two decisions worth not undoing:
+##
+## HOME IS ALSO THE DETAIL SCREEN. Everything the old BrawlerDetailScreen showed
+## — stats, attack and Super write-ups, rank and trophies — is on the flanks,
+## live, for whoever is selected. That is what lets the roster be a plain picker
+## that selects and returns instead of a grid that opens a card that has a
+## SELECT button on it, and it takes choosing a fighter from five taps to two.
+##
+## THE FLANKS ARE WHY THERE IS NO DEAD SPACE. A single figure centred on a
+## 1920-wide stage leaves two empty thirds, which is exactly the gap Brawl
+## Stars fills with columns of icon buttons. Filling them with the selected
+## fighter's own data instead means the width carries content rather than
+## navigation — and it gets better, not worse, as the stage widens on a phone,
+## because MenuShell._fit_stage hands the extra width to the flanks.
 
 var menu: MenuShell
-var floor_y: float = 780.0
+
+const MARGIN_X := 68.0
+const TOP_BAR_H := 118.0
+const BOTTOM_BAR_H := 150.0
+const FLANK_W := 400.0
+const FLANK_TOP := 186.0
 
 var _name_label: Label
-var _trophy_label: Label
-var _season_line1: Label
-var _season_line2: Label
-var _season_bar: Panel
-var _mode_icon: TextureRect
+var _record_label: Label
+var _left_flank: VBoxContainer
+var _right_flank: VBoxContainer
 var _mode_name: Label
 var _mode_sub: Label
-var _mode_tab: Panel
-var _friends_dot: Control
-var _inbox_dot: Control
+var _mode_flag: ColorRect
 var _hint: Label
-var _mode_art: TextureRect
-
-const PACK := "res://assets/menu/pack/"
-const MODE_CARDS := {"showdown_solo": "showdown_card.png", "nobles_cup": "nobles_cup_card.png"}
 var _intro_done := false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_build_profile()
-	_build_season()
-	_build_currency()
-	_build_menu_button()
-	_build_side_columns()
-	_build_bottom()
+	_build_top_bar()
+	_build_flanks()
+	_build_bottom_bar()
 	_build_hint()
 	refresh()
 	menu.brawler_view.tapped.connect(_on_brawler_tapped)
 	_play_intro()
 
-# MARK: top-left
+# MARK: top bar
 
-func _build_profile() -> void:
-	var b: Button = _plate_button(300, 106, "navy")
-	_place(b, 40, 44)
-	b.pressed.connect(func() -> void:
-		menu.sfx("click")
-		menu.push_screen(TrophyRoadScreen.new()))
-	var row := _inner_row(b, 14, 14, 20)
-	row.add_child(MenuUI.icon("shield", 84))
-	var lines := MenuUI.vbox(2)
-	lines.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	# clip_text zeroes the label's minimum width, so the column has to claim the
-	# rest of the plate or the name gets clipped to the trophy row underneath.
-	lines.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(lines)
-	_name_label = MenuUI.display("GUEST", 36)
-	_name_label.clip_text = true
-	lines.add_child(_name_label)
-	var trophies := MenuUI.hbox(6)
-	trophies.add_child(MenuUI.icon("trophy", 26))
-	_trophy_label = MenuUI.display("0", 24, MenuUI.YELLOW_HI, 5)
-	trophies.add_child(_trophy_label)
-	lines.add_child(trophies)
+func _build_top_bar() -> void:
+	var identity := MenuUI.vbox(2)
+	identity.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_place(identity, MARGIN_X, 34, 700, 76)
+	_name_label = MenuUI.display("GUEST", 46)
+	identity.add_child(_name_label)
+	_record_label = MenuUI.label("0 TROPHIES", 19, MenuUI.TEXT_DIM)
+	identity.add_child(_record_label)
 
-func _build_season() -> void:
-	var b: Button = _plate_button(420, 106, "yellow")
-	_place(b, 356, 44)
-	b.pressed.connect(func() -> void:
-		menu.sfx("click")
-		menu.push_screen(PassScreen.new()))
-	var row := _inner_row(b, 14, 12, 26)
-	row.add_child(MenuUI.icon("shield", 84))
-	var lines := MenuUI.vbox(3)
-	lines.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(lines)
-	_season_line1 = MenuUI.display("SEASON 1", 34, MenuUI.TEXT, 6)
-	_season_line2 = MenuUI.display("BACK TO SCHOOL", 28, MenuUI.TEXT, 6)
-	lines.add_child(_season_line1)
-	lines.add_child(_season_line2)
-	# The token bar straddles the bottom edge of the plate, as in the CSS.
-	_season_bar = MenuUI.bar(18, MenuUI.GREEN, MenuUI.GREEN_HI)
-	_place(_season_bar, 370, 137, 392, 18)
-
-func _build_currency() -> void:
-	var pills: HBoxContainer = menu.currency_pills()
-	pills.anchor_left = 1.0
-	pills.anchor_right = 1.0
-	pills.offset_left = -570
-	pills.offset_right = -210
-	pills.offset_top = 50
-	pills.offset_bottom = 112
-	add_child(pills)
-
-func _build_menu_button() -> void:
-	var b: TextureButton = MenuUI.art_button(load(PACK + "menu/hamburger_menu.png"), 92)
-	b.anchor_left = 1.0
-	b.anchor_right = 1.0
-	b.offset_left = -40 - b.custom_minimum_size.x
-	b.offset_right = -40
-	b.offset_top = 44
-	b.offset_bottom = 44 + 92
-	b.pressed.connect(func() -> void:
-		menu.sfx("click")
-		MenuPopups.settings(menu))
-	add_child(b)
-
-# MARK: side columns
-
-func _build_side_columns() -> void:
-	var left := MenuUI.vbox(14)
-	left.alignment = BoxContainer.ALIGNMENT_BEGIN
-	_place(left, 34, 208, 220, 520)
-	var shop_btn: TextureButton = _side_button("shop", 128, func() -> void:
-		menu.push_screen(ShopScreen.new()))
-	var roster_btn: TextureButton = _side_button("brawlers", 128, func() -> void:
-		menu.push_screen(BrawlersScreen.new()))
-	var pass_btn: TextureButton = _side_button("nobles_pass", 150, func() -> void:
-		menu.push_screen(PassScreen.new()))
-	for b in [shop_btn, roster_btn, pass_btn]:
-		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		left.add_child(b)
-
-	var right := MenuUI.vbox(14)
-	right.alignment = BoxContainer.ALIGNMENT_BEGIN
+	var right := MenuUI.hbox(30)
+	right.alignment = BoxContainer.ALIGNMENT_END
 	right.anchor_left = 1.0
 	right.anchor_right = 1.0
-	right.offset_left = -34 - 220
-	right.offset_right = -34
-	right.offset_top = 208
-	right.offset_bottom = 208 + 600
+	right.offset_left = -640
+	right.offset_right = -MARGIN_X
+	right.offset_top = 34
+	right.offset_bottom = 34 + 68
 	add_child(right)
-	var news: TextureButton = _side_button("news", 128, func() -> void:
-		menu.push_screen(NewsScreen.new()))
-	var friends: TextureButton = _side_button("friends", 128, func() -> void:
-		menu.push_screen(FriendsScreen.new()))
-	var club: TextureButton = _side_button("club", 128, func() -> void:
-		menu.push_screen(ClubScreen.new()))
-	var inbox: TextureButton = _side_button("inbox", 128, func() -> void:
-		menu.push_screen(InboxScreen.new()))
-	for b in [news, friends, club, inbox]:
-		b.size_flags_horizontal = Control.SIZE_SHRINK_END
-		right.add_child(b)
-	_friends_dot = _badge(friends, MenuUI.GREEN)
-	_inbox_dot = _badge(inbox, MenuUI.RED)
-
-func _side_button(art: String, height: float, action: Callable) -> TextureButton:
-	var b: TextureButton = MenuUI.art_button(load(PACK + "menu/%s.png" % art), height)
-	b.pressed.connect(func() -> void:
+	right.add_child(MenuUI.spacer())
+	right.add_child(menu.currency_readout())
+	var settings: Button = MenuUI.link("MENU", 22)
+	settings.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	settings.pressed.connect(func() -> void:
 		menu.sfx("click")
-		action.call())
-	return b
+		MenuPopups.settings(menu))
+	right.add_child(settings)
 
-## The unread / online count that rides on the corner of a side button.
-func _badge(host: Control, color: Color) -> PanelContainer:
-	var badge := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.set_corner_radius_all(17)
-	style.set_border_width_all(3)
-	style.border_color = MenuUI.LINE
-	style.content_margin_left = 9
-	style.content_margin_right = 9
-	style.content_margin_top = 1
-	style.content_margin_bottom = 3
-	badge.add_theme_stylebox_override("panel", style)
-	badge.anchor_left = 1.0
-	badge.anchor_right = 1.0
-	badge.offset_left = -40
-	badge.offset_top = -8
-	badge.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var label: Label = MenuUI.display("0", 22, MenuUI.TEXT, 0)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	badge.add_child(label)
-	badge.set_meta("label", label)
-	host.add_child(badge)
-	return badge
+	var line: ColorRect = MenuUI.rule()
+	_place(line, MARGIN_X, TOP_BAR_H, 0, 1)
+	line.anchor_right = 1.0
+	line.offset_right = -MARGIN_X
 
-# MARK: bottom row
+# MARK: flanks
 
-func _build_bottom() -> void:
-	var row := MenuUI.hbox(30)
-	row.alignment = BoxContainer.ALIGNMENT_END
-	row.anchor_left = 0.0
-	row.anchor_right = 1.0
-	row.anchor_top = 1.0
-	row.anchor_bottom = 1.0
-	row.offset_left = 44
-	row.offset_right = -44
-	row.offset_top = -176
-	row.offset_bottom = -42
-	add_child(row)
+func _build_flanks() -> void:
+	_left_flank = MenuUI.vbox(0)
+	_left_flank.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_place(_left_flank, MARGIN_X, FLANK_TOP, FLANK_W, 700)
 
-	var mode: Button = _plate_button(470, 130, "navy")
-	mode.size_flags_vertical = Control.SIZE_SHRINK_END
-	mode.pressed.connect(func() -> void:
-		menu.sfx("click")
-		menu.push_screen(ModesScreen.new()))
-	row.add_child(mode)
-	var mode_row := _inner_row(mode, 14, 12, 90)
-	_mode_icon = MenuUI.icon("bulldog", 116)
-	mode_row.add_child(_mode_icon)
-	# The clean pack ships baked cards for Showdown and Nobles Cup; when the
-	# pick has one it covers the plate, otherwise the icon-and-text plate shows.
-	_mode_art = TextureRect.new()
-	_mode_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_mode_art.stretch_mode = TextureRect.STRETCH_SCALE
-	_mode_art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_mode_art.offset_bottom = -7
-	_mode_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_mode_art.visible = false
-	mode.add_child(_mode_art)
-	var text := MenuUI.vbox(6)
-	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	mode_row.add_child(text)
-	_mode_name = MenuUI.display("SHOWDOWN", 42, MenuUI.TEXT, 6)
-	_mode_sub = MenuUI.display("SOLO", 28, MenuUI.GREEN, 5)
-	text.add_child(_mode_name)
-	text.add_child(_mode_sub)
-	_mode_tab = Panel.new()
-	_mode_tab.anchor_left = 1.0
-	_mode_tab.anchor_right = 1.0
-	_mode_tab.anchor_bottom = 1.0
-	_mode_tab.offset_left = -78
-	_mode_tab.offset_right = 0
-	_mode_tab.offset_top = 0
-	_mode_tab.offset_bottom = -7
-	_mode_tab.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mode.add_child(_mode_tab)
-	var chevron: TextureRect = MenuUI.icon("back", 34)
-	chevron.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
-	chevron.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	chevron.grow_vertical = Control.GROW_DIRECTION_BOTH
-	chevron.scale = Vector2(-1, 1)
-	chevron.pivot_offset = Vector2(17, 17)
-	_mode_tab.add_child(chevron)
+	_right_flank = MenuUI.vbox(0)
+	_right_flank.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_right_flank.anchor_left = 1.0
+	_right_flank.anchor_right = 1.0
+	_right_flank.offset_left = -MARGIN_X - FLANK_W
+	_right_flank.offset_right = -MARGIN_X
+	_right_flank.offset_top = FLANK_TOP
+	_right_flank.offset_bottom = FLANK_TOP + 700
+	add_child(_right_flank)
 
-	var play: TextureButton = MenuUI.art_button(load(PACK + "menu/play_button.png"), 134)
-	play.size_flags_vertical = Control.SIZE_SHRINK_END
+## Who he is, and the five numbers that decide every fight. These come from
+## kits.gd through MenuData, so the menu is quoting the same figures the match
+## runs on rather than a copy in the JSON that can drift from them.
+func _fill_left(b: Dictionary, index: int) -> void:
+	for child in _left_flank.get_children():
+		child.queue_free()
+	var stats: Dictionary = b.get("stats", {})
+
+	var head := MenuUI.hbox(14)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(MenuUI.display("%02d" % index, 40, MenuUI.GOLD))
+	var role: PanelContainer = MenuUI.tag(str(b.get("role", "")),
+			MenuUI.hex(b.get("color"), MenuUI.BLUE))
+	role.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(role)
+	_left_flank.add_child(head)
+	_left_flank.add_child(MenuUI.gap(4, true))
+
+	var name_label: Label = MenuUI.display(str(b.get("name", "")).to_upper(), 88)
+	_left_flank.add_child(name_label)
+	var title: Label = MenuUI.label(str(b.get("title", "")), 21, MenuUI.TEXT_DIM)
+	_left_flank.add_child(title)
+
+	_left_flank.add_child(MenuUI.gap(44, true))
+	_left_flank.add_child(MenuUI.section("ATTRIBUTES"))
+	_left_flank.add_child(MenuUI.gap(10, true))
+	for row: Array in [["HEALTH", MenuUI.fmt(int(stats.get("health", 0))), ""],
+			["DAMAGE", MenuUI.fmt(int(stats.get("damage", 0))), ""],
+			["SPEED", "%.1f" % float(stats.get("speed_value", 0.0)), "M/S"],
+			["RANGE", "%.1f" % float(stats.get("range_value", 0.0)), "TILES"],
+			["RELOAD", "%.2f" % float(stats.get("reload_value", 0.0)), "SEC"]]:
+		_left_flank.add_child(MenuUI.stat_line(str(row[0]), str(row[1]), MenuUI.TEXT,
+				40, str(row[2])))
+		_left_flank.add_child(MenuUI.gap(8, true))
+
+## What he does, and what you have done with him.
+func _fill_right(b: Dictionary) -> void:
+	for child in _right_flank.get_children():
+		child.queue_free()
+	var id: String = str(b.get("id", ""))
+	var trophies: int = SaveGame.brawler_trophies(id)
+	var rank: int = clampi(int(floor(sqrt(float(trophies) / 4.0))) + 1, 1, 35)
+
+	for ability: Array in [["ATTACK", b.get("attack", {})],
+			["SUPER", b.get("super", {})]]:
+		var data: Dictionary = ability[1]
+		if data.is_empty():
+			continue
+		_right_flank.add_child(MenuUI.section(str(ability[0])))
+		_right_flank.add_child(MenuUI.gap(8, true))
+		_right_flank.add_child(MenuUI.display(str(data.get("name", "")).to_upper(), 34))
+		var text: Label = MenuUI.wrap(MenuUI.body(str(data.get("text", "")), 23,
+				MenuUI.TEXT_DIM))
+		_right_flank.add_child(text)
+		_right_flank.add_child(MenuUI.gap(38, true))
+
+	_right_flank.add_child(MenuUI.section("RECORD"))
+	_right_flank.add_child(MenuUI.gap(10, true))
+	_right_flank.add_child(MenuUI.stat_line("TROPHIES", MenuUI.fmt(trophies), MenuUI.GOLD))
+	_right_flank.add_child(MenuUI.gap(8, true))
+	_right_flank.add_child(MenuUI.stat_line("RANK", str(rank)))
+	_right_flank.add_child(MenuUI.gap(8, true))
+	_right_flank.add_child(MenuUI.stat_line("POWER", str(SaveGame.brawler_power(id))))
+
+# MARK: bottom bar
+
+func _build_bottom_bar() -> void:
+	var line: ColorRect = MenuUI.rule()
+	line.anchor_top = 1.0
+	line.anchor_bottom = 1.0
+	line.anchor_right = 1.0
+	line.offset_left = MARGIN_X
+	line.offset_right = -MARGIN_X
+	line.offset_top = -BOTTOM_BAR_H
+	line.offset_bottom = -BOTTOM_BAR_H + 1
+	add_child(line)
+
+	var links := MenuUI.hbox(10)
+	links.alignment = BoxContainer.ALIGNMENT_BEGIN
+	links.anchor_top = 1.0
+	links.anchor_bottom = 1.0
+	links.offset_left = MARGIN_X - 10
+	links.offset_right = MARGIN_X + 760
+	links.offset_top = -BOTTOM_BAR_H + 34
+	links.offset_bottom = -BOTTOM_BAR_H + 90
+	add_child(links)
+	for entry: Array in [["ROSTER", "roster"], ["SEASON", "season"],
+			["SHOP", "shop"], ["WIFI", "wifi"]]:
+		var link: Button = MenuUI.link(str(entry[0]), 24)
+		var target: String = str(entry[1])
+		link.pressed.connect(func() -> void:
+			menu.sfx("click")
+			menu.show_screen(target))
+		links.add_child(link)
+
+	var right := MenuUI.hbox(26)
+	right.alignment = BoxContainer.ALIGNMENT_END
+	right.anchor_left = 1.0
+	right.anchor_right = 1.0
+	right.anchor_top = 1.0
+	right.anchor_bottom = 1.0
+	right.offset_left = -820
+	right.offset_right = -MARGIN_X
+	right.offset_top = -BOTTOM_BAR_H + 22
+	right.offset_bottom = -30
+	add_child(right)
+	right.add_child(MenuUI.spacer())
+	right.add_child(_build_mode_button())
+	var play: Button = MenuUI.button("PLAY", "gold", 62, Vector2(340, 98))
+	play.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	play.pressed.connect(func() -> void:
 		menu.sfx("play")
-		menu.push_screen(MatchmakingScreen.new()))
-	row.add_child(play)
+		menu.start_match())
+	right.add_child(play)
+
+## The mode plate: a block of the mode's colour, its name, and the note that it
+## is a choice. No card art — the old plate carried a baked illustration of a
+## tropical island for Nobles Cup, which is a school field.
+func _build_mode_button() -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(330, 98)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	for state in ["normal", "focus", "disabled"]:
+		b.add_theme_stylebox_override(state, MenuUI.flat_box(MenuUI.PANEL, MenuUI.RULE, 0))
+	b.add_theme_stylebox_override("hover",
+			MenuUI.flat_box(MenuUI.PANEL_HI, MenuUI.RULE_HI, 0))
+	b.add_theme_stylebox_override("pressed",
+			MenuUI.flat_box(MenuUI.INK, MenuUI.RULE_HI, 0))
+	MenuUI.press_feedback(b)
+	b.pressed.connect(func() -> void:
+		menu.sfx("click")
+		menu.show_screen("modes"))
+
+	# Button is not a container, so its contents are an anchored row.
+	var row := MenuUI.hbox(16)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+	_mode_flag = ColorRect.new()
+	_mode_flag.color = MenuUI.GREEN
+	_mode_flag.custom_minimum_size = Vector2(7, 0)
+	_mode_flag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_mode_flag)
+	var text := MenuUI.vbox(0)
+	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(text)
+	_mode_sub = MenuUI.label("EVENT", 17, MenuUI.TEXT_FAINT)
+	_mode_name = MenuUI.display("SHOWDOWN", 34)
+	text.add_child(_mode_sub)
+	text.add_child(_mode_name)
+	row.add_child(MenuUI.spacer())
+	var chevron: Label = MenuUI.display("›", 44, MenuUI.TEXT_DIM)
+	chevron.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(chevron)
+	row.add_child(MenuUI.gap(14))
+	return b
 
 func _build_hint() -> void:
-	_hint = MenuUI.display("TAP TO ATTACK  ·  DRAG TO SPIN", 20, MenuUI.TEXT, 4)
+	_hint = MenuUI.label("TAP TO ATTACK   ·   DRAG TO SPIN", 19, MenuUI.TEXT_FAINT)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.anchor_left = 0.5
 	_hint.anchor_right = 0.5
-	_hint.offset_left = -240
-	_hint.offset_right = 240
-	_hint.offset_top = 800
-	_hint.offset_bottom = 830
+	_hint.anchor_top = 1.0
+	_hint.anchor_bottom = 1.0
+	_hint.offset_left = -300
+	_hint.offset_right = 300
+	_hint.offset_top = -BOTTOM_BAR_H - 46
+	_hint.offset_bottom = -BOTTOM_BAR_H - 16
 	_hint.modulate.a = 0.0
 	add_child(_hint)
 
@@ -266,54 +284,27 @@ func _on_brawler_tapped() -> void:
 # MARK: state
 
 func refresh() -> void:
-	var season: Dictionary = MenuData.season()
 	_name_label.text = SaveGame.player_name.to_upper()
-	_trophy_label.text = MenuUI.fmt(SaveGame.total_trophies())
-	_season_line1.text = "SEASON %d" % int(season.get("number", 1))
-	_season_line2.text = str(season.get("name", "")).to_upper()
-	var per_tier: float = maxf(1.0, float(season.get("tokensPerTier", 500)))
-	MenuUI.set_bar(_season_bar, SaveGame.pass_tokens / per_tier)
+	_record_label.text = "%s TROPHIES   ·   %s MATCHES" % [
+			MenuUI.fmt(SaveGame.total_trophies()), MenuUI.fmt(SaveGame.matches)]
+
+	var b: Dictionary = menu.selected_brawler()
+	if not b.is_empty():
+		var index: int = 1
+		for i in MenuData.brawlers.size():
+			if str(MenuData.brawlers[i].id) == str(b.id):
+				index = i + 1
+				break
+		_fill_left(b, index)
+		_fill_right(b)
 
 	var mode: Dictionary = menu.selected_mode()
 	if not mode.is_empty():
-		var color := Color(str(mode.get("color", "#57c81e")))
-		_mode_icon.texture = MenuUI.icon_texture(str(mode.get("icon", "bulldog")))
-		var card: String = str(MODE_CARDS.get(str(mode.get("id", "")), ""))
-		var has_card: bool = card != "" and ResourceLoader.exists(PACK + "modes/" + card)
-		if has_card:
-			_mode_art.texture = load(PACK + "modes/" + card)
-		_mode_art.visible = has_card
-		_mode_icon.visible = not has_card
-		_mode_name.visible = not has_card
-		_mode_sub.visible = not has_card
-		_mode_name.text = str(mode.get("name", "SHOWDOWN"))
+		_mode_flag.color = MenuUI.hex(mode.get("color"), MenuUI.GREEN)
+		_mode_name.text = str(mode.get("name", "SHOWDOWN")).to_upper()
 		_mode_sub.text = str(mode.get("sub", "")).to_upper()
-		_mode_sub.add_theme_color_override("font_color", color)
-		var tab := StyleBoxFlat.new()
-		tab.bg_color = color
-		tab.border_width_left = 3
-		tab.border_color = MenuUI.LINE
-		tab.corner_radius_top_right = 14
-		tab.corner_radius_bottom_right = 14
-		_mode_tab.add_theme_stylebox_override("panel", tab)
 
-	var online: int = 0
-	for f in MenuData.game.get("friends", []):
-		if str(f.get("status", "")) == "online":
-			online += 1
-	_set_badge(_friends_dot, online)
-	_set_badge(_inbox_dot, SaveGame.unread_mail())
-	# The web menu shows this line under the hero at all times; keep it while
-	# hints are on, and let the first tap of a session dismiss it.
 	_hint.modulate.a = 0.85 if SaveGame.hints_on else 0.0
-	_hint.offset_top = floor_y + 44.0
-	_hint.offset_bottom = floor_y + 78.0
-
-func _set_badge(badge: Control, count: int) -> void:
-	badge.visible = count > 0
-	if count > 0:
-		var label: Label = badge.get_meta("label")
-		label.text = str(count)
 
 # MARK: layout helpers
 
@@ -330,28 +321,7 @@ func _place(c: Control, x: float, y: float, w: float = -1.0, h: float = -1.0) ->
 	if c.get_parent() == null:
 		add_child(c)
 
-## A plate that is also a button — Button is not a container, so contents go in
-## an anchored row (_inner_row) rather than as managed children.
-func _plate_button(w: float, h: float, variant: String) -> Button:
-	var b := Button.new()
-	b.custom_minimum_size = Vector2(w, h)
-	var box: StyleBoxTexture = MenuUI.plate_box(variant, 16, 7, 0)
-	for state in ["normal", "hover", "pressed", "focus"]:
-		b.add_theme_stylebox_override(state, box)
-	MenuUI.press_feedback(b)
-	return b
-
-func _inner_row(host: Control, left: float, gap: float, right: float) -> HBoxContainer:
-	var row := MenuUI.hbox(int(gap))
-	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	row.offset_left = left
-	row.offset_right = -right
-	row.offset_bottom = -7   # the plate's baked drop shadow
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	host.add_child(row)
-	return row
-
-## The CSS "hud-in" intro: every plate pops in once, staggered.
+## Everything rises into place once, staggered left to right.
 func _play_intro() -> void:
 	if _intro_done:
 		return
@@ -360,5 +330,5 @@ func _play_intro() -> void:
 	var i: int = 0
 	for child in get_children():
 		if child is Control and child != _hint:
-			MenuUI.pop_in(child, 0.04 * i)
+			MenuUI.pop_in(child, 0.035 * i)
 			i += 1

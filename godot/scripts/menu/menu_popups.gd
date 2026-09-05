@@ -74,7 +74,7 @@ static func _style_toggle(button: Button) -> void:
 	button.add_theme_font_size_override("font_size", 22)
 	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 		button.add_theme_color_override(state, MenuUI.TEXT)
-	var box: StyleBoxTexture = MenuUI.plate_box("green" if on else "grey", 29, 4, 8)
+	var box: StyleBoxFlat = MenuUI.plate_box("green" if on else "grey", 29, 4, 8)
 	for state in ["normal", "hover", "pressed", "focus"]:
 		button.add_theme_stylebox_override(state, box)
 

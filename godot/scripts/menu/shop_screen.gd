@@ -1,377 +1,262 @@
 class_name ShopScreen
 extends MenuScreen
-## Shop — web-menu/src/screens/shop.js: special offers, daily deals (free
-## claims and coin/gem buys with flying currency), gem packs, and the Star Drop
-## opening with its rarity roll. Every item comes from data/game.json.
-
-const KIND_ICON := {
-	"coins": "coin", "gems": "gem", "power_points": "power_point",
-	"star_drop": "treat_legendary", "gadget": "gadget", "skin": "star_drop",
-	"pin": "rank_badge", "bundle": "treat_epic",
-	"dawg_treat": "dawg_treat", "bling": "bling", "brawler": "brawlers",
-}
-const KIND_LABEL := {
-	"coins": "Coins", "gems": "Gems", "power_points": "Power Points",
-	"star_drop": "Dawg Treat", "gadget": "Gadget", "skin": "Skin", "pin": "Pin",
-	"dawg_treat": "Dawg Treat", "bling": "Bling", "brawler": "Brawler",
-}
+## Where what you earn gets spent. Not a store.
+##
+## The previous version was a storefront: gem bundles priced in dollars, three
+## SPECIAL OFFERS with NEW and BEST VALUE flashes, and a row of daily tiles that
+## all read PURCHASED. None of it could be bought with anything a match pays
+## out, and none of it was ever going to be, because nothing here charges money.
+##
+## What is left is the loop that was already real. `SaveGame.award_match` grants
+## coins for every match played and the Trophy Road grants more; without
+## somewhere to spend them, coins are a number that only counts up. So: power
+## levels for your fighters, Dawg Treats, and the resource swaps — and the
+## Treat's odds are printed, because a box whose contents you cannot reason
+## about is the part of a shop this game has no reason to imitate.
 
 func _build() -> void:
 	screen_name = "shop"
 	topbar("Shop")
-	var column: VBoxContainer = scroll_content(30)
-	var shop: Dictionary = MenuData.game.get("shop", {})
+	var column: VBoxContainer = scroll_content(0)
 
-	column.add_child(_heading("Special Offers"))
-	var offers: GridContainer = MenuUI.grid(3)
-	column.add_child(offers)
-	for o in shop.get("offers", []):
-		offers.add_child(_offer_card(o))
-	stagger_children(offers, 0.06)
+	column.add_child(MenuUI.section("POWER UP   ·   %s COINS" % MenuUI.fmt(SaveGame.coins)))
+	column.add_child(MenuUI.gap(10, true))
+	for b in MenuData.brawlers:
+		if SaveGame.is_unlocked(str(b.id)):
+			column.add_child(_power_row(b))
+			column.add_child(MenuUI.rule())
+	column.add_child(MenuUI.gap(46, true))
 
-	column.add_child(_heading("Daily Deals", "Resets in %s" % _reset_time()))
-	var daily: GridContainer = MenuUI.grid(6)
-	column.add_child(daily)
-	for item in shop.get("daily", []):
-		daily.add_child(_daily_card(item))
-	stagger_children(daily)
+	column.add_child(MenuUI.section("DAWG TREATS"))
+	column.add_child(MenuUI.gap(10, true))
+	column.add_child(_treat_block())
+	column.add_child(MenuUI.gap(46, true))
 
-	column.add_child(_heading("Gems"))
-	var gems: GridContainer = MenuUI.grid(4)
-	column.add_child(gems)
-	for pack in shop.get("gems", []):
-		gems.add_child(_gem_card(pack))
-	stagger_children(gems)
+	var deals: Array = _affordable_deals()
+	if not deals.is_empty():
+		column.add_child(MenuUI.section("DEALS   ·   RESETS IN %s" % _reset_time()))
+		column.add_child(MenuUI.gap(10, true))
+		for item: Dictionary in deals:
+			column.add_child(_deal_row(item))
+			column.add_child(MenuUI.rule())
+	column.add_child(MenuUI.gap(40, true))
 
-	var skins_data: Array = shop.get("skins", [])
-	if not skins_data.is_empty():
-		column.add_child(_heading("Skins"))
-		var skins: GridContainer = MenuUI.grid(5)
-		column.add_child(skins)
-		for skin in skins_data:
-			skins.add_child(_skin_card(skin))
-		stagger_children(skins)
+# MARK: power levels
 
-	var resources_data: Array = shop.get("resources", [])
-	if not resources_data.is_empty():
-		column.add_child(_heading("Resources"))
-		var resources: GridContainer = MenuUI.grid(6)
-		column.add_child(resources)
-		for item in resources_data:
-			resources.add_child(_resource_card(item))
-		stagger_children(resources)
+## One row per owned fighter: what level they are and what the next one costs.
+## This is the coin sink the deleted detail screen used to own.
+func _power_row(b: Dictionary) -> Control:
+	var id: String = str(b.id)
+	var power: int = SaveGame.brawler_power(id)
+	var cost: int = 200 * power
+	var row := MenuUI.hbox(0)
+	row.custom_minimum_size = Vector2(0, 76)
 
-
-func _heading(text: String, note: String = "") -> HBoxContainer:
-	var row := MenuUI.hbox(16)
-	row.add_child(MenuUI.display(text.to_upper(), 42, MenuUI.TEXT, 6))
-	if note != "":
-		var n: Label = MenuUI.body(note, 22, MenuUI.TEXT_DIM)
-		n.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		row.add_child(n)
+	var block := ColorRect.new()
+	block.color = MenuUI.hex(b.get("color"), MenuUI.BLUE)
+	block.custom_minimum_size = Vector2(7, 0)
+	row.add_child(block)
+	row.add_child(MenuUI.gap(16))
+	var name_label: Label = MenuUI.display(str(b.name).to_upper(), 38)
+	name_label.custom_minimum_size = Vector2(360, 0)
+	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(name_label)
+	var level: Label = MenuUI.label("POWER %d" % power, 19, MenuUI.TEXT_DIM)
+	level.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(level)
+	row.add_child(MenuUI.spacer())
+	var price: Label = MenuUI.display(MenuUI.fmt(cost), 32,
+			MenuUI.GOLD if SaveGame.coins >= cost else MenuUI.TEXT_FAINT)
+	price.custom_minimum_size = Vector2(160, 0)
+	price.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	price.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(price)
+	row.add_child(MenuUI.gap(20))
+	var buy: Button = MenuUI.button("UPGRADE", "gold" if SaveGame.coins >= cost else "grey",
+			22, Vector2(180, 54))
+	buy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	buy.disabled = SaveGame.coins < cost
+	buy.pressed.connect(func() -> void: _upgrade(b, cost, buy))
+	row.add_child(buy)
 	return row
 
-func _card(height: float) -> Panel:
-	var card: Panel = MenuUI.card()
-	card.custom_minimum_size = Vector2(0, height)
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	return card
-
-# MARK: offers
-
-func _offer_card(o: Dictionary) -> Panel:
-	var card: Panel = _card(330)
-	var accent: Color = MenuUI.hex(o.get("accent"), MenuUI.YELLOW)
-	var tint := TextureRect.new()
-	tint.texture = MenuUI.fade_texture()
-	tint.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tint.stretch_mode = TextureRect.STRETCH_SCALE
-	tint.modulate = Color(accent.r, accent.g, accent.b, 0.42)
-	tint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	tint.offset_bottom = -7
-	tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(tint)
-
-	var row := MenuUI.hbox(22)
-	MenuUI.card_body(card, 22).add_child(row)
-	var left := MenuUI.vbox(10)
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(left)
-	left.add_child(MenuUI.wrap(MenuUI.display(str(o.name).to_upper(), 32, MenuUI.TEXT, 6)))
-	for line in o.get("contents", []):
-		left.add_child(MenuUI.body("✓  %s" % str(line), 22, MenuUI.TEXT_SOFT))
-	left.add_child(MenuUI.spacer())
-	var buy_row := MenuUI.hbox(0)
-	buy_row.alignment = BoxContainer.ALIGNMENT_BEGIN
-	left.add_child(buy_row)
-	var on_buy := func(button: Button) -> void:
-		_buy(o, button, func() -> void:
-			if str(o.get("kind", "")) == "bundle":
-				SaveGame.coins += 2000
-				SaveGame.star_points += 100)
-	var buy_button: Button = _price_button(o, on_buy)
-	buy_button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	# Shrunk to its text the icon had no room and vanished; the reference button
-	# is a wide pill with the gem showing.
-	buy_button.custom_minimum_size = Vector2(230, 78)
-	buy_row.add_child(buy_button)
-	var art: TextureRect = MenuUI.icon("star_drop", 160)
-	art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(art)
-
-	if str(o.get("badge", "")) != "":
-		var badge := PanelContainer.new()
-		var style := StyleBoxFlat.new()
-		style.bg_color = MenuUI.RED
-		style.set_corner_radius_all(10)
-		style.set_border_width_all(3)
-		style.border_color = MenuUI.LINE
-		style.content_margin_left = 16
-		style.content_margin_right = 16
-		style.content_margin_top = 6
-		style.content_margin_bottom = 6
-		badge.add_theme_stylebox_override("panel", style)
-		badge.add_child(MenuUI.display(str(o.badge), 22, MenuUI.TEXT, 4))
-		MenuUI.pin(badge, true, false, 12)
-		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		card.add_child(badge)
-	return card
-
-# MARK: daily deals
-
-func _daily_card(item: Dictionary) -> Panel:
-	var card: Panel = _card(320)
-	var column := MenuUI.vbox(6)
-	MenuUI.card_body(card, 16).add_child(column)
-	var kind: String = str(item.get("kind", "coins"))
-	var brawler_id: String = str(item.get("brawler", ""))
-	var is_portrait: bool = kind == "skin" or kind == "gadget"
-
-	var art_holder := CenterContainer.new()
-	art_holder.custom_minimum_size = Vector2(0, 120)
-	column.add_child(art_holder)
-	if is_portrait and brawler_id != "":
-		var portrait := TextureRect.new()
-		portrait.texture = MenuData.portrait(brawler_id)
-		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		portrait.custom_minimum_size = Vector2(120, 120)
-		art_holder.add_child(portrait)
-	else:
-		art_holder.add_child(MenuUI.icon(str(KIND_ICON.get(kind, "token")), 116))
-
-	var amount_text: String = MenuUI.fmt(int(item.amount)) if item.has("amount") \
-			else str(item.get("name", "")).to_upper()
-	# A two-word skin name wraps; a step down keeps its price button on the card.
-	var amount: Label = MenuUI.wrap(MenuUI.display(amount_text,
-			36 if item.has("amount") else 28, MenuUI.TEXT, 6))
-	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(amount)
-	var what: String = str(KIND_LABEL.get(kind, kind)).to_upper()
-	if brawler_id != "":
-		what = "%s · %s" % [str(MenuData.brawler(brawler_id).name), what]
-	var what_label: Label = MenuUI.body(what, 20, MenuUI.TEXT_DIM)
-	what_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(what_label)
-	column.add_child(MenuUI.spacer())
-	column.add_child(_price_button(item, func(button: Button) -> void:
-		_buy(item, button, func() -> void: _apply_item(item))))
-	if str(item.get("currency", "")) == "free" and not SaveGame.is_claimed(str(item.id)):
-		card.add_child(_free_ribbon())
-	return card
-
-## The red corner ribbon the reference puts on every free deal.
-func _free_ribbon() -> Control:
-	var ribbon := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = MenuUI.RED
-	style.set_border_width_all(3)
-	style.border_color = MenuUI.LINE
-	style.content_margin_left = 34
-	style.content_margin_right = 34
-	style.content_margin_top = 2
-	style.content_margin_bottom = 2
-	ribbon.add_theme_stylebox_override("panel", style)
-	ribbon.add_child(MenuUI.display("FREE", 20, MenuUI.TEXT, 4))
-	ribbon.rotation_degrees = -35.0
-	ribbon.position = Vector2(-32, 34)
-	ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return ribbon
-
-# MARK: skins
-
-## Skin card: the brawler's portrait over the skin's accent, priced in Bling.
-func _skin_card(skin: Dictionary) -> Panel:
-	var card: Panel = _card(330)
-	var accent: Color = MenuUI.hex(skin.get("accent"), MenuUI.YELLOW)
-	var tint := TextureRect.new()
-	tint.texture = MenuUI.fade_texture()
-	tint.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tint.stretch_mode = TextureRect.STRETCH_SCALE
-	tint.modulate = Color(accent.r, accent.g, accent.b, 0.38)
-	tint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	tint.offset_bottom = -7
-	tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(tint)
-
-	var column := MenuUI.vbox(6)
-	MenuUI.card_body(card, 16).add_child(column)
-	var art_holder := CenterContainer.new()
-	art_holder.custom_minimum_size = Vector2(0, 132)
-	column.add_child(art_holder)
-	var art := TextureRect.new()
-	# The skin's own illustration where one has been drawn — two of the five
-	# have — and the plain portrait where none has. The card used to show the
-	# portrait unconditionally, so skin_leon_homecoming and skin_tony_fieldday
-	# shipped in the build and were never once drawn on screen.
-	art.texture = MenuData.skin_art(skin)
-	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	art.custom_minimum_size = Vector2(132, 132)
-	art_holder.add_child(art)
-
-	var name_label: Label = MenuUI.wrap(MenuUI.display(str(skin.get("name", "")), 26, MenuUI.TEXT, 5))
-	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(name_label)
-	# rarity_of() keys off the dict's own "rarity" field, so the skin entry works
-	var rarity: Dictionary = MenuData.rarity_of(skin)
-	var rarity_label: Label = MenuUI.body(str(rarity.get("label", "")).to_upper(), 19,
-			MenuUI.hex(rarity.get("color"), MenuUI.TEXT_DIM))
-	rarity_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(rarity_label)
-	column.add_child(MenuUI.spacer())
-	column.add_child(_price_button(skin, func(button: Button) -> void:
-		_buy(skin, button, func() -> void: _apply_item(skin))))
-	return card
-
-# MARK: resources
-
-## Resource card: a stack of coins, power points or treats bought with gems.
-func _resource_card(item: Dictionary) -> Panel:
-	var card: Panel = _card(300)
-	var column := MenuUI.vbox(6)
-	MenuUI.card_body(card, 16).add_child(column)
-	var kind: String = str(item.get("kind", "coins"))
-	var art := CenterContainer.new()
-	art.custom_minimum_size = Vector2(0, 112)
-	column.add_child(art)
-	art.add_child(MenuUI.icon(str(KIND_ICON.get(kind, "token")), 108))
-
-	var amount: Label = MenuUI.display(MenuUI.fmt(int(item.get("amount", 1))), 34, MenuUI.TEXT, 6)
-	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(amount)
-	var what: String = str(item.get("label", KIND_LABEL.get(kind, kind))).to_upper()
-	var what_label: Label = MenuUI.wrap(MenuUI.body(what, 19, MenuUI.TEXT_DIM))
-	what_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(what_label)
-	if str(item.get("value", "")) != "":
-		var bonus: Label = MenuUI.display(str(item.value), 20, MenuUI.GREEN, 4)
-		bonus.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		column.add_child(bonus)
-	column.add_child(MenuUI.spacer())
-	column.add_child(_price_button(item, func(button: Button) -> void:
-		_buy(item, button, func() -> void: _apply_item(item))))
-	return card
-
-func _gem_card(pack: Dictionary) -> Panel:
-	var card: Panel = _card(240)
-	var column := MenuUI.vbox(8)
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	MenuUI.card_body(card, 16).add_child(column)
-	var art := CenterContainer.new()
-	art.add_child(MenuUI.icon("gem", 96))
-	column.add_child(art)
-	var amount: Label = MenuUI.display(MenuUI.fmt(int(pack.amount)), 44, MenuUI.TEXT, 6)
-	amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(amount)
-	var buy: Button = MenuUI.button(str(pack.price), "green")
-	buy.pressed.connect(func() -> void: _buy_gems(pack, buy))
-	column.add_child(buy)
-	return card
-
-func _buy_gems(pack: Dictionary, button: Button) -> void:
-	var amount: int = int(pack.amount)
-	var ok: bool = await menu.confirm("Get Gems",
-			"This is a demo build — no real purchases. Add %d gems to your account?" % amount,
-			"ADD GEMS", "green")
-	if not ok:
-		return
-	SaveGame.gems += amount
-	SaveGame.save()
-	sfx("purchase")
-	menu.fly_to(center_of(button), "gems", 10)
-	toast("+%d gems" % amount, "gem")
-
-# MARK: buying
-
-func _price_button(item: Dictionary, on_buy: Callable) -> Button:
-	if SaveGame.is_claimed(str(item.id)):
-		var done: Button = MenuUI.disabled_button(str(item.get("claimedLabel", "PURCHASED")))
-		done.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		return done
-	var currency: String = str(item.get("currency", "coins"))
-	var free: bool = currency == "free"
-	var variant: String = "green" if free else ("blue" if currency == "gems" else "yellow")
-	# Bling is the skin currency; it has its own icon rather than the coin.
-	const CURRENCY_ICON := {"gems": "gem", "bling": "bling", "coins": "coin"}
-	var label: String = str(item.get("label", "FREE")) if free \
-			else MenuUI.fmt(int(item.get("price", 0)))
-	var button: Button = MenuUI.button(label, variant, 30)
-	if not free:
-		button.icon = MenuUI.icon_texture(str(CURRENCY_ICON.get(currency, "coin")))
-		button.expand_icon = true
-		button.add_theme_constant_override("icon_max_width", 34)
-	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.pressed.connect(func() -> void: on_buy.call(button))
-	return button
-
-func _buy(item: Dictionary, button: Button, apply: Callable) -> void:
-	var currency: String = str(item.get("currency", "coins"))
-	var price: int = int(item.get("price", 0))
-	if not SaveGame.can_afford(currency, price):
+func _upgrade(b: Dictionary, cost: int, button: Control) -> void:
+	var id: String = str(b.id)
+	if not SaveGame.spend("coins", cost):
 		sfx("error")
-		toast("Not enough %s" % currency, "gem" if currency == "gems" else "coin")
-		var shake := button.create_tween()
-		shake.tween_property(button, "position:x", button.position.x - 8, 0.06)
-		shake.tween_property(button, "position:x", button.position.x + 8, 0.06)
-		shake.tween_property(button, "position:x", button.position.x, 0.06)
+		toast("Need %s coins" % MenuUI.fmt(cost))
 		return
-	SaveGame.spend(currency, price)
-	SaveGame.claim(str(item.id))
-	apply.call()
+	SaveGame.set_brawler_power(id, SaveGame.brawler_power(id) + 1)
 	SaveGame.save()
 	menu.refresh_currencies()
-	var kind: String = str(item.get("kind", "coins"))
-	sfx("reward" if (kind == "star_drop" or kind == "dawg_treat") else "purchase")
-	var at: Vector2 = center_of(button)
-	if kind == "coins":
-		menu.fly_to(at, "coins", 10)
-	else:
-		menu.burst(at - Vector2(0, 60), str(KIND_ICON.get(kind, "star_drop")), 12)
-	var done: Button = MenuUI.disabled_button(str(item.get("claimedLabel", "PURCHASED")))
-	done.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	button.add_sibling(done)
-	button.queue_free()
-	if kind == "star_drop" or kind == "dawg_treat":
-		open_dawg_treat(menu)
+	sfx("purchase")
+	menu.burst(center_of(button), "coin", 10)
+	toast("%s is now Power %d" % [str(b.name), SaveGame.brawler_power(id)])
+	if menu.home:
+		menu.home.refresh()
+	_reopen()
 
-func _apply_item(item: Dictionary) -> void:
-	if str(item.get("kind", "")) == "coins":
-		SaveGame.coins += int(item.get("amount", 0))
+# MARK: dawg treats
+
+const TREAT_PRICE := 1000
+
+## The treat, its price, and the odds. The odds table is the point: it is the
+## same figures `_roll_tier` runs on, printed, so the rarest tier being a real
+## 0.5% is something you can read rather than something you have to feel.
+func _treat_block() -> Control:
+	var row := MenuUI.hbox(60)
+	var left := MenuUI.vbox(10)
+	left.custom_minimum_size = Vector2(460, 0)
+	row.add_child(left)
+	left.add_child(MenuUI.display("DAWG TREAT", 52))
+	left.add_child(MenuUI.wrap(MenuUI.body(
+			"One pull from the table on the right. A fighter you do not own yet "
+			+ "can come out of Mythic or better.", 23, MenuUI.TEXT_DIM)))
+	left.add_child(MenuUI.gap(8, true))
+	var buy: Button = MenuUI.button("OPEN — %s COINS" % MenuUI.fmt(TREAT_PRICE),
+			"gold" if SaveGame.coins >= TREAT_PRICE else "grey", 26, Vector2(360, 66))
+	buy.disabled = SaveGame.coins < TREAT_PRICE
+	buy.pressed.connect(func() -> void:
+		if not SaveGame.spend("coins", TREAT_PRICE):
+			sfx("error")
+			toast("Need %s coins" % MenuUI.fmt(TREAT_PRICE))
+			return
+		SaveGame.save()
+		menu.refresh_currencies()
+		open_dawg_treat(menu)
+		_reopen())
+	left.add_child(buy)
+
+	var odds := MenuUI.vbox(0)
+	odds.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(odds)
+	odds.add_child(MenuUI.label("ODDS", 18, MenuUI.TEXT_FAINT))
+	odds.add_child(MenuUI.rule())
+	odds.add_child(MenuUI.gap(6, true))
+	for tier: Dictionary in TREAT_TIERS:
+		var line := MenuUI.hbox(12)
+		line.custom_minimum_size = Vector2(0, 38)
+		var swatch := ColorRect.new()
+		swatch.color = MenuUI.hex(tier.color)
+		swatch.custom_minimum_size = Vector2(14, 14)
+		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		line.add_child(swatch)
+		var name_label: Label = MenuUI.label(str(tier.label), 20, MenuUI.TEXT_SOFT)
+		name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		line.add_child(name_label)
+		line.add_child(MenuUI.spacer())
+		var pct: Label = MenuUI.display("%.1f%%" % (float(tier.p) * 100.0), 24)
+		pct.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		line.add_child(pct)
+		odds.add_child(line)
+	return row
+
+# MARK: deals
+
+## Only what a match can actually pay for. The gem packs priced in dollars and
+## the bundles that went with them are gone, so this reads whatever survives
+## that filter rather than a hardcoded list.
+func _affordable_deals() -> Array:
+	var out: Array = []
+	var shop: Dictionary = MenuData.game.get("shop", {})
+	for group: String in ["daily", "resources"]:
+		for item: Dictionary in shop.get(group, []):
+			var currency: String = str(item.get("currency", "coins"))
+			if currency in ["coins", "gems", "bling", "free"]:
+				out.append(item)
+	return out
+
+func _deal_row(item: Dictionary) -> Control:
+	var kind: String = str(item.get("kind", "coins"))
+	var amount: int = int(item.get("amount", 0))
+	var currency: String = str(item.get("currency", "coins"))
+	var price: int = int(item.get("price", 0))
+	var free: bool = currency == "free" or price <= 0
+	var bought: bool = SaveGame.is_claimed("shop:%s" % str(item.get("id", "")))
+
+	var row := MenuUI.hbox(0)
+	row.custom_minimum_size = Vector2(0, 72)
+	var name_label: Label = MenuUI.display(_item_name(kind, amount), 34,
+			MenuUI.TEXT if not bought else MenuUI.TEXT_FAINT)
+	name_label.custom_minimum_size = Vector2(460, 0)
+	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(name_label)
+	if str(item.get("brawler", "")) != "":
+		var who: Label = MenuUI.label(
+				str(MenuData.brawler(str(item.brawler)).get("name", "")), 19, MenuUI.TEXT_DIM)
+		who.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(who)
+	row.add_child(MenuUI.spacer())
+	if bought:
+		var done: Label = MenuUI.label("TAKEN", 19, MenuUI.TEXT_FAINT)
+		done.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(done)
+		return row
+	var affordable: bool = free or SaveGame.can_afford(currency, price)
+	var label_text: String = "FREE" if free else "%s %s" % [MenuUI.fmt(price),
+			currency.to_upper()]
+	var buy: Button = MenuUI.button(label_text, "gold" if affordable else "grey", 22,
+			Vector2(230, 54))
+	buy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	buy.disabled = not affordable
+	buy.pressed.connect(func() -> void: _take(item, free, currency, price, buy))
+	row.add_child(buy)
+	return row
+
+func _take(item: Dictionary, free: bool, currency: String, price: int,
+		button: Control) -> void:
+	if not free and not SaveGame.spend(currency, price):
+		sfx("error")
+		toast("Not enough %s" % currency)
+		return
+	var kind: String = str(item.get("kind", "coins"))
+	var amount: int = int(item.get("amount", 0))
+	SaveGame.claim("shop:%s" % str(item.get("id", "")))
+	if kind == "dawg_treat" or kind == "star_drop":
+		SaveGame.save()
+		menu.refresh_currencies()
+		sfx("reward")
+		open_dawg_treat(menu)
+		_reopen()
+		return
+	SaveGame.grant(kind, amount)
+	SaveGame.save()
+	menu.refresh_currencies()
+	sfx("purchase")
+	menu.burst(center_of(button), "coin", 10)
+	toast("+%s" % _item_name(kind, amount))
+	_reopen()
+
+func _item_name(kind: String, amount: int) -> String:
+	match kind:
+		"coins":
+			return "%s COINS" % MenuUI.fmt(amount)
+		"gems":
+			return "%s GEMS" % MenuUI.fmt(amount)
+		"power_points":
+			return "%s POWER POINTS" % MenuUI.fmt(amount)
+		"bling":
+			return "%s BLING" % MenuUI.fmt(amount)
+		"dawg_treat", "star_drop":
+			return "%s DAWG TREAT%s" % [MenuUI.fmt(amount), "S" if amount != 1 else ""]
+	return kind.replace("_", " ").to_upper()
 
 func _reset_time() -> String:
-	var now: Dictionary = Time.get_time_dict_from_system()
-	var seconds: int = 86400 - (int(now.hour) * 3600 + int(now.minute) * 60 + int(now.second))
-	return "%dh %dm" % [seconds / 3600, (seconds % 3600) / 60]
+	var now: Dictionary = Time.get_datetime_dict_from_system()
+	var left: int = (24 - int(now.hour)) * 60 - int(now.minute)
+	return "%dH %dM" % [left / 60, left % 60]
 
-# MARK: star drop
+func _reopen() -> void:
+	menu.push_screen(ShopScreen.new())
+	close_screen()
 
-## Dawg Treats — our Starr Drop. A Starr Drop rolls a rarity first and then
-## pulls a reward from that rarity's pool, so the colour you see tells you how
-## good the prize can be before you open it; that is the mechanic reproduced
-## here, across the seven treat rarities we have art for. Probabilities are
-## shaped like Brawl Stars': the common tiers carry the draw, Legendary and
-## Ultra are the rare thrill.
+# MARK: the treat itself
+#
+# A Dawg Treat rolls a rarity first and then pulls a reward from that rarity's
+# pool, so the colour you see tells you how good the prize can be before you
+# open it. Probabilities carry on the common tiers; Legendary and Ultra are the
+# rare thrill. These are the figures the odds table above prints.
+
 const TREAT_TIERS := [
 	{"id": "common", "label": "COMMON", "color": "#cfcfcf", "p": 0.40},
 	{"id": "rare", "label": "RARE", "color": "#6df26a", "p": 0.26},
@@ -391,12 +276,11 @@ const TREAT_POOL := {
 	"super_rare": [{"kind": "coins", "amount": 520, "w": 3}, {"kind": "power_points", "amount": 130, "w": 2},
 			{"kind": "bling", "amount": 45, "w": 2}, {"kind": "gems", "amount": 10, "w": 1}],
 	"epic": [{"kind": "power_points", "amount": 280, "w": 2}, {"kind": "bling", "amount": 110, "w": 2},
-			{"kind": "gems", "amount": 25, "w": 2}, {"kind": "pin", "w": 1}],
+			{"kind": "gems", "amount": 25, "w": 2}],
 	"mythic": [{"kind": "gems", "amount": 55, "w": 2}, {"kind": "bling", "amount": 260, "w": 2},
 			{"kind": "brawler", "w": 3}],
-	"legendary": [{"kind": "brawler", "w": 4}, {"kind": "gems", "amount": 120, "w": 2},
-			{"kind": "skin", "w": 2}],
-	"ultra": [{"kind": "brawler", "w": 3}, {"kind": "skin", "w": 3}, {"kind": "gems", "amount": 220, "w": 2}],
+	"legendary": [{"kind": "brawler", "w": 4}, {"kind": "gems", "amount": 120, "w": 2}],
+	"ultra": [{"kind": "brawler", "w": 3}, {"kind": "gems", "amount": 220, "w": 2}],
 }
 
 static func _roll_tier() -> Dictionary:
@@ -408,8 +292,8 @@ static func _roll_tier() -> Dictionary:
 	return TREAT_TIERS[0]
 
 ## Pick a reward from a tier's pool, then resolve it against what the player
-## already owns — a brawler pull with nothing left to unlock becomes gems
-## rather than a dud, the way Starr Drops substitute duplicates out.
+## already owns — a fighter pull with nothing left to unlock becomes gems
+## rather than a dud.
 static func _roll_reward(tier_id: String) -> Dictionary:
 	var pool: Array = TREAT_POOL.get(tier_id, TREAT_POOL["common"])
 	var total: float = 0.0
@@ -433,10 +317,9 @@ static func _roll_reward(tier_id: String) -> Dictionary:
 		reward["id"] = locked[randi() % locked.size()]
 	return reward
 
-static func treat_icon(tier_id: String) -> String:
-	return "treat_%s" % tier_id
-
-## The opening: the treat drops in at its rarity colour, you tap, it reveals.
+## The opening. The treat is a solid block of its rarity colour rather than an
+## illustration of a box: the rarity IS the information, and printing it as a
+## colour and a word says it without shipping seven pieces of art.
 static func open_dawg_treat(shell: MenuShell) -> void:
 	var tier: Dictionary = _roll_tier()
 	var reward: Dictionary = _roll_reward(str(tier.id))
@@ -446,17 +329,16 @@ static func open_dawg_treat(shell: MenuShell) -> void:
 	var box := MenuUI.vbox(18)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	popup.body_box.add_child(box)
-	var treat_holder := CenterContainer.new()
-	treat_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var treat: TextureRect = MenuUI.icon(treat_icon(str(tier.id)), 210)
-	treat_holder.add_child(treat)
-	box.add_child(treat_holder)
-	var label: Label = MenuUI.display("TAP TO OPEN", 54, accent, 8)
+	var slab := ColorRect.new()
+	slab.color = accent
+	slab.custom_minimum_size = Vector2(0, 180)
+	box.add_child(slab)
+	var label: Label = MenuUI.display("TAP TO OPEN", 48, accent)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(label)
-	var bob := treat.create_tween().set_loops()
-	bob.tween_property(treat, "position:y", -12.0, 0.6).set_trans(Tween.TRANS_SINE)
-	bob.tween_property(treat, "position:y", 0.0, 0.6).set_trans(Tween.TRANS_SINE)
+	var pulse := slab.create_tween().set_loops()
+	pulse.tween_property(slab, "modulate:a", 0.55, 0.6).set_trans(Tween.TRANS_SINE)
+	pulse.tween_property(slab, "modulate:a", 1.0, 0.6).set_trans(Tween.TRANS_SINE)
 
 	var opened: Array = [false]
 	var open := func(event: InputEvent) -> void:
@@ -464,54 +346,38 @@ static func open_dawg_treat(shell: MenuShell) -> void:
 			return
 		opened[0] = true
 		shell.sfx("reward")
-		bob.kill()
-		# the treat pops before it hands the prize over
-		treat.pivot_offset = treat.size * 0.5
-		var pop := treat.create_tween()
-		pop.tween_property(treat, "scale", Vector2(1.3, 1.3), 0.12) \
-				.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		pop.tween_property(treat, "modulate:a", 0.0, 0.14)
-		pop.tween_callback(treat.queue_free)
-		shell.burst(shell.stage.size * 0.5, treat_icon(str(tier.id)), 22)
+		pulse.kill()
+		slab.modulate.a = 1.0
 		label.text = str(tier.label)
-		var slot := CenterContainer.new()
-		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		box.add_child(slot)
-		box.move_child(slot, 0)
+		label.add_theme_color_override("font_color", accent)
+		var prize := MenuUI.vbox(6)
+		prize.alignment = BoxContainer.ALIGNMENT_CENTER
+		slab.add_child(prize)
+		prize.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		var kind: String = str(reward.get("kind", "coins"))
+		var headline: String = ""
+		var caption: String = ""
 		if kind == "brawler":
 			var b: Dictionary = MenuData.brawler(str(reward.id))
 			SaveGame.unlock(str(reward.id))
-			SaveGame.save()
-			var column := MenuUI.vbox(10)
-			var portrait := TextureRect.new()
-			portrait.texture = MenuData.portrait(str(reward.id))
-			portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			portrait.custom_minimum_size = Vector2(220, 220)
-			column.add_child(portrait)
-			var caption: Label = MenuUI.display("NEW BRAWLER: %s" % str(b.name), 40)
-			caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			column.add_child(caption)
-			slot.add_child(column)
-		elif kind == "skin" or kind == "pin":
-			var column2 := MenuUI.vbox(10)
-			column2.add_child(MenuUI.icon("brawlers" if kind == "skin" else "rank_badge", 170))
-			var caption2: Label = MenuUI.display(
-					"NEW SKIN" if kind == "skin" else "NEW PIN", 40, accent, 6)
-			caption2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			column2.add_child(caption2)
-			slot.add_child(column2)
+			headline = str(b.get("name", "FIGHTER")).to_upper()
+			caption = "NEW FIGHTER"
 		else:
-			SaveGame.grant(kind, int(reward.get("amount", 0)))
+			var amount: int = int(reward.get("amount", 0))
+			SaveGame.grant(kind, amount)
 			shell.refresh_currencies()
-			var row := MenuUI.hbox(16)
-			row.add_child(MenuUI.icon(str(KIND_ICON.get(kind, "coin")), 90))
-			row.add_child(MenuUI.display("+%s" % MenuUI.fmt(int(reward.get("amount", 0))), 70))
-			slot.add_child(row)
-		var awesome: Button = MenuUI.button("AWESOME", "yellow")
-		awesome.pressed.connect(popup.close_screen)
-		box.add_child(awesome)
+			headline = "+%s" % MenuUI.fmt(amount)
+			caption = str(kind).replace("_", " ").to_upper()
+		SaveGame.save()
+		var caption_label: Label = MenuUI.label(caption, 20, MenuUI.GOLD_INK)
+		caption_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		prize.add_child(caption_label)
+		var headline_label: Label = MenuUI.display(headline, 76, MenuUI.INK)
+		headline_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		prize.add_child(headline_label)
+		var done: Button = MenuUI.button("DONE", "gold")
+		done.pressed.connect(popup.close_screen)
+		box.add_child(done)
 	box.mouse_filter = Control.MOUSE_FILTER_STOP
 	box.gui_input.connect(open)
 

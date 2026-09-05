@@ -16,7 +16,12 @@ const STING := "res://assets/menu/audio/battle_start.mp3"
 const MODE_TITLE := {"showdown": "SHOWDOWN", "cup": "NOBLES CUP"}
 const MODE_SUB := {"showdown": "Solo · Castle Courtyard", "cup": "3v3 · Lower Field"}
 const MODE_GOAL := {"showdown": "Be the last one standing", "cup": "Score three goals to win"}
-const MODE_ICON := {"showdown": "bulldog", "cup": "soccer_ball"}
+## The mode reads as a block of its own colour, the same way it does on the home
+## plate and the events cards. It used to be an illustrated badge, from art that
+## went with the old menu; it sat beside the mode's name and subtitle in both
+## places it appeared, so it was saying a third time what the type already said.
+## Matches the colours in data/game.json.
+const MODE_COLOR := {"showdown": Color("#57c81e"), "cup": Color("#2f7bff")}
 const BLUE := Color("#1f4fdc")
 const BLUE_LO := Color("#12308f")
 const RED := Color("#d23a2f")
@@ -258,14 +263,12 @@ func _mode_chip(mode: String) -> Control:
 	row.offset_left = 12
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.add_child(row)
-	var icon := TextureRect.new()
-	icon.texture = MenuUI.icon_texture(str(MODE_ICON.get(mode, "bulldog")))
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.custom_minimum_size = Vector2(52, 52)
-	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(icon)
+	var flag := ColorRect.new()
+	flag.color = MODE_COLOR.get(mode, MenuUI.GREEN)
+	flag.custom_minimum_size = Vector2(7, 52)
+	flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	flag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(flag)
 	var text := VBoxContainer.new()
 	text.add_theme_constant_override("separation", -2)
 	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -306,14 +309,13 @@ func _mode_intro(mode: String) -> Control:
 	box.grow_vertical = Control.GROW_DIRECTION_BOTH
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var icon := TextureRect.new()
-	icon.texture = MenuUI.icon_texture(str(MODE_ICON.get(mode, "bulldog")))
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.custom_minimum_size = Vector2(96, 96)
-	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_child(icon)
+	var flag := ColorRect.new()
+	flag.color = MODE_COLOR.get(mode, MenuUI.GREEN)
+	flag.custom_minimum_size = Vector2(150, 9)
+	flag.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	flag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(flag)
+	box.add_child(MenuUI.gap(10, true))
 	var title: Label = MenuUI.display(str(MODE_TITLE.get(mode, mode.to_upper())), 64, Color.WHITE, 10)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE

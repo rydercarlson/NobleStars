@@ -19,17 +19,13 @@ var content: Control             # what _build() fills
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	if not is_popup:
+		# Opaque, not a translucent wash: MenuShell hides the 3D view behind a
+		# pushed screen, so there is nothing to show through, and a screen that
+		# half-reveals the stage under it reads as two screens at once.
 		var backdrop := ColorRect.new()
-		backdrop.color = Color(0.031, 0.039, 0.102, 0.74)
+		backdrop.color = MenuUI.INK
 		backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		add_child(backdrop)
-		var stripes := TextureRect.new()
-		stripes.texture = MenuShell.stripes_texture()
-		stripes.stretch_mode = TextureRect.STRETCH_TILE
-		stripes.modulate = Color(1, 1, 1, 0.35)
-		stripes.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		stripes.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(stripes)
 	body = MenuUI.vbox(0)
 	body.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(body)
@@ -51,11 +47,11 @@ func _animate_in() -> void:
 		tw.tween_property(self, "scale", Vector2.ONE, 0.32) \
 			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		return
-	position.x = 80
+	position.x = 42
 	var tw2 := create_tween()
 	tw2.set_parallel()
-	tw2.tween_property(self, "modulate:a", 1.0, 0.22)
-	tw2.tween_property(self, "position:x", 0.0, 0.34) \
+	tw2.tween_property(self, "modulate:a", 1.0, 0.16)
+	tw2.tween_property(self, "position:x", 0.0, 0.22) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 # MARK: chrome
@@ -72,29 +68,41 @@ func topbar(title: String, sub: String = "", currencies: bool = true,
 	margin.add_child(bar)
 	body.add_child(margin)
 
-	var back := MenuUI.icon_button("back", 56)
-	back.custom_minimum_size = Vector2(96, 80)
+	var back: Button = MenuUI.link("← BACK", 24)
+	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	back.pressed.connect(func() -> void:
 		menu.sfx("back")
 		close_screen())
 	bar.add_child(back)
-	var title_label: Label = MenuUI.display(title.to_upper(), 62)
+	bar.add_child(MenuUI.gap(18))
+	var title_label: Label = MenuUI.display(title.to_upper(), 58)
 	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	bar.add_child(title_label)
 	if sub != "":
-		var sub_label: Label = MenuUI.display(sub.to_upper(), 26, MenuUI.TEXT_DIM, 4)
-		sub_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		var sub_label: Label = MenuUI.label(sub, 20, MenuUI.TEXT_DIM)
+		sub_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		sub_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		bar.add_child(sub_label)
 	bar.add_child(MenuUI.spacer())
 	if currencies:
-		bar.add_child(menu.currency_pills())
+		var money: HBoxContainer = menu.currency_pills()
+		money.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		bar.add_child(money)
 	if close:
-		var x := MenuUI.icon_button("close", 78)
+		var x: Button = MenuUI.link("CLOSE", 24)
+		x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		x.pressed.connect(func() -> void:
 			menu.sfx("back")
 			close_screen())
+		bar.add_child(MenuUI.gap(10))
 		bar.add_child(x)
+	# The rule the whole screen hangs off, the same one home uses under its
+	# identity block, so a pushed screen and the home screen share a horizon.
+	var line: MarginContainer = MarginContainer.new()
+	line.add_theme_constant_override("margin_left", 34)
+	line.add_theme_constant_override("margin_right", 34)
+	line.add_child(MenuUI.rule())
+	body.add_child(line)
 	return bar
 
 ## Scrolling content area (CSS ".content.scroll") — returns the column to fill.

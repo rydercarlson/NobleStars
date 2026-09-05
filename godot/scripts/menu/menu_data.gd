@@ -63,12 +63,21 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 		"unlock_hint": "" if hint_value == null else str(hint_value),
 		"color": kit.get("color", Color.WHITE),
 		"has_model": kit.has("model"),
+		# Both forms of every stat. The tiered labels are what a card reads
+		# ("Very Fast"); the raw figures are what a stat column reads, where a
+		# word in a table of numerals breaks the column and says less — 3.4 m/s
+		# against 2.8 m/s is a comparison, "Very Fast" against "Fast" is not.
+		# Range is in TILES because that is the unit the balance work is done in
+		# (CHARACTER_BUILDING.md's on-screen cap is 5.5 tiles).
 		"stats": {
 			"health": int(kit.get("max_health", Kits.HEALTH_NORMAL)),
 			"damage": int(weapon.get("damage", 0)),
 			"speed": speed_label(float(kit.get("move_speed", Kits.SPEED_NORMAL))),
 			"range": range_label(float(weapon.get("range", 4.5 * Kits.TILE))),
 			"reload": reload_label(float(kit.get("reload", Kits.RELOAD_NORMAL))),
+			"speed_value": float(kit.get("move_speed", Kits.SPEED_NORMAL)),
+			"range_value": float(weapon.get("range", 4.5 * Kits.TILE)) / Kits.TILE,
+			"reload_value": float(kit.get("reload", Kits.RELOAD_NORMAL)),
 		},
 	}
 	# v0.5 loadout copy, straight from the JSON — there is no Kits counterpart

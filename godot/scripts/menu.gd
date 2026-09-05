@@ -1,28 +1,27 @@
 class_name MenuShell
 extends Control
-## The Nobles Brawl menu — the web menu (web-menu/) rebuilt natively so it
-## ships inside the iOS app. Same assets, same data files, same screens.
+## The Nobles Brawl menu.
 ##
-## Layout is authored in the web build's "stage pixels": a 1920x1080 stage that
-## is scaled to the device and widened (never letterboxed sideways) on taller
-## phones, exactly like fitStage() in web-menu/src/main.js. Children therefore
-## use the same coordinates the CSS does.
+## Layout is authored in "stage pixels": a 1920x1080 stage that is scaled to the
+## device and widened (never letterboxed sideways) on taller phones, so a phone
+## gains stage width instead of black bars.
+##
+## The stage is one live 3D view of the selected fighter with flat 2D chrome
+## over it. There is no background image: MenuStage draws the arena's own ground
+## and takes it out to ink, which is why the framing constants that used to line
+## the 3D fighter's feet up with a painted floor (FLOOR_FRAC, BRAWLER_VIEW,
+## _place_brawler) are gone.
 
 const STAGE_H := 1080.0
 const STAGE_MIN_W := 1920.0
-## Where the auditorium art's stage floor sits in the background image.
-const FLOOR_FRAC := 0.715
-const BRAWLER_VIEW := Vector2(900, 760)
 
 signal currency_changed
 signal brawler_changed
 signal mode_changed
 signal profile_changed
 
-static var _stripes: ImageTexture
-
 var stage: Control
-var bg: TextureRect
+var bg: ColorRect
 var brawler_view: MenuStage
 var home: HomeScreen
 var screens_root: Control
@@ -65,7 +64,7 @@ func _handle_debug_hooks() -> bool:
 
 func _build_stage() -> void:
 	var letterbox := ColorRect.new()
-	letterbox.color = Color("#05070f")
+	letterbox.color = MenuUI.INK
 	letterbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	letterbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(letterbox)
@@ -74,15 +73,16 @@ func _build_stage() -> void:
 	stage.clip_contents = true
 	add_child(stage)
 
-	bg = TextureRect.new()
-	bg.texture = load("res://assets/menu/bg.png")
-	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	# Sits behind the 3D view so the stage is never bare during the frame a
+	# fighter is being swapped, and is what _update_stage_dim darkens.
+	bg = ColorRect.new()
+	bg.color = MenuUI.INK
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(bg)
 
 	brawler_view = MenuStage.new()
+	brawler_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	stage.add_child(brawler_view)
 
 	home = HomeScreen.new()
@@ -139,7 +139,6 @@ func _fit_stage() -> void:
 	if window.x > 0 and visible.x > 0:
 		density = float(window.x) / visible.x
 	brawler_view.set_render_scale(scale_factor * density)
-	_place_brawler()
 
 ## The viewport rect, inset by the device's safe area (notch / home indicator).
 ## Desktop reports the whole display here, so the inset is mobile-only.
@@ -160,34 +159,6 @@ func _safe_rect() -> Rect2:
 	if rect.size.x < visible.x * 0.5 or rect.size.y < visible.y * 0.5:
 		return full
 	return rect
-
-## Place the 3D view so the fighter's feet land on the auditorium's stage
-## floor — positionBrawler() in the web build, same numbers.
-func _place_brawler() -> void:
-	if brawler_view == null:
-		return
-	var w: float = stage.size.x
-	var bg_aspect := STAGE_MIN_W / STAGE_H
-	var bw: float
-	var bh: float
-	var bx: float
-	var by: float
-	if w / STAGE_H > bg_aspect:
-		bw = w
-		bh = w / bg_aspect
-		bx = 0.0
-		by = (STAGE_H - bh) / 2.0
-	else:
-		bh = STAGE_H
-		bw = STAGE_H * bg_aspect
-		bx = (w - bw) / 2.0
-		by = 0.0
-	var floor_y: float = by + bh * FLOOR_FRAC
-	brawler_view.size = BRAWLER_VIEW
-	brawler_view.position = Vector2(bx + bw * 0.5 - BRAWLER_VIEW.x / 2.0,
-			floor_y - brawler_view.foot_fraction() * BRAWLER_VIEW.y)
-	if home:
-		home.floor_y = floor_y
 
 # MARK: screen stack
 
@@ -229,36 +200,28 @@ func pop_all() -> void:
 func screen_depth() -> int:
 	return _stack.size()
 
-## Compatibility with the pre-rebuild shell (RoomScreen still calls this).
+## Every route into a screen goes through here, by name — the home bar, the
+## NS3_MENU_SCREEN hook and RoomScreen all use it. Five surfaces and two popups
+## is the whole menu; the aliases are the names the old thirteen-screen shell
+## used, kept so a stale hook lands somewhere sensible instead of silently
+## doing nothing.
 func show_screen(name: String) -> void:
 	match name:
 		"lobby", "home":
 			pop_all()
-		"fighters", "brawlers":
-			push_screen(BrawlersScreen.new())
-		"modes":
+		"roster", "fighters", "brawlers":
+			push_screen(RosterScreen.new())
+		"modes", "events":
 			push_screen(ModesScreen.new())
 		"shop":
 			push_screen(ShopScreen.new())
-		"pass":
-			push_screen(PassScreen.new())
-		"road", "trophy-road":
-			push_screen(TrophyRoadScreen.new())
-		"news":
-			push_screen(NewsScreen.new())
-		"friends":
-			push_screen(FriendsScreen.new())
-		"club":
-			push_screen(ClubScreen.new())
-		"inbox":
-			push_screen(InboxScreen.new())
-		"matchmaking", "play":
-			push_screen(MatchmakingScreen.new())
+		"season", "pass", "road", "trophy-road":
+			push_screen(SeasonScreen.new())
 		"settings":
 			MenuPopups.settings(self)
 		"profile":
 			MenuPopups.profile(self)
-		"wifi":
+		"wifi", "friends":
 			var room := RoomScreen.new()
 			room.menu = self
 			room.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -270,8 +233,10 @@ func show_screen(name: String) -> void:
 			room.refresh()   # the old shell refreshed a screen when it showed it
 
 func _update_stage_dim() -> void:
+	# A pushed screen covers the stage completely, so the 3D view is not merely
+	# dimmed but stopped: leaving a SubViewport on UPDATE_ALWAYS behind an opaque
+	# screen renders the whole set every frame for nobody.
 	var dim: bool = not _stack.is_empty()
-	bg.modulate = Color(0.34, 0.34, 0.4) if dim else Color.WHITE
 	brawler_view.visible = not dim
 	home.visible = not dim
 
@@ -287,52 +252,31 @@ func sfx(sound: String) -> void:
 	if audio:
 		audio.play(sound)
 
-## The coins / gems pills used by the home HUD and every screen top bar.
-func currency_pills() -> HBoxContainer:
-	var row := MenuUI.hbox(12)
-	row.add_child(_currency_pill("coins", "coin"))
-	row.add_child(_currency_pill("gems", "gem"))
+## The coins / gems readout used by the home bar and every screen top bar: a
+## figure with its name under it, right-aligned so the two columns line up. It
+## is not a button — the old pills were, and a currency counter that opens the
+## shop when you glance at it is a store fixture, not a readout.
+func currency_readout() -> HBoxContainer:
+	var row := MenuUI.hbox(34)
+	row.add_child(_currency_figure("coins"))
+	row.add_child(_currency_figure("gems"))
 	return row
 
-func _currency_pill(kind: String, icon_name: String) -> Button:
-	var b := Button.new()
-	b.custom_minimum_size = Vector2(176, 62)
-	b.add_theme_stylebox_override("normal", MenuUI.plate_box("navy", 31, 5, 10))
-	for state in ["hover", "pressed", "focus"]:
-		b.add_theme_stylebox_override(state, MenuUI.plate_box("navy", 31, 5, 10))
-	MenuUI.press_feedback(b)
-	b.pressed.connect(func() -> void:
-		sfx("click")
-		push_screen(ShopScreen.new()))
-	var row := MenuUI.hbox(8)
-	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	row.offset_left = 10
-	row.offset_right = -12
-	row.offset_bottom = -5
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	b.add_child(row)
-	row.add_child(MenuUI.icon(icon_name, 40))
-	var value: Label = MenuUI.display(MenuUI.fmt(currency(kind)), 30, MenuUI.TEXT, 0)
-	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(value)
-	row.add_child(MenuUI.spacer())
-	var plus := PanelContainer.new()
-	var plus_style := StyleBoxFlat.new()
-	plus_style.bg_color = MenuUI.GREEN
-	plus_style.set_corner_radius_all(17)
-	plus_style.set_border_width_all(3)
-	plus_style.border_color = MenuUI.LINE
-	plus_style.set_content_margin_all(2)
-	plus.add_theme_stylebox_override("panel", plus_style)
-	plus.custom_minimum_size = Vector2(34, 34)
-	plus.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var plus_label: Label = MenuUI.display("+", 26, MenuUI.TEXT, 0)
-	plus_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	plus_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	plus.add_child(plus_label)
-	row.add_child(plus)
+## The name the pre-overhaul screens call this by.
+func currency_pills() -> HBoxContainer:
+	return currency_readout()
+
+func _currency_figure(kind: String) -> Control:
+	var column := MenuUI.vbox(0)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var value: Label = MenuUI.display(MenuUI.fmt(currency(kind)), 34)
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	column.add_child(value)
+	var name_label: Label = MenuUI.label(kind, 17, MenuUI.TEXT_FAINT)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	column.add_child(name_label)
 	_currency_labels.append({"label": value, "kind": kind})
-	return b
+	return column
 
 func currency(kind: String) -> int:
 	match kind:
@@ -386,7 +330,6 @@ func select_brawler(id: String, announce: bool = true) -> void:
 	SaveGame.selected_kit = str(b.kit_name)
 	SaveGame.save()
 	brawler_view.show_brawler(b)
-	_place_brawler()
 	if home:
 		home.refresh()
 	if announce:
@@ -520,14 +463,16 @@ func _currency_target(kind: String) -> Control:
 # MARK: debug
 
 ## NS3_MENU_SHOT=/path.png screenshots the menu and quits. NS3_MENU_SCREEN
-## picks the screen and NS3_MENU_DETAIL=<kit> opens a brawler's detail view.
+## picks the screen; NS3_MENU_DETAIL=<kit> selects a fighter, which is now what
+## "the detail view" means — home's flanks show whoever is selected, so the
+## detail view is the lobby with that fighter on it.
 func _wire_debug_screenshot() -> void:
 	var start: String = OS.get_environment("NS3_MENU_SCREEN")
 	var detail: String = OS.get_environment("NS3_MENU_DETAIL")
+	if detail != "":
+		select_brawler(detail.to_lower(), false)
 	if start != "" and start != "lobby" and start != "home":
 		show_screen(start)
-	if detail != "" and not _stack.is_empty() and _stack[-1] is BrawlersScreen:
-		(_stack[-1] as BrawlersScreen).open_detail(MenuData.brawler(detail))
 	# "loading" is not a screen in the stack — it is the transition out of the
 	# menu. Pressing PLAY here is what puts it on screen, and it is done whether
 	# or not a menu shot was asked for, so that pairing it with NS3_SHOTS
@@ -544,16 +489,3 @@ func _wire_debug_screenshot() -> void:
 		get_viewport().get_texture().get_image().save_png(out)
 		print("NS3_MENU_SHOT wrote ", ProjectSettings.globalize_path(out))
 		get_tree().quit())
-
-## The faint diagonal weave the CSS lays over every screen backdrop.
-static func stripes_texture() -> ImageTexture:
-	if _stripes != null:
-		return _stripes
-	var size := 44
-	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	for y in size:
-		for x in size:
-			var on: bool = ((x + y) % size) < size / 2
-			img.set_pixel(x, y, Color(1, 1, 1, 0.035) if on else Color(0, 0, 0, 0))
-	_stripes = ImageTexture.create_from_image(img)
-	return _stripes
