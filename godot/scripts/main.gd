@@ -44,6 +44,10 @@ var super_stick: TouchStick   # dedicated Super joystick, anchored at the button
 var super_btn: SuperButton
 var fighter_bars: FighterBars
 var results: Control
+## The "you are down" wash and the count to your return. Nobles Cup only — a
+## Showdown death has nothing to count to, and raises the results card instead.
+var down_overlay: ColorRect
+var down_label: Label
 ## Where the results card itself is built. Cleared and refilled per result, so
 ## the overlay root and its dim survive a rematch while the card does not.
 var results_body: Control
@@ -52,13 +56,11 @@ var results_body: Control
 var results_note: Label
 var aim_mesh: MeshInstance3D
 
-# Brawl Stars uses a steep, low-distortion perspective rather than a true
-# orthographic view: near walls grow subtly and off-axis boxes reveal different
-# sides. A 60° pitch and very narrow 7° vertical FOV reproduce that 2.5D feel.
-# The 105.5 m offset preserves the old camera's ~12.9 m centre-plane height, so
-# this changes perspective without unexpectedly changing combat visibility.
-const CAMERA_OFFSET := Vector3(0, 91.4, 52.8)
-const CAMERA_FOV := 7.0
+# The steep, low-distortion 2.5D framing. Defined on Arena (MATCH_CAM_OFFSET /
+# MATCH_CAM_FOV, with the reasoning) so tools/render_map.gd can shoot the arena
+# through the same lens without importing this script.
+const CAMERA_OFFSET := Arena.MATCH_CAM_OFFSET
+const CAMERA_FOV := Arena.MATCH_CAM_FOV
 const TAP_THRESHOLD := 0.3
 ## The carrier's kick lane. Cool and pale so it never reads as a weapon's aim;
 ## the Super Shot's is hotter and twice as long, so the two are never confused.
@@ -67,6 +69,33 @@ const SUPER_KICK_AIM_COLOR := Color(1.0, 0.78, 0.30, 0.55)
 ## How far Pop Off's spike will snap onto an enemy who drifted off the spot
 ## Anders jumped away from.
 const SPIKE_SNAP := 3.2
+## The wash a Nobles Cup death puts over the screen, and how long it takes to
+## arrive and to clear.
+const DOWN_TINT := Color(0.78, 0.05, 0.07)
+const DOWN_FADE := 0.26
+
+## A vignette rather than a flat pane. Flat red at an alpha low enough to keep
+## the pitch readable does not read as red at all — over green it composites to
+## olive, and the screen just looks dirty. Banking it into the corners lets the
+## edges go properly saturated while the middle, where the match is, stays
+## nearly clear.
+const DOWN_SHADER := """
+shader_type canvas_item;
+
+uniform vec3 tint : source_color = vec3(0.78, 0.05, 0.07);
+uniform float strength = 0.0;
+uniform float middle = 0.14;
+uniform float edge = 0.82;
+
+void fragment() {
+	vec2 p = UV - vec2(0.5);
+	// Squashed on Y so the falloff is an ellipse the shape of the screen; a
+	// round one on a 16:9 frame reaches the top and bottom long before the sides.
+	float r = length(p * vec2(1.0, 0.62)) * 2.0;
+	float v = smoothstep(0.28, 1.0, r);
+	COLOR = vec4(tint, (middle + (edge - middle) * v) * strength);
+}
+"""
 
 # Debug hooks
 var god_mode := OS.get_environment("NS3_GODMODE") != ""
@@ -79,6 +108,14 @@ var _shot_times: Array[float] = []
 ## reachable by surviving or dying at an unpredictable moment, which makes it
 ## the one screen in the game that cannot be shot with NS3_SHOTS.
 var _force_end_at := float(OS.get_environment("NS3_END")) if OS.get_environment("NS3_END") != "" else 0.0
+## NS3_KILL=<sec>: eliminate the player this many seconds after FIGHT!. The
+## sibling of NS3_END, and for the same reason — going down is a thing that
+## happens at an unpredictable moment, so the knockdown, the results card a
+## Showdown death raises and the Nobles Cup respawn three seconds later were all
+## unshootable. In Cup this is the only way to see an arrival on purpose: a
+## whole match produces two or three deaths and none of them where you are
+## looking.
+var _force_kill_at := float(OS.get_environment("NS3_KILL")) if OS.get_environment("NS3_KILL") != "" else 0.0
 
 # NS3_SIM=<n>: balance sim — every fighter (the player slot included) is
 # bot-driven with a random kit, matches restart back-to-back at 10x speed,
@@ -166,18 +203,11 @@ func _ready() -> void:
 	net_active = Net.active
 	net_host = net_active and multiplayer.is_server()
 	authoritative = not net_active or net_host
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55, -30, 0)
-	sun.shadow_enabled = true
-	add_child(sun)
+	# Both the sun and the environment are Arena's, so that a terrain change can
+	# be shot outside a match under exactly the light the match uses.
+	add_child(Arena.make_sun())
 	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.5, 0.75, 0.9)
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.7, 0.75, 0.8)
-	e.ambient_light_energy = 0.7
-	env.environment = e
+	env.environment = Arena.make_environment()
 	add_child(env)
 
 	cam = Camera3D.new()
@@ -255,6 +285,75 @@ func _build_hud() -> void:
 	feed_label = _label(Vector2(830, 60), 18, HORIZONTAL_ALIGNMENT_RIGHT)
 	status_label = _label(Vector2(20, 20), 20, HORIZONTAL_ALIGNMENT_LEFT)
 	_build_results_overlay()
+	_build_down_overlay()
+
+## A red wash over the match and a count to your return, for the three seconds
+## a Nobles Cup death costs you. Anchored rather than placed at fixed HUD
+## coordinates like the labels above it: this one has to cover the screen at
+## whatever size the screen happens to be.
+##
+## It cannot reach over Cup's own scoreboard, which sits on its own CanvasLayer
+## above this one — the same thing `_show_results` has to work around — and that
+## is deliberate here: the score and the clock stay legible through the wash.
+func _build_down_overlay() -> void:
+	down_overlay = ColorRect.new()
+	down_overlay.color = Color.WHITE   # the shader paints it; this is just the quad
+	var mat := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = DOWN_SHADER
+	mat.shader = sh
+	mat.set_shader_parameter("tint", DOWN_TINT)
+	mat.set_shader_parameter("strength", 0.0)
+	down_overlay.material = mat
+	down_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	down_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	down_overlay.visible = false
+	hud.add_child(down_overlay)
+
+	down_label = Label.new()
+	down_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Centred in the LOWER part of the screen, not dead centre: `center_label`
+	# lives there and a kickoff's "GO!" landed straight through the count.
+	down_label.anchor_top = 0.56
+	down_label.offset_top = 0.0
+	down_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	down_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	down_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	down_label.add_theme_font_size_override("font_size", 110)
+	down_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.93))
+	down_label.add_theme_constant_override("outline_size", 12)
+	down_label.add_theme_color_override("font_outline_color", Color(0.24, 0.02, 0.03, 0.9))
+	down_overlay.add_child(down_label)
+
+## Drives the wash from `now`. Kept as a two-state flip rather than a per-frame
+## tween: fading a colour every frame from _process would start a new tween on
+## every one of them, and they would fight each other rather than the clock.
+func _update_down_overlay() -> void:
+	if down_overlay == null:
+		return
+	var down: bool = _down_until > now and cup != null and not cup.finished
+	if down:
+		if not _down_shown:
+			_down_shown = true
+			down_overlay.visible = true
+			# Over the fighter bars, which are added to the HUD before this and
+			# would otherwise draw a health bar on top of the wash.
+			hud.move_child(down_overlay, -1)
+			var tw := create_tween()
+			tw.tween_method(_set_down_strength, 0.0, 1.0, DOWN_FADE)
+		down_label.text = "%d" % maxi(1, int(ceil(_down_until - now)))
+	elif _down_shown:
+		_down_shown = false
+		down_label.text = ""
+		var tw := create_tween()
+		tw.tween_method(_set_down_strength, 1.0, 0.0, DOWN_FADE)
+		tw.tween_callback(_hide_down_overlay)
+
+func _set_down_strength(value: float) -> void:
+	(down_overlay.material as ShaderMaterial).set_shader_parameter("strength", value)
+
+func _hide_down_overlay() -> void:
+	down_overlay.visible = false
 
 ## The overlay root: a dim, and an empty holder the card is built into. Only
 ## these two persist — the card itself is thrown away and rebuilt per result,
@@ -1730,6 +1829,14 @@ func gas_depth(pos: Vector3) -> float:
 func gas_safe_center() -> Vector3:
 	return gas.safe_center() if gas else arena.centre()
 
+## Whether the ring has actually started closing. Bots herding a target toward
+## the gas read this rather than `gas_depth` alone: before the first shrink
+## `depth_inside` measures to the MAP edge, so without it a bot would spend the
+## opening of every match pressing opponents against an arena wall that does
+## nothing to them.
+func gas_closing() -> bool:
+	return gas != null and gas.inset > 0
+
 # MARK: match flow
 
 func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
@@ -1741,6 +1848,10 @@ func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
 	if cup == null:
 		f.stats.survived = maxf(0.0, now - match_start)
 	if cup != null:
+		# Your own death is the only one that gets the wash and the counter, and
+		# only when there is something to count to — overtime books no respawn.
+		if f == player and not cup.overtime:
+			_down_until = now + CupMode.RESPAWN_SECONDS
 		# Nobles Cup: the fighter is parked and comes back, and the roster it
 		# was counted in never shrinks, so none of the Showdown flow applies.
 		cup.on_death(f, killer)
@@ -2316,6 +2427,11 @@ func _aim_bounce_segments(origin: Vector3, direction: Vector3,
 	return segments
 
 func _run_playing(delta: float) -> void:
+	if _force_kill_at > 0.0 and now - match_start >= _force_kill_at and not sim_active \
+			and player != null and is_instance_valid(player) and not player.is_dead():
+		_force_kill_at = 0.0
+		player.health = 0
+		_eliminate(player, "")
 	if _force_end_at > 0.0 and now - match_start >= _force_end_at and not sim_active:
 		_force_end_at = 0.0
 		if cup != null:
@@ -2592,6 +2708,9 @@ const CAM_PAN := 0.055
 ## Somewhere other than the player to look, until `_cam_focus_until`.
 var _cam_focus := Vector3.ZERO
 var _cam_focus_until := -1.0
+## When the local player is back on the pitch, and whether the wash is up.
+var _down_until := -1.0
+var _down_shown := false
 
 ## Send the camera somewhere that is not the player for a beat. Used by
 ## CupMode when a goal goes in: the freeze that follows already holds input, so
@@ -2601,6 +2720,7 @@ func focus_camera(at: Vector3, seconds: float) -> void:
 	_cam_focus_until = now + seconds
 
 func _process(_delta: float) -> void:
+	_update_down_overlay()
 	var anchor: Vector3
 	if now < _cam_focus_until:
 		anchor = _cam_focus

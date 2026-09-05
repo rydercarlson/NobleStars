@@ -109,10 +109,11 @@ const AMBUSH_REST_MAX := 8.0
 ## approaches simply stops playing.
 const AMBUSH_PATIENCE := 3.0
 
-## NS3_BOT_LOG=1 prints every time a bot takes cover, settles into a bush, or
-## holds an ambush. Terrain use is easy to mistake for missing when it is merely
-## rare, so this is how you tell "the rule never matched" from "the situation
-## never arose" — the same job NS3_SAVE_LOG does for Nobles Cup saves.
+## NS3_BOT_LOG=1 prints every time a bot takes cover, settles into a bush, holds
+## an ambush, flanks a target it is losing to, or closes on one behind cover.
+## Terrain use is easy to mistake for missing when it is merely rare, so this is
+## how you tell "the rule never matched" from "the situation never arose" — the
+## same job NS3_SAVE_LOG does for Nobles Cup saves.
 static var _log := OS.get_environment("NS3_BOT_LOG") != ""
 
 var _cover_point := Vector3.ZERO
@@ -122,6 +123,65 @@ var _ambush_until := 0.0
 var _ambush_ready_at := 0.0
 ## When the current uninterrupted spell of lurking began; -1 when not lurking.
 var _lurk_since := -1.0
+
+# MARK: offensive terrain state
+#
+# The block above answers "where do I hide". These three answer "where do I
+# stand to win the fight I am already in", which is the half of using the map a
+# bot had none of: it walked the straight line to its ideal range and strafed
+# there for the rest of the engagement, whatever the ground offered.
+#
+# All three are Showdown-only, and deliberately so — they sit BELOW the
+# `game.cup` branch in `_pick_move`, because in Nobles Cup the ball owns a
+# bot's movement and a bot that peels off to flank has stopped playing the mode.
+
+## How far out, in tiles, a bot looks for a flanking tile or for a covered step
+## on the way in. Deliberately the same window as COVER_SCAN, so all three
+## searches cost one understood amount rather than three separate ones.
+const FLANK_SCAN := 4
+## How far behind on health, as a fraction of max, before a bot resets a fight
+## by breaking sight instead of standing in it. About one exchange — under this
+## every engagement would reset on the first hit taken and nobody would trade.
+const FLANK_DEFICIT := 0.2
+## The minimum turn around the target, in degrees, between where we stand now
+## and where we come back from. Below this a "flank" is a sidestep the target
+## never loses us across, which is the entire point of going.
+const FLANK_MIN_TURN := 55.0
+## How long a flank is committed to. Longer than COVER_HOLD on purpose: it only
+## pays if we are gone long enough for the target to lose us, and it has to
+## cover the walk — four tiles is 8 m, about two seconds at 4 m/s.
+const FLANK_HOLD := 2.5
+## And how long before the same bot may start another. Without a rest a bot
+## that is simply outgunned circles the same wall for the rest of the match
+## instead of ever committing to the fight or dying in it.
+const FLANK_REST := 6.0
+## How long a covered approach step is committed to before it is re-scored.
+const APPROACH_HOLD := 1.0
+## How much nearer the target a covered step has to get us to be worth taking.
+## Under a tile it is a sidestep that spends the walk and arrives nowhere.
+const APPROACH_GAIN := Kits.TILE
+## How close to the gas edge a target has to be before a bot takes the inside
+## line on it. Past three tiles the ring is not something it can be herded into
+## yet, and the plain strafe reads better than a bot circling for no reason.
+const GAS_PRESSURE_DEPTH := Kits.TILE * 3.0
+
+## How long a target is remembered once it goes out of sight, and the longer
+## grace that applies while WE are the ones who broke the sight. A flank or a
+## covered approach that makes a bot forget the target it went round the wall
+## for is a flank that fails — and both take longer than the normal grace.
+const TARGET_MEMORY := 1.5
+const TARGET_MEMORY_DELIBERATE := 4.0
+
+var _flank_point := Vector3.ZERO
+var _flank_until := 0.0
+var _flank_ready_at := 0.0
+var _approach_point := Vector3.ZERO
+var _approach_until := 0.0
+## Whether we were already taking the inside line last think. Only used to keep
+## NS3_BOT_LOG to one line per press: unlike cover and flanks, gas pressure is
+## re-decided every think tick, so logging it unconditionally buries everything
+## else the flag is there to show.
+var _pressing := false
 
 func _init(f: Fighter) -> void:
 	fighter = f
@@ -250,7 +310,7 @@ func _update_target(now: float, game) -> void:
 			_target = null
 		elif game.can_see(fighter, _target, lob):
 			_target_seen_at = now
-		elif now - _target_seen_at > 1.5:
+		elif now - _target_seen_at > _target_memory(now):
 			_target = null
 	if _target == null:
 		_target = game.nearest_visible_enemy(fighter, _engage_range, lob)
@@ -367,11 +427,28 @@ func _pick_move(now: float, game) -> Vector3:
 		# meet them in the open. Holding still is the ambush.
 		if _should_lurk(now, game, pos, dist, ideal):
 			return Vector3.ZERO
+		# Losing the exchange: break their sight and come back on another
+		# bearing, rather than standing in a trade that is going the wrong way.
+		if _losing_trade(game, enemy):
+			var around := _flank_spot(now, game, enemy, ideal)
+			if around != Vector3.ZERO:
+				if pos.distance_to(around) <= Kits.TILE * 0.5:
+					return Vector3.ZERO   # arrived: reload out of their sight
+				return _dir_to(around)
 		var toward := _dir_to(enemy.global_position)
 		if dist > ideal * 1.2:
-			return toward
+			# Walk in behind a wall wherever there is one to walk behind. The
+			# straight run is the fallback, not the plan — but it is still what
+			# most of an open map gives you.
+			var step := _approach_spot(now, game, enemy)
+			return _dir_to(step) if step != Vector3.ZERO else toward
 		elif dist < ideal * 0.7:
 			return -toward
+		# At fighting distance the only question left is which side of them to
+		# stand on, and near a closing ring there is a right answer: the inside.
+		var press := _gas_pressure_point(game, enemy, ideal)
+		if press != Vector3.ZERO and pos.distance_to(press) > Kits.TILE * 0.6:
+			return _dir_to(press)
 		return Vector3(-toward.z, 0, toward.x) * 0.6
 
 	var loot = game.nearest_loot(pos)
@@ -539,6 +616,208 @@ func _should_lurk(now: float, game, pos: Vector3, dist: float, ideal: float) -> 
 			print("[bot] %s lurks on %s at %.1fm" % [fighter.kit.name,
 					_target.kit.name if _target != null else "?", dist])
 	return now - _lurk_since < AMBUSH_PATIENCE
+
+# MARK: offensive terrain
+
+## How long the current target survives out of sight. Longer while a flank or a
+## covered approach is committed, because in that case WE broke the sight: a
+## reposition that makes a bot forget the fighter it went round the wall for is
+## a reposition that fails, and both take longer than the plain grace allows.
+## Bounded by the holds themselves, so a stale point can never extend it.
+func _target_memory(now: float) -> float:
+	if (_flank_point != Vector3.ZERO and now < _flank_until) \
+			or (_approach_point != Vector3.ZERO and now < _approach_until):
+		return TARGET_MEMORY_DELIBERATE
+	return TARGET_MEMORY
+
+## Whether this fight is worth resetting: we are meaningfully behind on health
+## and they can see us, so standing here keeps trading on their terms. The
+## `hurt` ladder above already owns everything below 30% — this is the band
+## between losing and nearly dead, which previously had no play in it at all.
+## Fractions rather than raw health, so a cube-loaded opponent is read as
+## healthy rather than as an unwinnable fight.
+func _losing_trade(game, enemy: Fighter) -> bool:
+	var mine: float = float(fighter.health) / float(fighter.max_health)
+	var theirs: float = float(enemy.health) / float(enemy.max_health)
+	return mine < theirs - FLANK_DEFICIT and game.can_see(enemy, fighter)
+
+## Where to go to break the target's sight of us and come back from somewhere
+## else. Vector3.ZERO when there is no such tile, which leaves the straight
+## fight in place — on open ground there is nothing to flank around.
+func _flank_spot(now: float, game, enemy: Fighter, ideal: float) -> Vector3:
+	var eye := enemy.global_position
+	var arena: Arena = game.arena
+	# A live commitment outranks the rest timer: FLANK_REST governs how often a
+	# new run may START, not whether the current one is abandoned half way.
+	if now < _flank_until and _flank_point != Vector3.ZERO:
+		if game.gas_contains(_flank_point) and _wall_between(arena, _flank_point, eye):
+			return _flank_point
+		_flank_point = Vector3.ZERO   # they walked round it; it is not cover now
+	if now < _flank_ready_at:
+		return Vector3.ZERO
+	if fighter.global_position.distance_to(eye) < COVER_MIN_ENEMY:
+		return Vector3.ZERO   # no line to break with someone on top of us
+	_flank_point = _find_flank(game, arena, fighter.global_position, eye, ideal)
+	if _flank_point == Vector3.ZERO:
+		# Nothing here. Hold the failure, the same lesson `_cover_spot` learned:
+		# a bot with nowhere to go must not rescan the window every think tick
+		# for as long as it keeps losing, which is exactly when it is busiest.
+		_flank_ready_at = now + FLANK_HOLD
+		return Vector3.ZERO
+	_flank_until = now + FLANK_HOLD
+	_flank_ready_at = now + FLANK_HOLD + FLANK_REST
+	if _log:
+		print("[bot] %s flanks %s %.0f deg around, %.1fm (hp %d%% vs %d%%)" % [
+				fighter.kit.name, enemy.kit.name,
+				rad_to_deg((fighter.global_position - eye).angle_to(_flank_point - eye)),
+				fighter.global_position.distance_to(_flank_point),
+				int(100.0 * fighter.health / fighter.max_health),
+				int(100.0 * enemy.health / enemy.max_health)])
+	return _flank_point
+
+## The best tile within FLANK_SCAN hidden from `eye` that also sits on a
+## materially different bearing around the target than we do. That bearing term
+## is the whole difference from `_find_cover`, which wants the NEAREST wall and
+## would happily pick the one we are already standing behind.
+func _find_flank(game, arena: Arena, pos: Vector3, eye: Vector3, ideal: float) -> Vector3:
+	var col := int(floor(pos.x / Kits.TILE))
+	var row := int(floor(pos.z / Kits.TILE))
+	var here := pos - eye
+	here.y = 0.0
+	if here.length() < 0.001:
+		return Vector3.ZERO
+	var reach: float = float(fighter.kit.weapon.range)
+	var best := Vector3.ZERO
+	var best_score := -INF
+	for dr in range(-FLANK_SCAN, FLANK_SCAN + 1):
+		for dc in range(-FLANK_SCAN, FLANK_SCAN + 1):
+			var c := col + dc
+			var r := row + dr
+			if c < 0 or c >= arena.columns or r < 0 or r >= arena.row_count:
+				continue
+			var centre: Vector3 = arena.tile_center(c, r)
+			var trip := pos.distance_to(centre)
+			if trip < Kits.TILE * COVER_MIN_TILES or trip > Kits.TILE * float(FLANK_SCAN):
+				continue
+			if arena.blocks_movement(centre) or not game.gas_contains(centre):
+				continue
+			# Stay in the fight. A flank that ends outside our own weapon range
+			# is a retreat with extra steps, and the `hurt` ladder above is
+			# where retreating is supposed to be decided.
+			var hold := centre.distance_to(eye)
+			if hold < ideal * 0.6 or hold > reach:
+				continue
+			var there := centre - eye
+			there.y = 0.0
+			if there.length() < 0.001:
+				continue
+			var turn := rad_to_deg(here.angle_to(there))
+			if turn < FLANK_MIN_TURN:
+				continue
+			# Cheapest rejects first, exactly as in `_find_cover`: the two line
+			# walks below are the expensive part and most of the window is
+			# already gone by the time we reach them.
+			if not _wall_between(arena, centre, eye):
+				continue
+			if not _walkable_line(arena, pos, centre):
+				continue
+			# Come back from as far round as we can get without spending the
+			# whole fight walking, and without drifting off our ideal range.
+			var score := (turn / 180.0) * 8.0 - trip * 0.6 - absf(hold - ideal) * 0.8
+			if score > best_score:
+				best_score = score
+				best = centre
+	return best
+
+## The next step in that keeps a wall between us and the target. Vector3.ZERO
+## when the ground in is open, which leaves the straight run in place — most
+## approaches on this map have no covered step and should not pay for one.
+func _approach_spot(now: float, game, enemy: Fighter) -> Vector3:
+	var eye := enemy.global_position
+	var arena: Arena = game.arena
+	if now < _approach_until:
+		if _approach_point == Vector3.ZERO:
+			return Vector3.ZERO
+		# Arrived, or it stopped being cover: fall through and re-score.
+		if fighter.global_position.distance_to(_approach_point) > Kits.TILE * 0.5 \
+				and _wall_between(arena, _approach_point, eye):
+			return _approach_point
+	_approach_point = _find_approach(game, arena, fighter.global_position, eye)
+	_approach_until = now + APPROACH_HOLD
+	if _log and _approach_point != Vector3.ZERO:
+		print("[bot] %s closes on %s behind cover, %.1fm to the next step" % [
+				fighter.kit.name, enemy.kit.name,
+				fighter.global_position.distance_to(_approach_point)])
+	return _approach_point
+
+## The tile within FLANK_SCAN hidden from `eye` that gets us most of the way
+## toward it. Distinct from `_find_cover` in the sign of what it wants: cover is
+## somewhere to stop, this is somewhere to pass through on the way in.
+func _find_approach(game, arena: Arena, pos: Vector3, eye: Vector3) -> Vector3:
+	var col := int(floor(pos.x / Kits.TILE))
+	var row := int(floor(pos.z / Kits.TILE))
+	var mine := pos.distance_to(eye)
+	var best := Vector3.ZERO
+	var best_score := -INF
+	for dr in range(-FLANK_SCAN, FLANK_SCAN + 1):
+		for dc in range(-FLANK_SCAN, FLANK_SCAN + 1):
+			var c := col + dc
+			var r := row + dr
+			if c < 0 or c >= arena.columns or r < 0 or r >= arena.row_count:
+				continue
+			var centre: Vector3 = arena.tile_center(c, r)
+			var trip := pos.distance_to(centre)
+			if trip < Kits.TILE * COVER_MIN_TILES or trip > Kits.TILE * float(FLANK_SCAN):
+				continue
+			# The cheapest reject there is, and it kills most of the window
+			# before anything walks a line: a step that gains no ground is not
+			# an approach whatever else is true of it.
+			var gain := mine - centre.distance_to(eye)
+			if gain < APPROACH_GAIN:
+				continue
+			if arena.blocks_movement(centre) or not game.gas_contains(centre):
+				continue
+			if not _wall_between(arena, centre, eye):
+				continue
+			if not _walkable_line(arena, pos, centre):
+				continue
+			var score := gain - trip * 0.5   # ground gained, less what it costs to walk
+			if score > best_score:
+				best_score = score
+				best = centre
+	return best
+
+## Where to stand so that every step the target gives up is a step nearer the
+## ring. Vector3.ZERO whenever the gas is not yet a threat to them, which leaves
+## the plain strafe in place.
+##
+## This is the one offensive use of terrain that needs no search: the inside
+## line is a bearing, not a tile.
+func _gas_pressure_point(game, enemy: Fighter, ideal: float) -> Vector3:
+	if not game.gas_closing():
+		_pressing = false
+		return Vector3.ZERO
+	var epos := enemy.global_position
+	if game.gas_depth(epos) > GAS_PRESSURE_DEPTH:
+		_pressing = false
+		return Vector3.ZERO
+	var outward: Vector3 = epos - game.gas_safe_center()
+	outward.y = 0.0
+	if outward.length() < 0.001:
+		_pressing = false
+		return Vector3.ZERO
+	# On the safe side of them, at our own ideal range. It has to be somewhere
+	# we can stand and somewhere we would survive standing: herding a target
+	# into the gas by walking into it ourselves is a trade we always lose.
+	var spot: Vector3 = epos - outward.normalized() * ideal
+	if game.arena.blocks_movement(spot) or not game.gas_contains(spot):
+		_pressing = false
+		return Vector3.ZERO
+	if _log and not _pressing:
+		print("[bot] %s takes the inside line on %s (%.1fm from the gas)" % [
+				fighter.kit.name, enemy.kit.name, game.gas_depth(epos)])
+	_pressing = true
+	return spot
 
 ## Whether a wall stands between two points. Sampled against the map rather than
 ## raycast, so it costs no physics and agrees with a wall that `Arena.open_at`

@@ -14,6 +14,11 @@ const RADIUS := 0.42
 const BALL_MODEL := "res://assets/soccer_ball.glb"
 const CARRY_HEIGHT := 1.25      # rides at chest height in front of the carrier
 const CARRY_AHEAD := 0.85
+## How far in the carry can be pulled, and the step it is walked back by. See
+## _carry_point: a carrier pressed against a wall would otherwise hold the ball
+## inside it.
+const CARRY_MIN := 0.15
+const CARRY_STEP := 0.05
 const LOOSE_HEIGHT := RADIUS
 ## A kick leaves at KICK_SPEED and decays as v *= e^(-DRAG*t), so it runs out
 ## after (KICK_SPEED - STOP_SPEED) / DRAG metres: about 15 m, seven and a half
@@ -120,12 +125,16 @@ func pick_up(f: Fighter) -> void:
 	last_touch = f
 	velocity = Vector3.ZERO
 
-func kick(dir: Vector3, now: float, speed_mult := 1.0) -> void:
+func kick(dir: Vector3, now: float, arena: Arena, speed_mult := 1.0) -> void:
 	var unit := Vector3(dir.x, 0, dir.z).normalized()
 	if unit == Vector3.ZERO:
 		return
 	if carrier != null:
-		position = carrier.global_position + unit * CARRY_AHEAD
+		# Launched from where the ball is actually being held, wall included:
+		# a kick straight into a wall from point-blank used to start the ball
+		# inside that tile, where _advance reverses it on both axes every frame
+		# and it never gets out again.
+		position = _carry_point(carrier, unit, arena)
 		last_touch = carrier
 	carrier = null
 	position.y = LOOSE_HEIGHT
@@ -140,8 +149,7 @@ func tick(delta: float, _now: float, arena: Arena) -> void:
 			# cup_mode drops it properly; this is only the safety net.
 			carrier = null
 		else:
-			position = carrier.global_position \
-					+ carrier.facing * CARRY_AHEAD + Vector3(0, CARRY_HEIGHT, 0)
+			position = _carry_point(carrier, carrier.facing, arena)
 			_spin_by(carrier.velocity * delta)
 			_drop_shadow()
 			return
@@ -152,6 +160,32 @@ func tick(delta: float, _now: float, arena: Arena) -> void:
 		velocity *= pow(exp(-DRAG), delta)
 	position.y = LOOSE_HEIGHT
 	_drop_shadow()
+
+## Where a carrier facing `dir` holds the ball: CARRY_AHEAD in front, pulled in
+## until the ball itself is clear of anything solid.
+##
+## A fighter's capsule is Kits.FIGHTER_RADIUS (0.65 m), so one pressed against a
+## wall stands closer to it than the carry offset — the ball was held 0.2 m
+## *inside* the wall tile, and since it rides at chest height its top
+## (CARRY_HEIGHT + RADIUS = 1.67 m) is above Arena.WALL_HEIGHT, so it surfaced
+## through the top of the wall and read as sitting on top of it. Pulling the
+## carry in keeps the ball on the fighter's side of the wall; the alternative,
+## carrying it lower, would only bury it instead.
+##
+## Stepped rather than solved: the probe is a tile lookup, and walking the reach
+## back 5 cm at a time is a dozen of them at most on the frames it fires at all.
+## The ball can never end up further in than the fighter's own chest, which is
+## the CARRY_MIN floor, and a fighter is never inside a wall.
+func _carry_point(who: Fighter, dir: Vector3, arena: Arena) -> Vector3:
+	var from := who.global_position
+	var flat := Vector3(dir.x, 0, dir.z).normalized()
+	var reach := CARRY_AHEAD
+	if arena != null and flat != Vector3.ZERO:
+		# The far edge of the ball, not its centre: half a ball through a wall
+		# face is just as visible as all of it.
+		while reach > CARRY_MIN and arena.blocks_movement(from + flat * (reach + RADIUS)):
+			reach -= CARRY_STEP
+	return from + flat * reach + Vector3(0, CARRY_HEIGHT, 0)
 
 ## The shadow is a child of the ball, so it has to be pushed back down to the
 ## floor by however high the ball is riding. Only the mesh ever spins, so the

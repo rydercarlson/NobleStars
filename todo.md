@@ -92,19 +92,43 @@ those before anything else on the list.
       `:559`) — this line used to name them. The two that remain need a Meshy
       pass through `Tools/fix_meshy_glb.py`; they are the only entries in this
       file that cannot be produced by one of the three pipelines above.
-- [ ] **No death or spawn animation.** `fighter.gd:die` scales the fighter to
-      nothing over 0.35s and `respawn()` snaps `scale` straight back to
-      `Vector3.ONE` — a fighter pops out of existence and pops back in. Both
-      want a real clip now that the models have skeletons: a fall/collapse on
-      death, and something on arrival (drop-in, rise, or at minimum a scale-up
-      with a landing puff). This is felt hardest in Nobles Cup, where death is a
-      three-second setback rather than an exit, so you watch it happen over and
-      over in a single match. Note that **no GLB ships a death or hit clip** —
-      the seven carry only Idle / Walking / Running / a run_fast variant / their
-      attack — so death needs a new Meshy generation or hand animation, not just
-      a `kits.gd` `clips` entry. Spawn is luckier: Kovacs has
-      `Backflip_and_Rise` and Anders has `Backflip`, either of which already
-      reads as an arrival.
+- [x] **Death and spawn animate now — in code, because there is no clip to
+      play.** `fighter.gd:die` used to scale the fighter to nothing over 0.35s
+      and `respawn()` snapped `scale` straight back, so a fighter popped out of
+      existence and popped back in with nothing around either.
+      - **Death is a pop**: `_pop_out` swells the body for a beat and bursts it,
+        throwing a ground ring and an all-round spark. A first pass TOPPLED the
+        body onto the floor and it was worse — at a 60 degree camera a body
+        lying down is a shape you have to read, and the whole point of the
+        moment is that it is instant.
+      - **A Nobles Cup death also washes the screen red and counts you back in.**
+        Two things that cost a pass each: a FLAT red pane at an alpha low enough
+        to keep the pitch readable does not read as red at all (over green it
+        composites to olive and the screen just looks dirty), so it is a
+        vignette — saturated at the edges, nearly clear in the middle; and the
+        counter sits in the lower third, because `center_label` owns the centre
+        and a kickoff's "GO!" printed straight through it. Cup only: a Showdown
+        death has nothing to count to and raises the results card instead.
+      - **Spawn is a bubble**: the shell grows, the fighter scales up out of
+        nothing inside it a beat behind, it holds, then bursts. Additive and
+        never writing depth, so it cannot hide what is growing inside it, and
+        its fresnel is far thicker than a real one — at 55 px/m a shell a few
+        degrees wide is a couple of pixels, and the first version was invisible
+        against the pale end zone a Cup respawn happens in.
+      - Still confirmed: **no GLB ships a death or hit clip**, so none of this
+        is a `kits.gd` `clips` entry waiting to be written. Kovacs'
+        `Backflip_and_Rise` and Anders' `Backflip` remain if a per-kit arrival
+        is ever wanted.
+      - Both act on `_model` (or the capsule), **never on the fighter**:
+        `rotation.y` on the fighter is its FACING, and aim, bars and the ball's
+        carry point all read it.
+      - A Cup knock-out hides the body at the **end** of the pop rather than on
+        the frame of the hit. `fighter_bars.gd:77` already skips a dead fighter,
+        so no full health bar hangs over it.
+      - **`NS3_KILL=<sec>` was added to test it**, the sibling of `NS3_END`: a
+        Cup match produces two or three deaths in two and a half minutes and
+        none of them where the camera is, so the pop, the wash and the bubble
+        were all effectively unshootable.
 - [ ] **Model scale and collision don't match — and it is every model, not just
       Kovacs. Needs a decision, not a fix.** `godot/tools/size_probe.gd`
       measures each rig from its **bone** extents (a skinned mesh's own AABB is
@@ -129,11 +153,30 @@ those before anything else on the list.
       shares, so tinting one there would have flashed all of them at once. On
       top of that: the flash is **emission**, because `albedo_color` multiplies
       the texture and setting it white is a no-op on a textured character; and
-      `set_concealed` fades with `TRANSPARENCY_ALPHA_DEPTH_PRE_PASS`, since
-      without the prepass you see a character's own far side through its front.
-      `set_concealed` runs every physics frame for every fighter and changing a
-      transparency mode recompiles a shader, so `_conceal_applied` gates it to
-      actual transitions.
+      **concealment is a tint rather than a fade** — see below.
+      `set_concealed` runs every physics frame for every fighter, so
+      `_conceal_applied` gates it to actual transitions.
+- [x] **A concealed fighter no longer renders as a smear.** Reported from play:
+      Sanjit "still kinda goes weirdly" in a bush. He does, and so does everyone
+      else — reproduced by forcing concealment on and shooting Sanjit and Henry
+      side by side, and Henry was every bit as broken.
+      - A character is a closed solid, so any per-fragment transparency mode
+        shows you its own far side: the inside of a skull through a face,
+        Sanjit's staff through his chest, shoes through shins.
+      - `TRANSPARENCY_ALPHA_DEPTH_PRE_PASS` is the textbook fix and is what this
+        used. **The prepass does nothing under the Forward Mobile renderer this
+        project runs on.** It shipped that way because a fighter was never
+        actually shot standing in a bush — the reveal shader was, the fighter
+        inside it was not.
+      - `TRANSPARENCY_ALPHA_HASH` genuinely fixes the sort (opaque pass,
+        stochastic discard, real depth) and was tried and rejected: at 0.55 the
+        dither sparkles, and any alpha low enough to read as hidden is noisier
+        than the bug it replaces.
+      - Shipped: stay **opaque** and multiply the albedo by `CONCEAL_TINT`. No
+        sorting, no dithering, and the tell still reads, because the foliage
+        around you opens up at the same time. `_model_albedo` remembers each
+        material's own colour so the tint multiplies it and reveal puts it back
+        — both had been assuming white.
 
 ## Menu
 
@@ -212,13 +255,56 @@ those before anything else on the list.
 
 ## Arena & visuals
 
-- [ ] **Arena visual pass.** The floor is one flat green plane
-      (`arena.gd:_build`), walls are plain boxes, water is a translucent blue
-      slab. Needs real materials, tile variation, and readable wall silhouettes
-      at the top-down camera angle. Bushes are done — see below. All shader and
-      mesh work; no art files needed.
-- [ ] **Camera framing.** Fighters read very small at the current height —
-      revisit the zoom/tilt so character models are actually legible.
+- [x] **Arena visual pass.** Floor, walls, water and the world past the map
+      edge are three fragment shaders over flat colour plus a slab and a
+      surround plane — no art files, the same reasoning as the synthesized
+      sounds. `tools/render_map.gd` was written to do it and is the thing to
+      reach for next time: an overview of the whole map, or the real match lens
+      pointed anywhere, both on `Arena.make_sun()`, without playing seven
+      seconds of pre-match to reach a screenshot.
+      - **Shadows had never rendered.** `sun.shadow_enabled` was true and had
+        been for the life of the project, but the camera sits 105.5 m back
+        behind a 7 degree lens and a directional light's default
+        `directional_shadow_max_distance` is **100 m** — the entire arena was
+        outside the volume shadows get drawn in. One constant (145 m, one
+        orthogonal split) is most of what this pass actually looks like.
+      - Walls and water borrowed the bushes' merge-aware outline. The per-tile
+        edge mask rides an **`instance uniform`**, so ~400 walls share one
+        material and still each get their own rim, and `open_at` re-masks the
+        four neighbours of a hole — a wall shot out re-outlines what is left.
+      - **Water is opaque now.** Translucent slabs blended against the floor
+        *and* against each other, so a pond showed a grid of seams where its
+        tiles overlapped. Foam is the constant to watch: a one-tile pond is 2 m
+        across, and 24% of a tile per side left almost no water in the middle.
+      - **A tile-scale checker cannot carry the floor.** At a 10% step it read
+        as a chessboard and pulled the eye off the fighters; at 2% under two
+        octaves of value noise (18 m and 6 m) it reads as ground.
+      - Nobles Cup got real pitch markings — touchlines, halfway line, centre
+        circle and spot, a box at each end — painted by the floor shader from
+        `_playable_rect()` rather than laid down as geometry, so a line costs
+        nothing and cannot z-fight the grass. That is the *lines* half of the
+        pitch dressing below; goal frames and a better ball are still open.
+      - **`Arena.WALL_HEIGHT` is a free knob and was left alone.** Verified
+        purely visual: `Lob` is a `Node3D` with no collision, `begin_leap`
+        sweeps terrain itself, and the LOS ray and every projectile both sit at
+        y = 1 inside a box that starts at 0. 2.05 m was shot and looks
+        chunkier and more like the reference; 1.5 m keeps more floor out of
+        shadow. Taste, one constant, no balance consequence either way.
+- [ ] **Camera framing — measured, and the lens is the wrong lever.** The
+      numbers, so this is not re-derived: the camera is 105.5 m out at a 60
+      degree pitch behind a 7 degree vertical FOV, which is **22.9 x 12.9 m** at
+      16:9, or 55.8 px/m on a 1280-wide frame. Henry renders about **65 x 85 px
+      there — 5% of the screen width**, against roughly 8-10% for a Brawl Stars
+      brawler. So the complaint is real.
+      - But **zooming in is blocked by the range cap.** The vertical half-span
+        is 6.45 m and the weapon range cap is 5.5 tiles = **11 m**: a target at
+        max range straight up or down the screen is already 4.5 m off-camera,
+        and the horizontal half-span (11.5 m) only just covers it. Any zoom
+        makes you shoot at what you cannot see, which is a balance change
+        wearing a camera change's clothes.
+      - The lever is therefore **`Kits.MODEL_SCALE` (1.44)**, i.e. the item
+        below — or the range cap itself. Decide the two together as that entry
+        already says; the camera on its own has nothing left to give.
 - [x] **Power cubes are the Meshy token again.** Re-landed from `72d806f`:
       `_spawn_cube` instances the token model, spinning about Y on a 2.6s loop
       with a soft sine bob (looped tweens) and the runtime metallic clamp the
@@ -289,8 +375,12 @@ those before anything else on the list.
 - [ ] **Two modes exist.** Showdown, and Nobles Cup (`cup_mode.gd` + `ball.gd`).
       `Session.mode` and the mode branch at the top of `main.gd:start_match` are
       where the next one goes; every other event card is still a locked dummy.
-      Nobles Cup also wants real pitch dressing — goal frames, pitch lines, and
-      a ball that is something better than the white sphere in `ball.gd:53`.
+      **Cup's pitch dressing is done**: markings came with the arena pass and
+      the goal is now a net on the mouth floor plus posts and a crossbar on the
+      goal line (`Arena._build_goal`). The third of this entry about the ball
+      was stale — `ball.gd` has loaded `assets/soccer_ball.glb` since it
+      shipped, and the sphere at `:53` is only the fallback for a build without
+      the asset.
 - [x] **The blue screen is gone; both scene changes run behind a loading
       screen.** `menu.gd`'s PLAY and every way back to the lobby now call
       `Loading.to_match` / `Loading.to_menu` (`scripts/loading_screen.gd`,
@@ -435,12 +525,59 @@ those before anything else on the list.
         failure mode being watched for. Win% moved by up to 10pp in both
         directions, which at ~20 spawns per kit is noise, not a balance finding;
         the balance pass above is still open and unaffected.
-- [ ] **Bots still don't use terrain offensively.** What landed above is
-      defensive and idle behaviour. A bot never breaks *its own* line of sight
-      to reposition mid-fight, never pushes a target into the gas, and never
-      picks the approach that stays behind cover — it walks the straight line to
-      its ideal range and strafes there. `Arena.route_to_goal`'s BFS is the
-      shape a cover-aware approach would want, generalised off the goal mouths.
+- [x] **Bots use terrain offensively too.** The three things this entry named
+      all landed, in the same idiom as the defensive half: a scored window of
+      candidate tiles sampled against the ASCII map, held for a beat so it
+      cannot oscillate, and cached on FAILURE as well as success.
+      - **Flank.** A bot losing the health race by `FLANK_DEFICIT` (20% of max,
+        about one exchange) breaks the target's sight and comes back on a
+        different bearing. `_find_flank` is `_find_cover` with the sign
+        reversed: cover wants the NEAREST wall, which is often the one you are
+        already behind, so this scores the TURN around the target
+        (`FLANK_MIN_TURN`, 55 degrees) and stays inside weapon range, because a
+        flank that ends out of range is a retreat with extra steps.
+      - **Covered approach.** Beyond ideal range a bot now looks for a step that
+        is hidden from the target and at least a tile nearer, instead of walking
+        the straight line. The straight run is still the fallback — most of an
+        open map has no covered step and should not pay to look for one.
+      - **Gas pressure.** At fighting distance near a closing ring, stand on the
+        safe side of the target at ideal range, so every step they give up is a
+        step nearer the gas. The only one of the three that needs no search: the
+        inside line is a bearing, not a tile. Gated on `main.gd:gas_closing()`
+        rather than `gas_depth` alone — before the first shrink `depth_inside`
+        measures to the MAP edge, so without it bots would spend the opening of
+        every match pressing opponents against an arena wall.
+      - **The interaction that had to be found: a reposition that makes a bot
+        forget its target is a reposition that fails.** `_update_target` drops
+        an unseen target after 1.5s, and both new behaviours deliberately break
+        that sight for longer than the walk takes. `_target_memory` raises the
+        grace to 4s while a flank or approach is committed, bounded by the holds
+        themselves so a stale point can never extend it.
+      - **Showdown only**, and structurally so: all three sit below the
+        `game.cup` branch in `_pick_move`, because in Nobles Cup the ball owns a
+        bot's movement and a bot that peels off to flank has stopped playing the
+        mode. Verified at runtime, not just by reading — a Cup match logs 21
+        cover takes and exactly **zero** flanks, covered approaches or inside
+        lines.
+      - **A/B at 60 headless matches a side (~65 spawns per kit).** Damage per
+        spawn 9626 → 9583, attacks per spawn 10.29 → 10.21, hits per attack
+        1.151 → 1.147 — flat inside 1% on all three, and nothing collapsed
+        toward zero `hits/atk`, which is the delivery bug being watched for.
+      - **The same A/B at 20 matches a side said damage was down 11%.** It was
+        noise. That is worth keeping: this file already warned that ~20 spawns
+        per kit is too few, and this is the measurement that proves it. Run the
+        sim at 60+ before believing anything.
+      - **Win% moved up to ~10pp per kit, and the direction is not random.** It
+        tracks attack rate, because the cost of all this is time spent walking
+        instead of shooting: Leon (16.4 attacks/spawn, the highest) went
+        19.2% → 9.0% with attacks per spawn down 18%, Nova (12.6) 20.3% → 11.1%
+        on the same 18% drop, while Anders (the lowest rate) went 1.4% → 4.8%
+        with damage per spawn UP 32%. Net effect is a mild flattening — win%
+        spread across the roster tightened from sd 6.1 to 4.6.
+      - **This moves the baseline the balance pass measures against**, so do the
+        balance pass after this, not before. Verify any of it with
+        `NS3_BOT_LOG=1`, which now prints flanks, covered approaches and inside
+        lines alongside cover and bushes.
 
 ## Multiplayer
 

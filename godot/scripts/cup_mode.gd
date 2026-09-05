@@ -429,7 +429,7 @@ func kick(f: Fighter, dir: Vector3, now: float, use_super := false) -> bool:
 			return true
 	elif not f.consume_ammo(now):
 		return true
-	ball.kick(dir, now, Ball.SUPER_KICK_MULT if use_super else 1.0)
+	ball.kick(dir, now, game.arena, Ball.SUPER_KICK_MULT if use_super else 1.0)
 	# A Super Shot is twice the ball speed, so it gets the Super's own sound
 	# rather than a louder boot.
 	game.sfx_at("super_fire" if use_super else "cup_kick", f.global_position,

@@ -204,6 +204,11 @@ func open_at(pos: Vector3) -> void:
 		return
 	rows[row] = rows[row].substr(0, col) + "." + rows[row].substr(col + 1)
 	_fields_stale = true
+	# The hole changes the outline of everything around it: a wall that was an
+	# interior tile a moment ago now has an open side and needs its rim drawn.
+	_wall_meshes.erase(Vector2i(col, row))
+	for step: Vector2i in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		_apply_wall_edges(Vector2i(col, row) + step)
 
 # MARK: routes
 
@@ -305,16 +310,462 @@ func _tile_index(pos: Vector3) -> int:
 		return -1
 	return row * columns + col
 
+# MARK: match presentation
+
+## How the match camera frames the arena. Brawl Stars uses a steep,
+## low-distortion perspective rather than a true orthographic view: near walls
+## grow subtly and off-axis boxes reveal different sides. A 60 degree pitch and
+## a very narrow 7 degree vertical FOV reproduce that 2.5D feel. The 105.5 m
+## offset preserves the pre-perspective camera's ~12.9 m centre-plane height,
+## so the framing changed without unexpectedly changing combat visibility.
+##
+## Here rather than in main.gd so `tools/render_map.gd` can frame a shot the
+## same way without importing main.gd — which does not compile outside a game
+## run, since it reaches for the Net autoload.
+const MATCH_CAM_OFFSET := Vector3(0, 91.4, 52.8)
+const MATCH_CAM_FOV := 7.0
+
+# MARK: match lighting
+
+## The match's key light and environment. They live here rather than in main.gd
+## because the terrain look is only as real as the light it is judged under —
+## `tools/render_map.gd` renders the arena outside a match and has to light it
+## identically, and a second copy of these numbers would have drifted the first
+## time either was touched.
+static func make_sun() -> DirectionalLight3D:
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-55, -30, 0)
+	sun.light_color = Color(1.0, 0.97, 0.90)
+	sun.light_energy = 1.05
+	sun.shadow_enabled = true
+	# `shadow_enabled` alone rendered nothing for the life of the project, and
+	# this is why: the match camera sits 105.5 m back behind a 7 degree lens, so
+	# the whole arena is further away than the 100 m DEFAULT shadow range.
+	# Shadows were on, correct, and entirely outside the volume they are drawn
+	# in. Everything visible lies between roughly 85 m and 125 m out, so the
+	# range only has to clear that — and keeping it tight is also what keeps the
+	# map crisp, since one orthogonal split spends its whole texture on this
+	# span. Widen it and the shadows go soft again for no gain.
+	sun.directional_shadow_max_distance = 145.0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	# A flat top-down map is nearly all surfaces facing the light, where normal
+	# bias does the work and depth bias only detaches a shadow from its caster.
+	sun.shadow_normal_bias = 1.6
+	sun.shadow_bias = 0.03
+	# Not black: a cartoon arena wants a shadow to read as shape rather than as
+	# a hole, and the ambient term is doing the rest of the lifting.
+	sun.shadow_opacity = 0.62
+	return sun
+
+static func make_environment() -> Environment:
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	# Exactly what the surround fades to at its outer ring, so the scenery meets
+	# the background with no visible seam. At a 60 degree pitch behind a 7 degree
+	# lens the view never contains the horizon, so a procedural sky would only
+	# ever show its own ground hemisphere — this is that colour, directly.
+	e.background_color = SURROUND_HORIZON
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.70, 0.76, 0.82)
+	e.ambient_light_energy = 0.68
+	return e
+
+# MARK: terrain look
+
+## The arena's palette and its three terrain shaders. Everything here is flat
+## colour plus a fragment shader — no art files — for the same reason the sounds
+## are synthesized: a fixed steep top-down camera only ever shows one angle, so
+## the look is cheaper to compute than it is to author.
+## The checker is deliberately near-invisible tile to tile. A 10% step read as
+## a chessboard and pulled the eye off the fighters; what the floor actually
+## needs is enough structure to tell you how far a tile is, which the seam and
+## the per-tile mottle give without the grid becoming the subject.
+const GRASS_A := Color(0.45, 0.70, 0.35)
+const GRASS_B := Color(0.441, 0.686, 0.341)
+const GRASS_SEAM := Color(0.35, 0.56, 0.27)
+## The slab the arena sits on. Seen at the near edge and past the border walls,
+## it is what makes the map read as a raised platform rather than as a plane
+## that simply stops.
+const SLAB_COLOR := Color(0.33, 0.25, 0.18)
+const SLAB_DEPTH := 3.0
+## Ground outside the arena, and how far it reaches before it fades to the sky.
+const SURROUND_COLOR := Color(0.26, 0.40, 0.24)
+const SURROUND_HORIZON := Color(0.47, 0.64, 0.74)
+const SURROUND_MARGIN := 46.0
+const SURROUND_DROP := 1.1
+
+const WALL_TOP := Color(0.72, 0.55, 0.39)
+const WALL_SIDE := Color(0.47, 0.33, 0.22)
+const WALL_EDGE := Color(0.24, 0.15, 0.09)
+## `=` walls: goal frames and the pitch end line. Cool and pale, so a wall that
+## can never be shot out never reads like one that can.
+## Bright white blew out: the pitch's end rows are 30 tiles of `=` between
+## them, so whatever colour this is, there is a lot of it directly behind the
+## goal a player is shooting at.
+const STRUCT_TOP := Color(0.79, 0.82, 0.88)
+const STRUCT_SIDE := Color(0.51, 0.54, 0.61)
+const STRUCT_EDGE := Color(0.25, 0.28, 0.34)
+const WALL_HEIGHT := 1.5
+
+const WATER_DEEP := Color(0.10, 0.30, 0.60)
+const WATER_SHALLOW := Color(0.27, 0.57, 0.86)
+## Not white. A single-tile pond is 2 m across, so a shoreline wide enough to
+## see at all is a large fraction of it — the first pass at 24% of a tile per
+## side left almost no water in the middle of one.
+const WATER_FOAM := Color(0.72, 0.88, 0.98)
+const WATER_TOP := 0.24
+## Nobles Cup's pitch markings. Painted by the floor shader rather than laid
+## down as geometry, so a line costs nothing and cannot z-fight with the grass.
+const PITCH_LINE := Color(0.88, 0.94, 0.88)
+const GOAL_NET := Color(0.94, 0.96, 1.0)
+const GOAL_FRAME := Color(0.95, 0.96, 0.98)
+const GOAL_POST_RADIUS := 0.17
+## Deliberately above WALL_HEIGHT: a crossbar level with the wall behind it
+## disappears into it at this camera pitch.
+const GOAL_FRAME_HEIGHT := 2.15
+
+## The goal mouth. The net is a grid over a team-coloured floor that darkens
+## toward the back, which is the whole of the depth cue — the recess is only one
+## tile deep and a top-down camera cannot see into it at all.
+const GOAL_NET_SHADER := """
+shader_type spatial;
+render_mode diffuse_lambert, specular_disabled;
+
+uniform vec3 team_color : source_color = vec3(1.0, 0.32, 0.30);
+uniform vec3 net_color : source_color = vec3(0.94, 0.96, 1.0);
+uniform float cell = 0.44;
+uniform float thickness = 0.11;
+uniform float goal_line_z = 0.0;
+uniform float depth_span = 2.0;
+uniform float depth_dir = 1.0;
+
+varying vec3 v_world;
+varying vec3 v_nrm;
+
+void vertex() {
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_nrm = NORMAL;
+}
+
+void fragment() {
+	if (v_nrm.y < 0.5) {
+		ALBEDO = team_color * 0.30;
+	} else {
+		// 0 on the goal line, 1 at the back of the net.
+		float t = clamp((v_world.z - goal_line_z) * depth_dir / depth_span, 0.0, 1.0);
+		vec3 col = mix(team_color * 0.88, team_color * 0.30, t);
+		vec2 g = abs(fract(v_world.xz / cell) - 0.5);
+		float net = smoothstep(0.5 - thickness, 0.5, max(g.x, g.y));
+		// The net fades into the dark at the back, which is what sells a recess
+		// that is only two metres deep and seen from almost straight above.
+		col = mix(col, net_color, net * mix(0.60, 0.18, t));
+		// The line the ball actually has to cross.
+		col = mix(col, net_color, 1.0 - smoothstep(0.07, 0.15, t * depth_span));
+		ALBEDO = col;
+	}
+	ROUGHNESS = 1.0;
+}
+"""
+
+## The floor. One plane, one draw call: the tile checker, the per-tile mottle
+## and the seam all come out of the world position rather than out of geometry,
+## so a 39x39 arena costs exactly what a 1x1 one would.
+##
+## Every terrain shader here splits its top face from its sides on a
+## model-space normal carried down as a varying — `NORMAL` is view space by the
+## time the fragment stage sees it, so testing `NORMAL.y` there yaws with the
+## camera instead of pointing at the sky.
+const GROUND_SHADER := """
+shader_type spatial;
+render_mode diffuse_lambert, specular_disabled;
+
+uniform vec3 grass_a : source_color = vec3(0.45, 0.70, 0.35);
+uniform vec3 grass_b : source_color = vec3(0.441, 0.686, 0.341);
+uniform vec3 seam_color : source_color = vec3(0.35, 0.56, 0.27);
+uniform vec3 slab_color : source_color = vec3(0.33, 0.25, 0.18);
+uniform float tile_size = 2.0;
+uniform float seam_width = 0.05;
+uniform float seam_strength = 0.08;
+uniform float mottle = 0.05;
+uniform float patch_strength = 0.14;
+uniform float slab_depth = 3.0;
+// Nobles Cup only. Zero on Showdown, where the branch costs one comparison and
+// the whole marking block is never evaluated.
+uniform float pitch_lines = 0.0;
+uniform vec2 pitch_min = vec2(0.0);
+uniform vec2 pitch_max = vec2(0.0);
+uniform vec3 line_color : source_color = vec3(0.88, 0.94, 0.88);
+uniform float line_width = 0.17;
+uniform float line_strength = 0.36;
+uniform float circle_radius = 3.6;
+// Half-width and depth of the box in front of each goal.
+uniform vec2 goal_area = vec2(5.0, 4.0);
+
+varying vec3 v_world;
+varying vec3 v_nrm;
+
+float hash21(vec2 p) {
+	p = fract(p * vec2(127.31, 311.7));
+	p += dot(p, p + 34.23);
+	return fract(p.x * p.y);
+}
+
+float vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = p - i;
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x),
+			   mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+// Signed distance to a rectangle: negative inside, zero on the border. Every
+// marking below is one of these, drawn as a band around its own zero, which is
+// why a corner joins cleanly instead of overshooting the way four clipped
+// half-planes do.
+float box_sdf(vec2 p, vec2 b) {
+	vec2 d = abs(p) - b;
+	return length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0);
+}
+
+float stripe(float d, float w) {
+	return 1.0 - smoothstep(w * 0.55, w, abs(d));
+}
+
+// The markings, in world XZ. Mirrored through the centre spot, so the pitch is
+// symmetric for the same reason PITCH_MAP is: neither end may be the better
+// one to defend.
+float pitch_mark(vec2 p) {
+	vec2 c = (pitch_min + pitch_max) * 0.5;
+	vec2 h = (pitch_max - pitch_min) * 0.5;
+	vec2 q = p - c;
+	float m = stripe(box_sdf(q, h - vec2(0.5)), line_width);
+	m = max(m, stripe(q.y, line_width) * (1.0 - step(h.x - 0.5, abs(q.x))));
+	float r = length(q);
+	m = max(m, stripe(r - circle_radius, line_width));
+	m = max(m, 1.0 - smoothstep(0.22, 0.34, r));
+	vec2 gp = vec2(q.x, abs(q.y) - (h.y - goal_area.y * 0.5));
+	m = max(m, stripe(box_sdf(gp, vec2(goal_area.x, goal_area.y * 0.5)), line_width));
+	return clamp(m, 0.0, 1.0);
+}
+
+void vertex() {
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_nrm = NORMAL;
+}
+
+void fragment() {
+	if (v_nrm.y > 0.5) {
+		vec2 t = v_world.xz / tile_size;
+		vec2 cell = floor(t);
+		vec3 col = mix(grass_a, grass_b, mod(cell.x + cell.y, 2.0));
+		col *= 1.0 + (hash21(cell) - 0.5) * mottle;
+		// Broad organic patches on top of the grid. This, not the checker, is
+		// what stops a 78 m field reading as one colour: a regular pattern at
+		// tile scale only ever looks like a chessboard, however faint it is
+		// made, while two octaves at 18 m and 6 m read as ground.
+		float patch = vnoise(v_world.xz * 0.055) * 0.66 + vnoise(v_world.xz * 0.17) * 0.34;
+		col *= 1.0 + (patch - 0.5) * patch_strength;
+		vec2 f = abs(fract(t) - 0.5);
+		float seam = smoothstep(0.5 - seam_width, 0.5, max(f.x, f.y));
+		col = mix(col, seam_color, seam * seam_strength);
+		if (pitch_lines > 0.5) {
+			col = mix(col, line_color, pitch_mark(v_world.xz) * line_strength);
+		}
+		ALBEDO = col;
+	} else {
+		ALBEDO = slab_color * mix(0.40, 1.0, clamp(1.0 + v_world.y / slab_depth, 0.0, 1.0));
+	}
+	ROUGHNESS = 1.0;
+}
+"""
+
+## The ground outside the arena. Without it the map's edge is raw sky, which
+## makes the arena look like it stops rather than like it is somewhere. The
+## fade is measured from the map RECTANGLE, not from its centre, so it starts
+## the same distance out on a corner as on a side — and it reaches the horizon
+## colour before the plane's own outer edge, which is what keeps that edge from
+## being the thing you notice.
+const SURROUND_SHADER := """
+shader_type spatial;
+render_mode diffuse_lambert, specular_disabled;
+
+uniform vec3 near_color : source_color = vec3(0.26, 0.40, 0.24);
+uniform vec3 far_color : source_color = vec3(0.47, 0.64, 0.74);
+uniform vec2 arena_center = vec2(0.0);
+uniform vec2 arena_extent = vec2(40.0);
+uniform float fade_start = 6.0;
+uniform float fade_end = 34.0;
+uniform float tile_size = 2.0;
+
+varying vec3 v_world;
+
+float hash21(vec2 p) {
+	p = fract(p * vec2(127.31, 311.7));
+	p += dot(p, p + 34.23);
+	return fract(p.x * p.y);
+}
+
+float vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = p - i;
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), f.x),
+			   mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+void vertex() {
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+void fragment() {
+	vec3 col = near_color * (1.0 + (vnoise(v_world.xz * 0.045) - 0.5) * 0.30);
+	vec2 q = abs(v_world.xz - arena_center) - arena_extent;
+	float d = length(max(q, vec2(0.0)));
+	ALBEDO = mix(col, far_color, smoothstep(fade_start, fade_end, d));
+	ROUGHNESS = 1.0;
+}
+"""
+
+## Walls read as one mass with a crisp outline for exactly the reason the
+## bushes do: the rim is drawn only on a side with no wall behind it, so a
+## block of nine is one shape rather than nine squares in a grid. The per-wall
+## edge mask rides an `instance uniform`, so every wall on the map shares one
+## material and one shader while still keeping its own outline — and a wall
+## that gets shot out hands its neighbours a fresh mask through `open_at`.
+##
+## The sides carry a gradient to a dark base and a hard line under the cap.
+## That line is what separates a wall's top from its face at a 60 degree pitch,
+## where the two are only a few shades apart under one directional light.
+const WALL_SHADER := """
+shader_type spatial;
+render_mode diffuse_lambert, specular_disabled;
+
+instance uniform vec4 open_edges = vec4(1.0, 1.0, 1.0, 1.0);
+
+uniform vec3 top_color : source_color = vec3(0.72, 0.55, 0.39);
+uniform vec3 side_color : source_color = vec3(0.47, 0.33, 0.22);
+uniform vec3 edge_color : source_color = vec3(0.24, 0.15, 0.09);
+uniform float tile_size = 2.0;
+uniform float wall_height = 1.5;
+uniform float rim_width = 0.13;
+
+varying vec3 v_local;
+varying vec3 v_world;
+varying vec3 v_nrm;
+
+float hash21(vec2 p) {
+	p = fract(p * vec2(127.31, 311.7));
+	p += dot(p, p + 34.23);
+	return fract(p.x * p.y);
+}
+
+float max4(vec4 v) {
+	return max(max(v.x, v.y), max(v.z, v.w));
+}
+
+void vertex() {
+	v_local = VERTEX;
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_nrm = NORMAL;
+}
+
+void fragment() {
+	vec3 col;
+	if (v_nrm.y > 0.5) {
+		// x/y/z/w = the west/east/north/south side is OPEN, matching _open_edges.
+		vec2 p = v_local.xz / tile_size;
+		vec4 edge = vec4(p.x + 0.5, 0.5 - p.x, p.y + 0.5, 0.5 - p.y);
+		float rim = max4((1.0 - smoothstep(vec4(rim_width * 0.55), vec4(rim_width), edge))
+				* open_edges);
+		// A lit lip immediately inside the outline. Two bands rather than one
+		// soft gradient is what makes a wall read as struck rather than painted.
+		float lip = max4((smoothstep(vec4(rim_width), vec4(rim_width * 1.4), edge)
+				- smoothstep(vec4(rim_width * 1.9), vec4(rim_width * 2.7), edge))
+				* open_edges);
+		col = mix(top_color, top_color * 1.11, clamp(lip, 0.0, 1.0));
+		col = mix(col, edge_color, rim);
+		col *= 1.0 + (hash21(floor(v_world.xz / tile_size)) - 0.5) * 0.07;
+	} else {
+		float h = clamp(v_local.y / wall_height + 0.5, 0.0, 1.0);
+		col = mix(mix(edge_color, side_color, 0.30), side_color, h);
+		col = mix(col, edge_color, smoothstep(0.88, 1.0, h));
+	}
+	ALBEDO = col;
+	ROUGHNESS = 1.0;
+}
+"""
+
+## Water is opaque, which is a change: the old translucent slabs each blended
+## against the floor AND against each other, so a pond showed a grid of seams
+## where its tiles overlapped. Depth is drawn instead of transmitted, the ripple
+## is two crossed travelling sines, and the shoreline foam uses the same
+## merge-aware edge mask as the walls, so a pond gets an outline and its
+## interior tile lines vanish.
+const WATER_SHADER := """
+shader_type spatial;
+render_mode diffuse_lambert, specular_schlick_ggx;
+
+instance uniform vec4 open_edges = vec4(1.0, 1.0, 1.0, 1.0);
+
+uniform vec3 deep_color : source_color = vec3(0.10, 0.30, 0.60);
+uniform vec3 shallow_color : source_color = vec3(0.27, 0.57, 0.86);
+uniform vec3 foam_color : source_color = vec3(0.72, 0.88, 0.98);
+uniform float tile_size = 2.0;
+uniform float foam_width = 0.11;
+uniform float foam_strength = 0.8;
+uniform float wave_scale = 0.85;
+uniform float wave_speed = 0.5;
+
+varying vec3 v_local;
+varying vec3 v_world;
+varying vec3 v_nrm;
+
+void vertex() {
+	v_local = VERTEX;
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_nrm = NORMAL;
+}
+
+void fragment() {
+	if (v_nrm.y > 0.5) {
+		vec2 w = v_world.xz * wave_scale;
+		float t = TIME * wave_speed;
+		float ripple = (sin(w.x + t) + sin(w.y * 1.31 - t * 0.83)) * 0.25 + 0.5;
+		vec3 col = mix(deep_color, shallow_color, ripple);
+		vec2 p = v_local.xz / tile_size;
+		vec4 edge = vec4(p.x + 0.5, 0.5 - p.x, p.y + 0.5, 0.5 - p.y);
+		vec4 band = (1.0 - smoothstep(vec4(0.0), vec4(foam_width), edge)) * open_edges;
+		float foam = max(max(band.x, band.y), max(band.z, band.w));
+		foam *= foam_strength * (0.72 + 0.28 * sin(TIME * 2.1 + v_world.x * 1.7 + v_world.z));
+		ALBEDO = mix(col, foam_color, clamp(foam, 0.0, 1.0));
+		ROUGHNESS = 0.16;
+		SPECULAR = 0.65;
+	} else {
+		ALBEDO = deep_color * 0.5;
+		ROUGHNESS = 0.7;
+	}
+}
+"""
+
+## One material per terrain kind, shared by every tile of it. Per-tile
+## variation is world position (floor) or an instance uniform (walls, water).
+var _wall_mat: ShaderMaterial
+var _struct_mat: ShaderMaterial
+var _water_mat: ShaderMaterial
+## tile -> the MeshInstance3D whose `open_edges` describes it. Walls only:
+## water never changes shape mid-match, so its mask is set once and forgotten.
+var _wall_meshes: Dictionary = {}
+
 func _build() -> void:
 	var ts := Kits.TILE
-	# Ground: one big checkered-ish plane (two greens via a grid of quads
-	# would be 900 nodes; a single plane keeps 3D simple for now). Sized from
-	# columns AND rows — the pitch is taller than it is wide.
-	_static_box(centre() + Vector3(0, -0.5, 0),
-				Vector3(map_width(), 1, map_depth()), Color(0.45, 0.70, 0.35), 1)
+	_build_terrain_materials()
+	_build_ground()
+	_build_surround()
 
 	_bush_centers.clear()
 	_bush_tiles.clear()
+	_wall_meshes.clear()
+	var water_tiles: Array[Vector2i] = []
 	for row in row_count:
 		for col in columns:
 			var ch := rows[row][col]
@@ -322,8 +773,9 @@ func _build() -> void:
 			match ch:
 				"#":
 					var is_border := row == 0 or col == 0 or row == row_count - 1 or col == columns - 1
-					var wall := _static_box(c + Vector3(0, 0.75, 0), Vector3(ts, 1.5, ts),
-											Color(0.62, 0.46, 0.32), 1)
+					var wall := _shaded_box(c + Vector3(0, WALL_HEIGHT / 2.0, 0),
+										   Vector3(ts, WALL_HEIGHT, ts), _wall_mat, 1)
+					_wall_meshes[Vector2i(col, row)] = _mesh_of(wall)
 					if not is_border:
 						wall.add_to_group("breakable")
 						# Stable id so net play can replicate wall destruction.
@@ -331,16 +783,18 @@ func _build() -> void:
 				"=":
 					# Structural: goal posts and the pitch's end walls. Never
 					# joins "breakable", so overtime cannot open the goal up.
-					_static_box(c + Vector3(0, 0.75, 0), Vector3(ts, 1.5, ts),
-								Color(0.86, 0.88, 0.92), 1)
+					var s := _shaded_box(c + Vector3(0, WALL_HEIGHT / 2.0, 0),
+										Vector3(ts, WALL_HEIGHT, ts), _struct_mat, 1)
+					_wall_meshes[Vector2i(col, row)] = _mesh_of(s)
 				"0", "1":
-					var team := int(ch)
-					goal_mouths[team].append(c)
-					_goal_paint(c, team)
+					goal_mouths[int(ch)].append(c)
 				"~":
-					var w := _static_box(c + Vector3(0, 0.12, 0), Vector3(ts, 0.24, ts),
-										 Color(0.30, 0.55, 0.85, 0.85), 2)
+					var w := _shaded_box(c + Vector3(0, WATER_TOP / 2.0, 0),
+										Vector3(ts, WATER_TOP, ts), _water_mat, 2)
 					w.add_to_group("water")
+					_mesh_of(w).set_instance_shader_parameter(
+							"open_edges", _open_sides(Vector2i(col, row), "~"))
+					water_tiles.append(Vector2i(col, row))
 				"b":
 					# Appended row-major from row 0, which is the map's -Z edge
 					# and so the far side of a camera sitting at +Z. That makes
@@ -355,19 +809,134 @@ func _build() -> void:
 					team_spawns[1 if row < row_count / 2 else 0].append(c)
 				"X":
 					box_points.append(c)
+	for tile: Vector2i in _wall_meshes:
+		_apply_wall_edges(tile)
 	_finish_goals()
 	_build_bushes()
 
-## The goal mouth is floor, so it reads as a goal only if it is painted. The
-## `=` posts around it already give the frame; this is the team-coloured slab
-## inside it, laid flush with the ground so nothing trips over it.
-func _goal_paint(center: Vector3, team: int) -> void:
-	var tint: Color = TEAM_COLORS[team]
-	var slab := _static_box(center + Vector3(0, 0.02, 0),
-			Vector3(Kits.TILE, 0.04, Kits.TILE), Color(tint.r, tint.g, tint.b, 0.75), 4)
-	slab.collision_layer = 0   # paint only; nothing should collide with it
+## Built once and shared. A 39x39 arena has ~400 walls; giving each its own
+## material would be 400 shader compiles' worth of pipeline state for a look
+## that differs only by which sides get an outline.
+func _build_terrain_materials() -> void:
+	_wall_mat = _shader_material(WALL_SHADER)
+	_wall_mat.set_shader_parameter("top_color", WALL_TOP)
+	_wall_mat.set_shader_parameter("side_color", WALL_SIDE)
+	_wall_mat.set_shader_parameter("edge_color", WALL_EDGE)
+	_wall_mat.set_shader_parameter("tile_size", Kits.TILE)
+	_wall_mat.set_shader_parameter("wall_height", WALL_HEIGHT)
 
-## Called once the whole map is read: the aim point for a shot on each goal.
+	_struct_mat = _shader_material(WALL_SHADER)
+	_struct_mat.set_shader_parameter("top_color", STRUCT_TOP)
+	_struct_mat.set_shader_parameter("side_color", STRUCT_SIDE)
+	_struct_mat.set_shader_parameter("edge_color", STRUCT_EDGE)
+	_struct_mat.set_shader_parameter("tile_size", Kits.TILE)
+	_struct_mat.set_shader_parameter("wall_height", WALL_HEIGHT)
+
+	_water_mat = _shader_material(WATER_SHADER)
+	_water_mat.set_shader_parameter("deep_color", WATER_DEEP)
+	_water_mat.set_shader_parameter("shallow_color", WATER_SHALLOW)
+	_water_mat.set_shader_parameter("foam_color", WATER_FOAM)
+	_water_mat.set_shader_parameter("tile_size", Kits.TILE)
+
+## The arena slab. Sized from columns AND rows — the pitch is taller than it is
+## wide — and deep enough that its side is a visible lip rather than a hairline.
+func _build_ground() -> void:
+	var mat := _shader_material(GROUND_SHADER)
+	mat.set_shader_parameter("grass_a", GRASS_A)
+	mat.set_shader_parameter("grass_b", GRASS_B)
+	mat.set_shader_parameter("seam_color", GRASS_SEAM)
+	mat.set_shader_parameter("slab_color", SLAB_COLOR)
+	mat.set_shader_parameter("tile_size", Kits.TILE)
+	mat.set_shader_parameter("slab_depth", SLAB_DEPTH)
+	if map_mode == "cup":
+		var rect := _playable_rect()
+		mat.set_shader_parameter("pitch_lines", 1.0)
+		mat.set_shader_parameter("pitch_min", rect.position)
+		mat.set_shader_parameter("pitch_max", rect.end)
+		mat.set_shader_parameter("line_color", PITCH_LINE)
+	var ground := _shaded_box(centre() + Vector3(0, -SLAB_DEPTH / 2.0, 0),
+			Vector3(map_width(), SLAB_DEPTH, map_depth()), mat, 1)
+	ground.name = "Ground"
+
+## Two triangles of scenery, no collision. Nothing can reach it — the border
+## wall ring is solid — so it exists purely to stop the map's edge being sky.
+func _build_surround() -> void:
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(map_width() + SURROUND_MARGIN * 2.0,
+			map_depth() + SURROUND_MARGIN * 2.0)
+	var mat := _shader_material(SURROUND_SHADER)
+	mat.set_shader_parameter("near_color", SURROUND_COLOR)
+	mat.set_shader_parameter("far_color", SURROUND_HORIZON)
+	mat.set_shader_parameter("arena_center", Vector2(centre().x, centre().z))
+	mat.set_shader_parameter("arena_extent",
+			Vector2(map_width() / 2.0, map_depth() / 2.0))
+	mat.set_shader_parameter("fade_start", 6.0)
+	mat.set_shader_parameter("fade_end", SURROUND_MARGIN * 0.75)
+	mat.set_shader_parameter("tile_size", Kits.TILE)
+	var mi := MeshInstance3D.new()
+	mi.mesh = plane
+	mi.material_override = mat
+	mi.position = centre() + Vector3(0, -SURROUND_DROP, 0)
+	mi.name = "Surround"
+	# It sits below and outside everything, and it is huge: letting it cast into
+	# the one directional shadow map would spend the whole range on scenery.
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+## The world rect of everything a fighter can stand on. Walls, the `=` end
+## rows and the goal mouths are all excluded — the mouth in particular, because
+## a touchline drawn through the back of the net is a touchline in the wrong
+## place.
+func _playable_rect() -> Rect2:
+	var lo := Vector2i(columns, row_count)
+	var hi := Vector2i(-1, -1)
+	for row in row_count:
+		for col in columns:
+			if rows[row][col] in ["#", "=", "0", "1"]:
+				continue
+			lo = Vector2i(mini(lo.x, col), mini(lo.y, row))
+			hi = Vector2i(maxi(hi.x, col), maxi(hi.y, row))
+	if hi.x < lo.x:
+		return Rect2()
+	return Rect2(Vector2(lo) * Kits.TILE, Vector2(hi - lo + Vector2i.ONE) * Kits.TILE)
+
+func _shader_material(code: String) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = code
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	return mat
+
+## 1.0 on each side of `tile` whose neighbour is not the same terrain — the
+## sides that get an outline. Order matches the shaders' `open_edges` and the
+## bush skirt's `_open_edges`: west, east, north, south. Off-map counts as
+## matching, so the border ring is not outlined against the void.
+func _open_sides(tile: Vector2i, kinds: String) -> Color:
+	return Color(
+			0.0 if _tile_is(tile.x - 1, tile.y, kinds) else 1.0,
+			0.0 if _tile_is(tile.x + 1, tile.y, kinds) else 1.0,
+			0.0 if _tile_is(tile.x, tile.y - 1, kinds) else 1.0,
+			0.0 if _tile_is(tile.x, tile.y + 1, kinds) else 1.0)
+
+func _tile_is(col: int, row: int, kinds: String) -> bool:
+	if row < 0 or row >= row_count or col < 0 or col >= columns:
+		return true   # off-map: no outline against the edge of the world
+	return kinds.contains(rows[row][col])
+
+## Re-reads one wall's outline from the map. Called for every wall at build and
+## for the four neighbours of a hole when one is shot out.
+func _apply_wall_edges(tile: Vector2i) -> void:
+	var mesh: Variant = _wall_meshes.get(tile)
+	if mesh == null or not is_instance_valid(mesh):
+		return
+	(mesh as MeshInstance3D).set_instance_shader_parameter(
+			"open_edges", _open_sides(tile, "#="))
+
+func _mesh_of(body: StaticBody3D) -> MeshInstance3D:
+	return body.get_node("Mesh") as MeshInstance3D
+
+## Called once the whole map is read: the aim point for a shot on each goal,
+## and the goal itself.
 func _finish_goals() -> void:
 	for team in 2:
 		if goal_mouths[team].is_empty():
@@ -376,6 +945,66 @@ func _finish_goals() -> void:
 		for p: Vector3 in goal_mouths[team]:
 			sum += p
 		goal_centers[team] = sum / float(goal_mouths[team].size())
+		_build_goal(team)
+
+## A net painted on the mouth floor and a real frame standing on the goal line.
+## Before this a goal was a flat team-coloured rectangle recessed in a grey
+## wall, which read as a painted panel rather than as somewhere you score: from
+## a 60 degree camera the mouth FLOOR is nearly all of a goal you can see, so
+## that is where the net has to be, and the frame is what says how tall it is.
+##
+## Everything is derived from `goal_mouths`, never from PITCH_MAP's row numbers,
+## so a wider mouth or a second pitch gets its goal for free.
+func _build_goal(team: int) -> void:
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p: Vector3 in goal_mouths[team]:
+		lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.z))
+		hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.z))
+	var half := Kits.TILE / 2.0
+	var x0 := lo.x - half
+	var x1 := hi.x + half
+	var z_mid := (lo.y + hi.y) / 2.0
+	var depth := (hi.y - lo.y) + Kits.TILE
+	# Which way the pitch lies from the mouth. The goal line is the mouth's own
+	# edge on that side, and the net deepens away from it.
+	var toward: float = signf(centre().z - z_mid)
+	var line_z: float = z_mid + toward * depth / 2.0
+
+	var mat := _shader_material(GOAL_NET_SHADER)
+	mat.set_shader_parameter("team_color", TEAM_COLORS[team])
+	mat.set_shader_parameter("net_color", GOAL_NET)
+	mat.set_shader_parameter("goal_line_z", line_z)
+	mat.set_shader_parameter("depth_span", depth)
+	mat.set_shader_parameter("depth_dir", -toward)
+	var slab := _shaded_box(Vector3((x0 + x1) / 2.0, 0.025, z_mid),
+			Vector3(x1 - x0, 0.05, depth), mat, 4)
+	slab.collision_layer = 0   # paint only; nothing should collide with it
+	slab.name = "GoalNet%d" % team
+
+	# The frame is taller than the 1.5 m walls on purpose: at this camera pitch
+	# a bar level with the wall behind it disappears into it.
+	var frame := StandardMaterial3D.new()
+	frame.albedo_color = GOAL_FRAME
+	frame.roughness = 0.5
+	for x: float in [x0, x1]:
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = GOAL_POST_RADIUS
+		cyl.bottom_radius = GOAL_POST_RADIUS
+		cyl.height = GOAL_FRAME_HEIGHT
+		cyl.material = frame
+		var post := MeshInstance3D.new()
+		post.mesh = cyl
+		post.position = Vector3(x, GOAL_FRAME_HEIGHT / 2.0, line_z)
+		add_child(post)
+	var box := BoxMesh.new()
+	box.size = Vector3(x1 - x0 + GOAL_POST_RADIUS * 2.0,
+			GOAL_POST_RADIUS * 1.8, GOAL_POST_RADIUS * 1.8)
+	box.material = frame
+	var bar := MeshInstance3D.new()
+	bar.mesh = box
+	bar.position = Vector3((x0 + x1) / 2.0, GOAL_FRAME_HEIGHT, line_z)
+	add_child(bar)
 
 const GRASS_MODEL := "res://assets/tall_grass.glb"
 ## Half the model's height is 0.49, which sits it flush; less than that buries
@@ -615,18 +1244,25 @@ func _build_bushes_fallback() -> void:
 			add_child(m)
 
 func _static_box(pos: Vector3, size: Vector3, color: Color, layer: int) -> StaticBody3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	if color.a < 1.0:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	return _shaded_box(pos, size, mat, layer)
+
+## A solid box wearing `mat`. The mesh is named so callers that need to reach
+## it for an instance uniform can (`_mesh_of`); the material is shared, so the
+## per-tile part of the look has to ride on the instance rather than on a copy.
+func _shaded_box(pos: Vector3, size: Vector3, mat: Material, layer: int) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.position = pos
 	body.collision_layer = 1 << (layer - 1)
 	body.collision_mask = 0
 
 	var mesh := MeshInstance3D.new()
+	mesh.name = "Mesh"
 	var box := BoxMesh.new()
 	box.size = size
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	if color.a < 1.0:
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	box.material = mat
 	mesh.mesh = box
 	body.add_child(mesh)

@@ -29,7 +29,10 @@ static var _lift_cache: Dictionary = {}
 const FLASH_SECONDS := 0.08
 const FLASH_ENERGY := 1.6
 ## What a fighter fades to while standing in a bush, seen by themselves.
-const CONCEAL_ALPHA := 0.55
+## What a concealed fighter is tinted to. NOT an alpha: see set_concealed.
+## `albedo_color` MULTIPLIES the texture, so this darkens and greens whatever
+## the character is wearing, which is what sinks them into the bush.
+const CONCEAL_TINT := Color(0.52, 0.70, 0.52)
 
 var kit: Dictionary
 var display_name := "Fighter"
@@ -100,7 +103,14 @@ var _model: Node3D
 ## Empty for the two kits still on the capsule fallback, which is what every
 ## modelled-fighter effect below tests instead of testing for a model.
 var _model_mats: Array[BaseMaterial3D] = []
+## The body's scale at rest, so a knockdown squash and a landing squash both
+## have something exact to spring back to rather than assuming Vector3.ONE —
+## a modelled fighter's is MODEL_SCALE and the capsule's is not.
+var _body_rest := Vector3.ONE
+
 var _model_emission: Array[Dictionary] = []
+var _model_albedo: Array[Color] = []
+var _capsule_albedo := Color.WHITE
 ## Which concealment state is currently painted on: -1 until the first call, so
 ## that one always lands. set_concealed runs every physics frame for every
 ## fighter, and changing a material's transparency mode recompiles a shader.
@@ -193,6 +203,9 @@ func _ready() -> void:
 		_setup_model()
 	else:
 		_setup_capsule()
+	var body: Node3D = _body()
+	if body != null:
+		_body_rest = body.scale
 	if bool(kit.get("weapon", {}).get("heat_trait", false)):
 		_setup_heat_glow()
 
@@ -255,6 +268,10 @@ func _setup_model() -> void:
 				m.metallic = 0.0
 				mi.set_surface_override_material(s, m)
 				_model_mats.append(m)
+				# Remembered so the bush tint multiplies the material's OWN
+				# colour and reveal puts that colour back, rather than both
+				# assuming white.
+				_model_albedo.append(m.albedo_color)
 				# Remembered so a flash restores a model that legitimately
 				# glows to its own emission rather than switching it off.
 				_model_emission.append({
@@ -383,6 +400,7 @@ func _setup_capsule() -> void:
 	mesh.height = 1.6
 	_material = StandardMaterial3D.new()
 	_material.albedo_color = kit.color
+	_capsule_albedo = _material.albedo_color
 	mesh.material = _material
 	_body_mesh.mesh = mesh
 	_body_mesh.position.y = 0.8
@@ -484,8 +502,37 @@ func apply_movement(input_dir: Vector3) -> void:
 	velocity = input_dir * speed + knockback_vel
 	move_and_slide()
 	if input_dir.length() > 0.1:
-		facing = input_dir.normalized()
-		rotation.y = atan2(-facing.x, -facing.z)
+		_turn_to_travel(input_dir.normalized())
+
+## How fast the body swings round while walking, in rad/s: 180 degrees in about
+## a fifth of a second, so a flick of the stick still reads as instant while a
+## graze along a wall is a turn rather than a snap. Dashes and every deliberate
+## face_direction still pivot on the spot — this is walking only.
+const TURN_RATE := 14.0
+## Below this much travel (m/s) a slide is a fighter stopped dead against
+## something, not a direction, so the stick keeps the body pointed at the wall
+## it is pushing into.
+const TURN_MIN_TRAVEL := 0.5
+## A knockback above this (m/s) is a shove, not a walk. The body keeps steering
+## where the stick says through it instead of whipping round to face the push.
+const TURN_KNOCK_MAX := 1.0
+
+## Point the body where it is ACTUALLY going, not where the stick is pushing.
+## move_and_slide deflects anyone grazing a wall, a loot box or another fighter,
+## and holding the stick's direction through that deflection is a crab walk: in
+## a measured match a third of all moving frames near a wall had the model 20
+## degrees or more off its own travel, and many were the full 90. Bush patches
+## on the Showdown map are tucked against walls, which is where it reads worst —
+## bushes themselves never block anyone (frames in open bush measured 0%).
+func _turn_to_travel(stick: Vector3) -> void:
+	var want := stick
+	var travel := Vector3(velocity.x, 0.0, velocity.z)
+	if travel.length() > TURN_MIN_TRAVEL and knockback_vel.length() < TURN_KNOCK_MAX:
+		want = travel.normalized()
+	var swing := facing.signed_angle_to(want, Vector3.UP)
+	var limit := TURN_RATE * get_physics_process_delta_time()
+	facing = facing.rotated(Vector3.UP, clampf(swing, -limit, limit)).normalized()
+	rotation.y = atan2(-facing.x, -facing.z)
 
 ## Distance a knockback impulse of strength 1.0 actually travels. The decay is
 ## `v *= 0.0001 ** delta`, i.e. v(t) = v0 * e^(-9.21t), so the integral is
@@ -646,9 +693,77 @@ func tick(delta: float, now: float) -> void:
 		_pending_popup = 0
 	knockback_vel = knockback_vel * pow(0.0001, delta) if knockback_vel.length() > 0.05 else Vector3.ZERO
 
-func die() -> void:
+# MARK: going down and coming back
+
+## The pop. A fighter swells for a beat and bursts rather than toppling: at a
+## 60 degree camera a body lying on the floor is a shape you have to read, and
+## the whole point of the moment is that it is instant.
+const POP_SWELL := 0.09
+const POP_BURST := 0.13
+## The bubble a fighter arrives inside — it grows around them while they scale
+## up out of nothing, holds, then bursts and leaves them standing.
+const BUBBLE_GROW := 0.26
+const BUBBLE_HOLD := 0.10
+const BUBBLE_POP := 0.13
+const BUBBLE_RADIUS := 1.5
+
+## A soap bubble: additive, unshaded, and brightest where the surface turns away
+## from the camera, which is the whole of what makes a sphere read as a shell
+## rather than as a ball. It never writes depth, so the fighter growing inside
+## it is never hidden by it.
+const BUBBLE_SHADER := """
+shader_type spatial;
+render_mode blend_add, depth_draw_never, cull_disabled, unshaded;
+
+uniform vec3 tint : source_color = vec3(0.55, 0.85, 1.0);
+// A thicker rim than a real fresnel: at 55 px per metre a shell only a few
+// degrees wide is a couple of pixels, and the first pass was almost invisible
+// against the pale end zone a Cup respawn happens in.
+uniform float power = 1.5;
+uniform float strength = 1.0;
+
+void fragment() {
+	float f = pow(1.0 - abs(dot(normalize(NORMAL), normalize(VIEW))), power);
+	ALBEDO = tint * (f * 1.55 + 0.22) * strength;
+	ALPHA = clamp((f * 1.35 + 0.14) * strength, 0.0, 1.0);
+}
+"""
+
+## The body, whichever kind this fighter has. Every pop and bubble acts on this
+## rather than on the fighter itself, because `rotation.y` on the fighter is its
+## FACING and half the game reads it — aim, bars, the ball's carry point.
+func _body() -> Node3D:
+	return _model if _model != null else _body_mesh
+
+## Going down. Shared by a Showdown elimination and a Nobles Cup knock-out,
+## because they are the same moment; one of them just comes back.
+##
+## No GLB here ships a death or hit clip — the models carry only idle, walk, run
+## and an attack — so this is code either way, and a pop needs none.
+func _pop_out() -> void:
+	var tint: Color = kit.get("color", Color(0.9, 0.9, 0.9))
+	var body := _body()
+	if body == null:
+		_on_popped(tint)
+		return
 	var tw := create_tween()
-	tw.tween_property(self, "scale", Vector3(0.1, 0.1, 0.1), 0.35)
+	tw.tween_property(body, "scale", _body_rest * 1.3, POP_SWELL) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(body, "scale", _body_rest * 0.01, POP_BURST) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	# On the burst, not on the hit: a ring thrown while the body is still there
+	# reads as something landing on them rather than as them going.
+	tw.tween_callback(_on_popped.bind(tint))
+
+func _on_popped(tint: Color) -> void:
+	_ground_ring(tint.lightened(0.3), 2.4)
+	_body_burst(tint.lightened(0.45), 2.4, 10, 1.0)
+
+## Showdown: down for good, so the node goes with the pop.
+func die() -> void:
+	_pop_out()
+	var tw := create_tween()
+	tw.tween_interval(POP_SWELL + POP_BURST + 0.04)
 	tw.tween_callback(queue_free)
 
 ## Nobles Cup death: the fighter is coming back, so it is parked rather than
@@ -659,13 +774,101 @@ func knock_out() -> void:
 	knockback_vel = Vector3.ZERO
 	dash = {}
 	leap = {}
-	visible = false
-	# Off every layer and mask: a parked fighter must not block a shot, soak a
-	# melee sweep, or stop the ball rolling over the spot where it fell.
+	# Off every layer and mask FIRST, and before the pop has finished: a fighter
+	# that is going down must stop blocking a shot, soaking a melee sweep or
+	# stopping the ball on the frame it dies, not on the frame it disappears.
 	collision_layer = 0
 	collision_mask = 0
 	if _anim:
 		_anim.stop()
+	_pop_out()
+	# Hidden at the END of the pop rather than on the frame of the hit, which is
+	# what makes the death readable at all. The health bars already skip a dead
+	# fighter (fighter_bars.gd:77), so no full bar hangs over the body.
+	var tw := create_tween()
+	tw.tween_interval(POP_SWELL + POP_BURST)
+	tw.tween_callback(_hide_body)
+
+func _hide_body() -> void:
+	if not is_dead():
+		return   # already back up: a respawn beat the timer
+	visible = false
+
+## Arrives inside a bubble: the shell grows, the fighter scales up out of
+## nothing inside it, and it bursts. There is no arrival clip on any model
+## either — Kovacs' Backflip_and_Rise and Anders' Backflip are the only two that
+## could ever stand in — so this is code, and every kit gets the same one.
+func _play_arrival() -> void:
+	var body := _body()
+	if body == null:
+		return
+	var tint: Color = kit.get("color", Color(0.9, 0.9, 0.9))
+	body.scale = _body_rest * 0.01
+	var mat := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = BUBBLE_SHADER
+	mat.shader = sh
+	mat.set_shader_parameter("tint", tint.lightened(0.45))
+	var sphere := SphereMesh.new()
+	sphere.radius = BUBBLE_RADIUS
+	sphere.height = BUBBLE_RADIUS * 2.0
+	var bubble := MeshInstance3D.new()
+	bubble.mesh = sphere
+	bubble.material_override = mat
+	bubble.position = Vector3(0, BUBBLE_RADIUS * 0.82, 0)
+	bubble.scale = Vector3.ONE * 0.05
+	add_child(bubble)
+
+	var grow := create_tween()
+	grow.tween_property(bubble, "scale", Vector3.ONE, BUBBLE_GROW) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# The fighter comes up a beat behind the shell, so you see the bubble form
+	# and then something appear inside it rather than the two arriving together.
+	grow.parallel().tween_property(body, "scale", _body_rest, BUBBLE_GROW) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT) \
+			.set_delay(BUBBLE_GROW * 0.35)
+
+	var pop := create_tween()
+	pop.tween_interval(BUBBLE_GROW + BUBBLE_HOLD)
+	pop.tween_property(bubble, "scale", Vector3.ONE * 1.5, BUBBLE_POP)
+	pop.parallel().tween_method(_fade_bubble.bind(mat), 1.0, 0.0, BUBBLE_POP)
+	pop.tween_callback(bubble.queue_free)
+	pop.tween_callback(_on_bubble_popped.bind(tint))
+
+func _fade_bubble(value: float, mat: ShaderMaterial) -> void:
+	mat.set_shader_parameter("strength", value)
+
+func _on_bubble_popped(tint: Color) -> void:
+	_ground_ring(tint.lightened(0.4), 2.5)
+	_body_burst(tint.lightened(0.55), 1.9, 8, 0.9)
+
+## Both effects go on the PARENT, not on the fighter: they have to outlive a
+## Showdown death, which frees the fighter a third of a second later, and they
+## must not inherit the topple or the collapse.
+func _ground_ring(tint: Color, radius: float) -> void:
+	var host := get_parent()
+	if host == null:
+		return
+	var sw := Shockwave.new()
+	sw.radius = radius
+	sw.tint = tint
+	host.add_child(sw)
+	sw.global_position = Vector3(global_position.x, 0.03, global_position.z)
+
+func _body_burst(tint: Color, spread: float, shards: int, height: float) -> void:
+	var host := get_parent()
+	if host == null:
+		return
+	var s := HitSpark.new()
+	s.tint = tint
+	s.direction = Vector3.ZERO   # no travel to fan around: HitSpark goes all round
+	s.cone = PI
+	s.spread = spread
+	s.shards = shards
+	s.height = height
+	s.duration = 0.30
+	host.add_child(s)
+	s.global_position = Vector3(global_position.x, 0.0, global_position.z)
 
 func respawn(pos: Vector3, game_now: float) -> void:
 	position = pos
@@ -691,6 +894,9 @@ func respawn(pos: Vector3, game_now: float) -> void:
 	reset_physics_interpolation()
 	if _anim:
 		_anim.play(kit.clips.idle)
+	# Undoes the topple before the drop starts: a fighter that came back still
+	# lying on its back was the whole failure mode here.
+	_play_arrival()
 
 ## A Nobles Cup kickoff for a fighter who is still standing. Everything respawn()
 ## restores EXCEPT position (kickoff places them itself) and `super_charge`,
@@ -746,16 +952,27 @@ func set_concealed(hidden: bool, self_view: bool) -> void:
 		if want == _conceal_applied:
 			return
 		_conceal_applied = want
+		# Concealment is a TINT, not a fade, and that is the whole point. A
+		# character is a closed solid, so every per-fragment transparency mode
+		# shows you its own far side — the inside of its skull through its face,
+		# Sanjit's staff through his chest, shoes through shins. The usual
+		# answer, ALPHA_DEPTH_PRE_PASS, is what this used and it does nothing
+		# under the **Forward Mobile** renderer this project runs on: every
+		# model came out a smear the moment it stood in a bush. ALPHA_HASH fixes
+		# the sort (it renders in the opaque pass with a stochastic discard) but
+		# dithers, and at any alpha low enough to read as hidden the sparkle on
+		# a moving fighter is worse than what it replaced.
+		#
+		# So: stay opaque and multiply the albedo down toward the bush instead.
+		# No sorting, no dithering, and the tell still reads — you go dark and
+		# green while the foliage around you opens up.
 		if _material:
-			_material.albedo_color.a = CONCEAL_ALPHA if hidden else 1.0
-			_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if hidden else BaseMaterial3D.TRANSPARENCY_DISABLED
-		for m in _model_mats:
-			m.albedo_color.a = CONCEAL_ALPHA if hidden else 1.0
-			# ALPHA_DEPTH_PRE_PASS rather than plain ALPHA: a character is a
-			# closed solid, and without the prepass you see its own far side
-			# and the inside of its head through the front of it.
-			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS if hidden \
-					else BaseMaterial3D.TRANSPARENCY_DISABLED
+			_material.albedo_color = _capsule_albedo * CONCEAL_TINT if hidden \
+					else _capsule_albedo
+		for i in _model_mats.size():
+			var m: BaseMaterial3D = _model_mats[i]
+			m.albedo_color = _model_albedo[i] * CONCEAL_TINT if hidden \
+					else _model_albedo[i]
 	else:
 		visible = not hidden
 
