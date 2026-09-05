@@ -4,6 +4,131 @@ Running list of the major fixes and gaps in the Godot 3D game (`godot/`). Roughl
 priority-ordered inside each section. v1 SpriteKit (`NobleStars/`) is maintenance
 only and is not tracked here.
 
+## From play on a phone — 5 Sep 2026
+
+Ryder's list off a real session, verbatim in intent and grouped here by where the
+fix actually lands. Everything in this section is unstarted unless it says
+otherwise; the older sections below are still the reference for anything that
+overlaps.
+
+### The lineup — done, this pass
+
+- [x] **Nobody appears twice on a team, and the bots have names.** Three of the
+      list at once, because all three lived in the same twenty lines of match
+      setup:
+      - **`Kits.all().pick_random()` per slot** meant Nobles Cup routinely
+        fielded two of the same character on one side (a 1-in-3 chance per pair
+        at nine kits), and Showdown's ten slots could deal the same fighter four
+        times. `main.gd:lineup_kits(count, first)` deals a shuffled pool without
+        replacement instead: Cup's three-a-side never repeats within a team,
+        and Showdown fills nine of its ten slots with nine different characters
+        and only the tenth can echo one. The two Cup sides are dealt
+        independently, so a character can still line up opposite themselves —
+        Brawl Ball's own rule, and Ryder's call.
+      - **The player always spawned on the left of the Cup kickoff row.**
+        `build_match` read `team_spawns[team][i]` by index and the player is
+        always team 0, slot 0 — so it was the same tile every match. The three
+        spots are now shuffled once into `CupMode._lineup` and **both**
+        `build_match` and `kickoff` read that, which is the constraint the old
+        comment was protecting: when the two disagreed, fighters spawned on top
+        of each other and the depenetration fired them off the pitch.
+      - **Bots were called "Kovacs 3".** They now draw a username from a pool of
+        56 in `game.json` (`opponents`, read through `MenuData.opponent_names`),
+        dealt without repeats per match. That name was already printed in three
+        places — the versus cards, the elimination feed and the results table —
+        so this shows up everywhere for free, and the nameplate below adds the
+        fourth. `NS3_SIM` deliberately keeps the old kit-based naming, because
+        `[sim] match 12/60: Kovacs 4 wins` is the line that has to stay readable.
+- [x] **Health bars sit above the head instead of across the face.** The stack
+      hung DOWN from an anchor 3.4 m up, so bar + gap + pips + Hammy's heat pips
+      reached back into the model. It now hangs UP from a 2.75 m anchor — the
+      bottom of the ammo pips lands on the anchor and everything else stacks
+      above it, so no amount of extra rows can ever reach the face again. The
+      username rides on top of that stack in the same outlined numerals the HP
+      already uses.
+
+### Feel and controls
+
+- [ ] **Everything still moves too fast for the tile size.** The recurring note,
+      and the same decision as **Camera framing** and **Model scale** below —
+      all three are the one ratio between how big a fighter is, how much map is
+      on screen and how far it crosses per second. Do not tune one alone. The
+      numbers to start from are in those two entries.
+- [ ] **No haptics.** `Input.vibrate_handheld(ms)` is the whole API on iOS and
+      nothing calls it. Wants a small vocabulary rather than a buzz per event:
+      taking a hit, an elimination, the Super charging, a goal. Gate it on a
+      `SaveGame` setting beside Music and SFX.
+- [ ] **The Super is hard to aim.** Aiming a Super costs the same drag as a shot
+      but the miss is far more expensive, and the button and stick are separate
+      controls (`super_button.gd` + `virtual_joystick.gd`), so the aim starts
+      only once the finger is already on the button. Worth trying the Brawl
+      Stars arrangement: the Super button is itself a stick you drag off.
+- [ ] **Nobles Cup aiming is weird.** `CupMode.kick_aim` shoots inside
+      `SHOT_RANGE` and passes otherwise, and the indicator is the ball's own
+      bounce path — so a tap does one of two quite different things depending on
+      a distance the player cannot see. Reproduce and decide whether the tell is
+      missing or the rule is wrong.
+
+### Fit on a phone
+
+- [ ] **The match does not reach the edges of the screen.** `project.godot` is
+      `stretch/mode="canvas_items"`, `aspect="expand"` at 1280x720, which should
+      fill — so this is either the safe-area inset or the HUD's own anchors.
+      Shoot it on the device before changing anything.
+- [ ] **The menu does not reach the edges either**, which is a different bug:
+      `MenuShell._fit_stage` deliberately widens the 1920x1080 stage past 1920 on
+      anything taller than 16:9 so a phone gains stage width rather than bars.
+      Either that path is not running on device or the safe-area honouring is
+      eating the gain.
+- [ ] **Buttons and text are too small.** On the menu this is the type scale
+      being authored against a 1920 stage and read at arm's length on a 6-inch
+      screen; in the match it is the HUD. Measure the real device pixels per
+      point before picking new numbers — the stage scale makes guessing useless.
+
+### Menu and progression
+
+- [ ] **Redesign the menu around Jackson's idea.** Needs the idea written down
+      here before anything is built. The current programme-page design and the
+      reasoning behind every token in it is in CLAUDE.md's **Menu** section —
+      read that first so the redesign is a decision and not a drift.
+- [ ] **The roster should be tiles, not a grid.** `roster_screen.gd` is a plain
+      picker of rows; Ryder wants character tiles.
+- [ ] **Every character should show its stats.** Nova and Ayaan have no
+      `brawlers.json` entry, so `MenuData._merge` synthesises their card and the
+      loadout block returns null — they read as unfinished next to the other
+      seven. Give them JSON entries.
+- [ ] **A real progression system.** `SaveGame` already banks trophies, coins,
+      gems, Power Points and pass tokens per match, and Trophy Road and the pass
+      spend them — but power levels, Star Powers and gadgets are displayed and
+      do nothing. Decide what a level actually changes before wiring it.
+- [ ] **Activate a third game mode.** Two are live (Showdown, Nobles Cup); every
+      other card on the modes screen is a locked dummy. `Session.mode` plus the
+      branch at the top of `main.gd:start_match` is the whole hook, and
+      `cup_mode.gd` is the worked example of what a mode file looks like.
+- [ ] **Name the dog park?** Open question from Ryder — the maps have no names in
+      the game at all (`game.json`'s `gameLog` invents "Castle Courtyard" and
+      friends for its fake history, and nothing reads them). If maps get names,
+      the loading screen and the versus screen are where they belong.
+
+### Boot
+
+- [ ] **The app still boots on Godot's own splash.** `project.godot` sets no
+      `application/boot_splash/*` at all, so the first thing a player sees is the
+      engine logo. Wants the game's own art plus a matching `bg_color`, and iOS
+      launch art alongside the app icon (both in the **Ship** section below).
+
+### Balance, from play
+
+- [ ] **Sanjit's range feels too long.** `kits.gd:305` — the melee reaches
+      1.4 tiles (2.8 m) and the boomerang Super 5.0. Measure which one the
+      complaint is about with `NS3_KIT=sanjit` before touching the tier tables;
+      `CHARACTER_BUILDING.md` derives damage from range, so a range change is a
+      damage change.
+- [ ] **Kovacs knocks the ball out of play.** His clap and jump-smash deal
+      knockback well above `CupMode.KNOCK_DROP_SPEED`, so he strips the carrier
+      — intended — but the ball then travels further than a kick. Clamp what a
+      knock does to the ball, or drop it at the carrier's feet.
+
 ## Generating assets ourselves
 
 Most of what is still missing does **not** need Meshy or hand-drawn art. Three

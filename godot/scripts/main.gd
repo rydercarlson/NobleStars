@@ -126,6 +126,11 @@ var sim_active := sim_matches > 0
 var sim_stats := {}   # kit name -> {spawns, wins, kills, damage, placement_sum}
 var _sim_done := 0
 
+## Opponent usernames left to deal this match; refilled and reshuffled by
+## next_bot_name(). Emptied by start_match so a rematch cannot repeat a name
+## inside one lobby by carrying the tail of the previous shuffle into it.
+var _name_pool: Array = []
+
 # Wifi play (see net_play.gd): host-authoritative. The host runs the sim
 # exactly like single-player; clients send stick input up and render the
 # snapshots/events the host broadcasts. `authoritative` is false only on
@@ -655,6 +660,7 @@ func start_match() -> void:
 	var mode_env := OS.get_environment("NS3_MODE")
 	mode = mode_env if mode_env != "" else Session.mode
 	cup = null
+	_name_pool = []   # a fresh shuffle per match, so no lobby repeats a username
 
 	arena = Arena.new()
 	arena.map_mode = "cup" if mode == "cup" else "showdown"
@@ -672,16 +678,17 @@ func start_match() -> void:
 		var spawns := arena.spawn_points.duplicate()
 		spawns.shuffle()
 
-		player = _spawn_fighter(player_kit(), spawns.pop_front(), not sim_active)
+		var roster: Array = lineup_kits(10, player_kit())
+		player = _spawn_fighter(roster[0], spawns.pop_front(), not sim_active)
 		player.display_name = "%s 0" % player.kit.name if sim_active else "You"
 		if sim_active:
 			brains.append(BotBrain.new(player))
 
 		var i := 1
 		while not spawns.is_empty() and i <= 9:
-			var kit: Dictionary = Kits.all().pick_random()
+			var kit: Dictionary = roster[i]
 			var bot := _spawn_fighter(kit, spawns.pop_front(), false)
-			bot.display_name = "%s %d" % [kit.name, i]
+			bot.display_name = "%s %d" % [kit.name, i] if sim_active else next_bot_name()
 			brains.append(BotBrain.new(bot))
 			i += 1
 
@@ -721,6 +728,47 @@ func player_kit() -> Dictionary:
 	if sim_active:
 		return Kits.all().pick_random()
 	return Session.kit if not Session.kit.is_empty() else Kits.nova()
+
+## A match lineup of `count` kits with no repeats, `first` (the player's) at
+## index 0. Every slot used to be its own `Kits.all().pick_random()`, which put
+## two of the same character on one Nobles Cup team about a third of the time and
+## dealt Showdown the same fighter three or four times over.
+##
+## The pool is refilled when it runs dry rather than capped, so Showdown's ten
+## slots against nine kits fill nine of them with nine different characters and
+## only the tenth can echo one. `first` is dealt out of the FIRST pass only —
+## the player's own character is allowed to come back in that refill, and
+## comparison is by NAME because player_kit() returns Session's own copy of the
+## dictionary rather than one of the instances Kits.all() builds fresh per call.
+func lineup_kits(count: int, first: Dictionary = {}) -> Array:
+	var out: Array = []
+	var pool: Array = []
+	var dealt := ""
+	if not first.is_empty():
+		out.append(first)
+		dealt = str(first.name)
+	while out.size() < count:
+		if pool.is_empty():
+			pool = Kits.all()
+			pool.shuffle()
+			for k in range(pool.size() - 1, -1, -1):
+				if str(pool[k].name) == dealt:
+					pool.remove_at(k)
+			dealt = ""
+		out.append(pool.pop_back())
+	return out
+
+## The next bot username, dealt without repeats from a per-match shuffle of
+## MenuData's pool. Bots were called "Kovacs 3", which reads as a debug label in
+## the four places display_name prints: the versus cards, the elimination feed,
+## the nameplate over the fighter and the results table. NS3_SIM keeps the old
+## kit-based naming on purpose — "[sim] match 12/60: Kovacs 4 wins" is the line
+## that has to stay readable.
+func next_bot_name() -> String:
+	if _name_pool.is_empty():
+		_name_pool = MenuData.opponent_names().duplicate()
+		_name_pool.shuffle()
+	return str(_name_pool.pop_back()) if not _name_pool.is_empty() else "Rival"
 
 func _start_countdown() -> void:
 	phase = Phase.COUNTDOWN

@@ -51,6 +51,10 @@ var _frozen_until := 0.0
 ## draw, and that layer outlives a match, so they get one owner that CupMode can
 ## take down with it — see _build_hud.
 var _hud_root: Control
+## Each team's kickoff spots in the order they are handed out, shuffled once in
+## build_match. build_match and kickoff both deal from this by index, so the two
+## cannot drift; see the comment there for what happens when they do.
+var _lineup: Array[Array] = [[], []]
 var _score_label: Label
 var _clock_label: Label
 var _banner: Label
@@ -61,21 +65,31 @@ var _banner: Label
 ## built by the time this runs — main.gd sets Arena.map_mode before adding it.
 func build_match(now: float) -> void:
 	var arena: Arena = game.arena
-	var kits: Array = Kits.all()
 	for team in 2:
-		# Assigned by index, never shuffled: kickoff() hands out the same spots
-		# in the same order, and the two MUST agree. When they did not, every
-		# fighter was teleported onto a team-mate's tile on the opening frame
-		# and the overlapping capsules depenetrated hard enough to fire them
-		# off the pitch and several hundred metres into the air.
-		var spots: Array = arena.team_spawns[team]
+		# Shuffled ONCE, here, into _lineup — and kickoff() reads that same array
+		# rather than the arena's, because the two MUST agree. When they did not,
+		# every fighter was teleported onto a team-mate's tile on the opening
+		# frame and the overlapping capsules depenetrated hard enough to fire
+		# them off the pitch and several hundred metres into the air. The shuffle
+		# is what stops the player, who is always team 0 slot 0, opening every
+		# single match on the same tile at the left end of the kickoff row.
+		_lineup[team] = arena.team_spawns[team].duplicate()
+		_lineup[team].shuffle()
+		var spots: Array = _lineup[team]
+		# One lineup PER SIDE: no character appears twice on a team, and the two
+		# sides are dealt independently, so the same character may well line up
+		# opposite themselves. That is Brawl Ball's own rule and it is deliberate
+		# — a mirror is a legitimate matchup, and forbidding it would quietly
+		# shrink the pool the second team draws from.
+		var roster: Array = game.lineup_kits(TEAM_SIZE,
+				game.player_kit() if team == 0 else {})
 		for i in TEAM_SIZE:
 			var spot: Vector3 = spots[i % spots.size()] if not spots.is_empty() \
 					else arena.centre()
 			var is_you := team == 0 and i == 0
-			var kit: Dictionary = game.player_kit() if is_you else kits.pick_random()
+			var kit: Dictionary = roster[i]
 			var f: Fighter = game._spawn_fighter(kit, spot, is_you, team)
-			f.display_name = "You" if is_you else "%s %d" % [kit.name, team * TEAM_SIZE + i]
+			f.display_name = "You" if is_you else game.next_bot_name()
 			if is_you:
 				game.player = f
 			else:
@@ -142,7 +156,8 @@ func kickoff(now: float, opening := false) -> void:
 	for f: Fighter in game.fighters:
 		if f.team < 0:
 			continue
-		var spots: Array = arena.team_spawns[f.team]
+		var spots: Array = _lineup[f.team] if not _lineup[f.team].is_empty() \
+				else arena.team_spawns[f.team]
 		if not spots.is_empty():
 			var spot: Vector3 = spots[used[f.team] % spots.size()]
 			used[f.team] += 1

@@ -9,11 +9,29 @@ const PIP_H := 8.0
 const PIP_GAP := 3.0
 const BAR_GAP := 5.0
 const HEALTH_TEXT_SIZE := 13
-# The whole stack hangs down from this point, so it has to clear the top of a
-# fighter's head plus the bar, the ammo pips and the gap between them. Fighters
-# got taller (Kits.MODEL_SCALE) and the old 2.7 m anchor left the bar painted
-# across their faces.
-const HEAD_OFFSET := Vector3(0, 3.4, 0)
+# Hammy's heat row, named because the upward stack has to measure it to know
+# where the bottom of the stack is.
+const HEAT_H := 5.0
+const HEAT_GAP := 3.0
+# Air between the bottom of the stack and the top of the head, in pixels rather
+# than metres: HEAD_OFFSET is where the head IS, and this is the gap you see.
+const HEAD_CLEAR := 7.0
+# The stack hangs UP from this point, so the anchor only has to clear the top of
+# the tallest head (2.40 m at Kits.MODEL_SCALE) and nothing below it can ever
+# reach the face. It used to hang DOWN from 3.4 m, which meant the clearance had
+# to be re-earned every time a row was added — and by the time the bar, the gap,
+# the ammo pips and Hammy's heat pips were all stacked it was being painted
+# across the model. Growing upward makes a new row free.
+const HEAD_OFFSET := Vector3(0, 2.75, 0)
+
+# Who you are fighting. display_name is a real username now (main.gd's
+# next_bot_name), so this is the fourth place it prints, alongside the versus
+# cards, the elimination feed and the results table. Your own fighter is skipped
+# — you know who you are, and a nameplate on the one fighter that is always
+# centre-screen is the one that gets in the way.
+const NAME_TEXT_SIZE := 14
+const NAME_GAP := 4.0
+const NAME_COLOR := Color(0.90, 0.93, 1.0)
 
 # Loot boxes carry the same bar at roughly half scale, sat lower since a box is
 # knee-high next to a fighter.
@@ -81,8 +99,15 @@ func _draw() -> void:
 		var world: Vector3 = f.get_global_transform_interpolated().origin + HEAD_OFFSET
 		if cam.is_position_behind(world):
 			continue
-		var p: Vector2 = cam.unproject_position(world).round()
-		var left := p.x - BAR_W / 2.0
+		var anchor: Vector2 = cam.unproject_position(world).round()
+		var left := anchor.x - BAR_W / 2.0
+		# Everything hangs upward off the anchor: p is the TOP of the health bar,
+		# found by measuring the rows that sit under it so the lowest of them
+		# lands on the head rather than in it.
+		var below := HEAD_CLEAR + BAR_H + BAR_GAP + PIP_H
+		if bool(f.kit.get("weapon", {}).get("heat_trait", false)):
+			below += HEAT_GAP + HEAT_H
+		var p := Vector2(anchor.x, anchor.y - below)
 
 		# Downhill's clock, draining left to right over the two seconds of the
 		# run. Only the host simulates a ride (`authoritative` in main.gd), so on
@@ -111,6 +136,8 @@ func _draw() -> void:
 		_draw_health_number(health_rect, f.health)
 		if f.cubes > 0:
 			_draw_cube_badge(health_rect, f.cubes)
+		if not f.is_player and str(f.display_name) != "":
+			_draw_name(health_rect, str(f.display_name), ride > 0.0)
 
 		# Ammo pips underneath, each filling left-to-right.
 		var pips: int = maxi(1, int(f.max_ammo))
@@ -130,9 +157,9 @@ func _draw() -> void:
 		# Hammy's streak changes how the next shot should be played, so show three
 		# compact Heat pips directly below ammo. All three burn while On Fire.
 		if bool(f.kit.get("weapon", {}).get("heat_trait", false)):
-			var heat_y := pip_y + PIP_H + 3.0
+			var heat_y := pip_y + PIP_H + HEAT_GAP
 			for i in 3:
-				var heat_rect := Rect2(left + i * (pip_w + PIP_GAP), heat_y, pip_w, 5.0)
+				var heat_rect := Rect2(left + i * (pip_w + PIP_GAP), heat_y, pip_w, HEAT_H)
 				var lit: bool = f.is_on_fire(game.now) or i < f.heat_hits
 				draw_style_box(_style(Color(1.0, 0.22, 0.01) if lit else TRACK_COLOR,
 						2, OUTLINE_COLOR, 1), heat_rect)
@@ -191,12 +218,22 @@ func _draw_health_number(rect: Rect2, health: int) -> void:
 	_outlined_text(Vector2(rect.position.x, rect.position.y + 13.5), str(health),
 			HEALTH_TEXT_SIZE, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x)
 
+## The username, centred over the top of the stack. It clears the Downhill clock
+## when there is one, which is the only other row that sits above the health bar.
+func _draw_name(bar: Rect2, who: String, riding: bool) -> void:
+	var y := bar.position.y - NAME_GAP
+	if riding:
+		y -= RIDE_H + RIDE_GAP
+	_outlined_text(Vector2(bar.position.x, y), who, NAME_TEXT_SIZE,
+			HORIZONTAL_ALIGNMENT_CENTER, bar.size.x, NAME_COLOR)
+
 func _outlined_text(baseline: Vector2, text: String, size: int,
-		align := HORIZONTAL_ALIGNMENT_LEFT, width := -1.0) -> void:
+		align := HORIZONTAL_ALIGNMENT_LEFT, width := -1.0,
+		color := Color.WHITE) -> void:
 	var font := ThemeDB.fallback_font
 	for offset in TEXT_EDGE:
 		draw_string(font, baseline + offset, text, align, width, size, OUTLINE_COLOR)
-	draw_string(font, baseline, text, align, width, size, Color.WHITE)
+	draw_string(font, baseline, text, align, width, size, color)
 
 ## How many power cubes this fighter is carrying: the cube token, then the
 ## count, ending just short of the health bar's left edge.

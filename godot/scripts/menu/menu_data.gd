@@ -176,6 +176,21 @@ static func starting_brawlers() -> Array:
 	ensure_loaded()
 	return game.get("startingBrawlers", ["nova"])
 
+## Usernames for the bots you fight. The names are the only thing that makes a
+## lobby read as people rather than as a debug print, and display_name reaches
+## the versus cards, the elimination feed, the nameplates and the results table,
+## so one pool feeds all four. The fallback is not decoration: a build whose
+## game.json failed to parse would otherwise field a match of empty names.
+static func opponent_names() -> Array:
+	ensure_loaded()
+	var pool: Array = game.get("opponents", [])
+	if pool.is_empty():
+		for row in game.get("leaderboard", []):
+			pool.append(str(row.get("name", "")))
+	return pool if not pool.is_empty() else ["Bulldog_Ben", "CoachK", "CastleGhost",
+			"QuadKing", "HallMonitor", "PianoMan", "Dorm_Dan", "TennisTessa",
+			"DeanOfBrawl", "LateToChapel", "VarsityVic", "ProctorPete"]
+
 ## Showdown and Nobles Cup are built; every other mode selects fine but says so
 ## on PLAY.
 static func mode_playable(id: String) -> bool:
