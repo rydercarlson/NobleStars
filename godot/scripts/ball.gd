@@ -254,13 +254,19 @@ void fragment() {
 		if (c > best) { second = best; best = c; }
 		else if (c > second) { second = c; }
 	}
+	// Truncated icosahedron: a pentagon's edge sits a third of the way along
+	// the icosahedron edge, which is where the nearest vertex beats its
+	// neighbour by 0.21; inside that the panel is black, outside it is a
+	// white hexagon. Seams run where two panels are equally near (gap ~ 0)
+	// and around each pentagon (gap ~ 0.21).
 	float gap = best - second;
-	float pent = smoothstep(0.075, 0.095, gap);     // deep inside a pentagon
-	float seam = 1.0 - smoothstep(0.0, 0.012, gap); // ridge between panels
+	float pent = smoothstep(0.200, 0.222, gap);
+	float seam = max(1.0 - smoothstep(0.0, 0.022, gap),
+	                 1.0 - smoothstep(0.0, 0.020, abs(gap - 0.211)));
 	vec3 white = vec3(0.96, 0.96, 0.93);
 	vec3 black = vec3(0.10, 0.10, 0.11);
 	vec3 col = mix(white, black, pent);
-	col = mix(col, vec3(0.16, 0.16, 0.17), seam * 0.85);
+	col = mix(col, vec3(0.22, 0.22, 0.24), seam * 0.9);
 	ALBEDO = col;
 	ROUGHNESS = 0.55;
 	METALLIC = 0.0;
