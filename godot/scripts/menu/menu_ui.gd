@@ -378,6 +378,10 @@ static func press_feedback(c: BaseButton) -> void:
 	c.button_down.connect(func() -> void:
 		if c.disabled:
 			return
+		# Every pressable in the menu goes through here, so this one line is the
+		# whole menu's haptics. On button_down rather than pressed: the tap has
+		# to arrive with the sink, not after the finger lifts.
+		Haptics.fire("ui_tap")
 		c.position.y += 2.0
 		c.modulate = Color(0.82, 0.82, 0.86)
 		c.set_meta("sunk", true))

@@ -244,6 +244,8 @@ func _pickup_check(now: float) -> void:
 			best = f
 			best_d = d
 	if best != null:
+		if best == game.player:
+			Haptics.fire("ball_get")
 		if OS.get_environment("NS3_SAVE_LOG") != "":
 			var og: Vector3 = game.arena.goal_centers[best.team] if best.team >= 0 else Vector3.ZERO
 			var tg: Vector3 = og - ball.position
@@ -365,6 +367,11 @@ func _goal_check(now: float) -> bool:
 		ball.last_touch.stats.goals += 1
 	game.feed_label.text = "%s scored%s" % [who, " (own goal)" if own else ""]
 	game.sfx_ui("cup_goal", 2.0)
+	# Scored FOR your side, whoever put it in — an own goal by the opposition is
+	# still your goal, which is why this reads the conceding team and not the
+	# last touch. A spectating net client has no side and gets nothing.
+	if is_instance_valid(game.player) and game.player.team >= 0:
+		Haptics.fire("goal_against" if game.player.team == conceded else "goal_for")
 	# Hold on the goal that was just conceded through most of the kickoff
 	# freeze, then hand the camera back in time for play to restart. Ahead of
 	# kickoff(), which teleports everyone — the point is not to watch that.

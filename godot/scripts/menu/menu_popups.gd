@@ -11,6 +11,14 @@ static func settings(shell: MenuShell) -> MenuPopup:
 			_toggle("sfx", func(_on: bool) -> void: shell.sfx("click")))
 	popup.setting_row("Hints", "Show tips on the home screen",
 			_toggle("hints", func(_on: bool) -> void: shell.home.refresh()))
+	# Shown on desktop too, where it can do nothing: the save goes to the phone
+	# with the build, and this is the only place it can be set. Turning it ON is
+	# what confirms it, so the tap fires from the callback rather than from
+	# press_feedback, which the toggle also has.
+	popup.setting_row("Haptics", "Vibration on a phone",
+			_toggle("haptics", func(on: bool) -> void:
+				if on:
+					Haptics.fire("ui_reward")))
 
 	var change: Button = MenuUI.small_button("CHANGE", "blue")
 	change.pressed.connect(func() -> void:
@@ -84,6 +92,8 @@ static func _setting(key: String) -> bool:
 			return SaveGame.music_on
 		"sfx":
 			return SaveGame.sfx_on
+		"haptics":
+			return SaveGame.haptics_on
 	return SaveGame.hints_on
 
 static func _set_setting(key: String, value: bool) -> void:
@@ -92,6 +102,8 @@ static func _set_setting(key: String, value: bool) -> void:
 			SaveGame.music_on = value
 		"sfx":
 			SaveGame.sfx_on = value
+		"haptics":
+			SaveGame.haptics_on = value
 		_:
 			SaveGame.hints_on = value
 

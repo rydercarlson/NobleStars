@@ -183,6 +183,10 @@ var _last_count_beep := -1
 var _low_health_at := -1.0
 var _last_ammo_pips := 0
 var _last_empty_click := -1.0
+## Watched in _update_status rather than hooked into deal_damage, because a wifi
+## CLIENT never runs deal_damage at all — `authoritative` returns it early — and
+## its own health arrives in the snapshot stream. Reading the number covers both.
+var _last_player_health := -1
 
 func _start_battle_music() -> void:
 	if not SaveGame.music_on or not ResourceLoader.exists(BATTLE_MUSIC):
@@ -661,6 +665,7 @@ func start_match() -> void:
 	mode = mode_env if mode_env != "" else Session.mode
 	cup = null
 	_name_pool = []   # a fresh shuffle per match, so no lobby repeats a username
+	_last_player_health = -1
 
 	arena = Arena.new()
 	arena.map_mode = "cup" if mode == "cup" else "showdown"
@@ -905,6 +910,8 @@ func _spawn_cube(pos: Vector3, cube_id := -1) -> void:
 			area.set_meta("claimed", true)
 			area.queue_free()
 			sfx_at("cube_pickup", area.global_position, 1.0)
+			if body == player:
+				Haptics.fire("cube")
 			body.collect_cube()
 			if net_host:
 				_net_cube_gone.rpc(String(area.name), net_fighters.find(body)))
@@ -1005,10 +1012,13 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 		# Super is available without looking away from the fight.
 		if attacker == player and not was_charged and attacker.is_super_ready():
 			sfx_ui("super_ready", 1.0)
+			Haptics.fire("super_ready")
 		if sim_active:
 			_sim_kit(attacker.kit.name).damage += amount
 			_sim_kit(attacker.kit.name).hits += 1
 	if target.is_dead():
+		if attacker == player:
+			Haptics.fire("elimination")
 		if attacker != null:
 			attacker.stats.kills += 1
 			if sim_active:
@@ -1032,6 +1042,11 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 	# thing that happens in a match and has to cut through the shot it replaces.
 	sfx_at("super_fire" if is_super else _attack_sound(weapon), f.global_position,
 			3.0 if is_super else 0.0)
+	# Only your own, and only the Super: a tap per ordinary shot would fire
+	# several times a second, which the throttle would mostly eat and the rest
+	# of which would be noise.
+	if is_super and f == player:
+		Haptics.fire("super_fire")
 	_muzzle_flash(f, unit, weapon)
 	match int(weapon.style):
 		Kits.Style.PELLETS:
@@ -1891,6 +1906,8 @@ func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
 	# Ahead of the Cup branch: a Cup death is a setback rather than an exit, but
 	# it still wants the sound.
 	sfx_at("elimination", f.global_position, 3.0)
+	if f == player:
+		Haptics.fire("death")
 	# How long they lasted, for the results card. Not set in Nobles Cup, where a
 	# death is a three-second setback and "survived" means nothing.
 	if cup == null:
@@ -2228,6 +2245,7 @@ func _physics_process(delta: float) -> void:
 					_hide_versus()
 					center_label.text = "FIGHT!"
 					sfx_ui("count_go", 3.0)
+					Haptics.fire("count_go")
 					get_tree().create_timer(0.8).timeout.connect(func() -> void:
 						if phase == Phase.PLAYING:
 							center_label.text = "")
@@ -2796,6 +2814,12 @@ func _update_status() -> void:
 	if phase == Phase.PLAYING and pips > _last_ammo_pips:
 		sfx_ui("reload_tick", -12.0)
 	_last_ammo_pips = pips
+	# Your health going DOWN is the one thing worth a buzz whatever caused it —
+	# a pellet, the gas, a Super you never saw. Health only ever climbs on a
+	# respawn or a kickoff restore, so an increase is deliberately silent.
+	if _last_player_health >= 0 and player.health < _last_player_health:
+		Haptics.hit(float(_last_player_health - player.health), float(player.max_health))
+	_last_player_health = player.health
 	# A slow pulse under a quarter health, so the decision to break off is one
 	# you can make without watching the bar.
 	if phase == Phase.PLAYING and not player.is_dead() \

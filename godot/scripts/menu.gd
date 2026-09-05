@@ -248,9 +248,17 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # MARK: shared chrome
 
+## Sounds that mark something being GRANTED get a haptic to match. Presses
+## already tap through MenuUI.press_feedback, so this is only the handful the
+## press does not cover — and they land a beat later than the press did, so the
+## throttle does not swallow them.
+const HAPTIC_SOUNDS := ["reward", "purchase", "found"]
+
 func sfx(sound: String) -> void:
 	if audio:
 		audio.play(sound)
+	if sound in HAPTIC_SOUNDS:
+		Haptics.fire("ui_reward")
 
 ## The coins / gems readout used by the home bar and every screen top bar: a
 ## figure with its name under it, right-aligned so the two columns line up. It

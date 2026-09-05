@@ -43,6 +43,9 @@ static var player_name: String = "GUEST"
 static var music_on: bool = true
 static var sfx_on: bool = true
 static var hints_on: bool = true
+## Phone vibration (see haptics.gd). A no-op on desktop, but the toggle is still
+## shown there — the save travels to the phone and this is where it is set.
+static var haptics_on: bool = true
 static var first_run: bool = true
 
 static func ensure_loaded() -> void:
@@ -90,6 +93,7 @@ static func ensure_loaded() -> void:
 	music_on = bool(data.get("music_on", true))
 	sfx_on = bool(data.get("sfx_on", true))
 	hints_on = bool(data.get("hints_on", true))
+	haptics_on = bool(data.get("haptics_on", true))
 	first_run = bool(data.get("first_run", true))
 	_merge_ints(trophies, data.get("trophies", {}))
 	_merge_ints(power, data.get("power", {}))
@@ -181,6 +185,7 @@ static func save() -> void:
 		"music_on": music_on,
 		"sfx_on": sfx_on,
 		"hints_on": hints_on,
+		"haptics_on": haptics_on,
 		"first_run": first_run,
 	}, "\t"))
 
@@ -209,6 +214,7 @@ static func reset() -> void:
 	music_on = true
 	sfx_on = true
 	hints_on = true
+	haptics_on = true
 	first_run = true
 	ensure_loaded()
 	save()
