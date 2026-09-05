@@ -1,8 +1,10 @@
 # Noble Stars
 
-Brawl Stars–inspired top-down arena battler (Showdown mode: last fighter standing, shrinking gas ring, loot-box power cubes). **Active development is the 3D Godot 4 game in `godot/`.** The original SpriteKit iOS game (`NobleStars/`) is v1 — complete, kept working, but not being extended.
+Brawl Stars–inspired top-down arena battler (Showdown mode: last fighter standing, shrinking gas ring, loot-box power cubes). The whole project is the 3D Godot 4 game in `godot/`.
 
-## Godot 3D game (`godot/`) — main development
+There was a v1: a SpriteKit/Swift 2D game in `NobleStars/`, complete and kept working alongside this one for a while. **It was deleted** — it had no users, it was not being extended, and having two iOS apps both called "Noble Stars" installed side by side was actively confusing. It is in git history if it is ever wanted back. Nothing outside that history should reference `NobleStars/`, `project.yml`, `xcodegen` or `Tools/generate_sprites.swift`.
+
+## Godot 3D game (`godot/`)
 
 Godot 4.7, everything built in code (the `.tscn` files are near-empty shells). Entry scene is `menu.tscn` (Brawl Stars–style lobby, see below); `game.tscn` is the match. Scripts live in `godot/scripts/`: `main.gd` is the match hub (mirrors v1's GameScene), plus `fighter.gd`, `arena.gd`, `bot_brain.gd`, `gas_ring.gd`, `kits.gd` (character data), `projectile.gd`/`lob.gd`, `virtual_joystick.gd`, `super_button.gd`, `session.gd`, `loading_screen.gd` (autoload `Loading`, see **Match bookends**), and for Nobles Cup `cup_mode.gd` (`CupMode`, the rules) + `ball.gd` (`Ball`). Menu system (see **Menu** below): `menu.gd` (`MenuShell` — stage scaling, screen stack, toasts/popups/particles), `menu_stage.gd` (`MenuStage` — the full-stage 3D view: the fighter on the arena's own ground, fading to ink), `scripts/menu/` (the screens), `ui_kit.gd` (the old navy/gold StyleBox helpers, now only `room_screen.gd` uses them), `save_game.gd` (`SaveGame` statics → JSON at `user://save.json`: per-fighter trophies, coins, gems, unlocks, pass progress, settings; Showdown ranks 1–10 award +8,+6,+5,+4,+3,+1,0,0,−1,−2 trophies, `max(2, 22−2·rank)` coins and `max(40, 180−12·rank)` Nobles Pass tokens via `SaveGame.award_match`, called from `main.gd:_end_match`). **Stats come from `kits.gd`, never from `brawlers.json`** — the JSON carries copy, art ids and shop/pass/news config only.
 
@@ -109,27 +111,14 @@ Run it: `/Applications/Godot.app/Contents/MacOS/Godot --path godot` (add `--head
 
 **Power-cube performance:** `main.gd` must keep `power_cube.glb` preloaded. Loading the 21 MB source scene inside `_spawn_cube` puts disk/texture work on the loot box's fatal-hit frame and causes a visible freeze. The extracted 4096×4096 base-color and metallic/roughness textures are intentionally capped at 512 via their `.png.import` files (about 582 KB imported total instead of 16.6 MB); preserve that cap and reimport after changing either texture.
 
-**iOS export** (`godot/export_presets.cfg`, templates installed at `~/Library/Application Support/Godot/export_templates/4.7.2.stable/`): `--export-debug "iOS" build/ios/noblestars3d.ipa` writes an Xcode project (export_project_only). Gotchas learned the hard way: iOS export REQUIRES `rendering/textures/vram_compression/import_etc2_astc=true` in project.godot — without it validation fails with an EMPTY error message; Godot's `targeted_device_family` enum is 0=iPhone 1=iPad 2=both (not Apple's); the generated pbxproj contains six unreplaced `$additional_pbx_*`/`$pbx_embeded_frameworks` placeholder lines that must be deleted before xcodebuild will parse it. **Simulator builds are blocked upstream**: godotengine/godot#118161 — 4.6.2+ templates ship simulator libgodot.a as x86_64-only and Xcode 26 has no Rosetta simulators; test on a real device (arm64 device slice is fine) until fixed templates ship.
+**iOS export** — use `Tools/export_ios.sh`, which already sets the environment the export needs. Templates live at `~/Library/Application Support/Godot/export_templates/4.7.2.stable/ios.zip`; the preset has `export_project_only=true`, so what you want out of it is `build/ios/noblestars3d.xcodeproj`.
 
-## v1 SpriteKit game (`NobleStars/`) — complete, maintenance only
+- **The export REQUIRES `rendering/textures/vram_compression/import_etc2_astc=true`** in project.godot. Without it validation fails with an EMPTY error message.
+- **Godot's `targeted_device_family` enum is 0=iPhone 1=iPad 2=both**, which is not Apple's numbering.
+- **Set `DEVELOPER_DIR` when exporting.** `xcode-select` points at CommandLineTools, and Godot shells out to `xcodebuild` internally, so the export dies at "Making .xcarchive" with `tool 'xcodebuild' requires Xcode`. The `.xcodeproj` is already written by that point, so the failure is cosmetic — but the exporter reports the whole export as failed, which reads like a real problem.
+- **The pbxproj placeholder repair is no longer needed.** Older templates left six unreplaced `$additional_pbx_*`/`$pbx_embeded_frameworks` lines that had to be deleted before `xcodebuild` would parse the project. 4.7.2 emits zero. `export_ios.sh` still checks and reports.
+- **Simulator builds are blocked upstream**: godotengine/godot#118161 — 4.6.2+ templates ship simulator `libgodot.a` as x86_64-only and Xcode 26 has no Rosetta simulators; test on a real device until fixed templates ship.
 
-SpriteKit + SwiftUI shell, Swift, no external dependencies. Landscape-only, iPhone-only (iPadOS 26 has orientation-lock regressions). All 2D art is generated by `Tools/generate_sprites.swift`. Arena maps are ASCII grids in `ArenaMap.swift` (`#` wall, `b` bush, `~` water, `S` spawn, `X` loot box); 2.5D depth comes from y-sorted `zPosition` (`ZLayer` in `Constants.swift`, which also holds the `PhysicsCategory` bitmasks).
+**Getting it onto a phone.** `xcrun devicectl` is the tool, and `connectionProperties` from `xcrun devicectl list devices --json-output <path>` is the only signal that tracks reality: `transportType` (`None` = not connected), `pairingState` (`pairingInProgress` = a Trust prompt is waiting on the phone) and `tunnelState`. **`system_profiler SPUSBDataType` does NOT enumerate iPhones on this Mac** — it reported zero the entire time a wired transport was live, and reading it as ground truth led to a long, wrong hunt for a bad cable. Also do not grep device state for `available`: `unavailable` contains it.
 
-Build & run — full Xcode lives at /Applications/Xcode.app but `xcode-select` points at CommandLineTools, so always prefix builds with `DEVELOPER_DIR`:
-
-```sh
-export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-xcodegen generate          # only needed after adding/removing files or editing project.yml
-xcodebuild -project NobleStars.xcodeproj -scheme NobleStars \
-  -destination 'platform=iOS Simulator,name=iPhone 17' build
-APP=$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 5 -name "NobleStars.app" -path "*Debug-iphonesimulator*" | head -1)
-xcrun simctl install <UDID> "$APP" && xcrun simctl launch <UDID> com.ryder.noblestars
-```
-
-The Xcode project is generated — never edit `NobleStars.xcodeproj` by hand; edit `project.yml` and re-run `xcodegen generate`.
-
-Gotchas:
-- **Simulator screenshots are captured in portrait framebuffer orientation.** The app runs landscape, so `xcrun simctl io <UDID> screenshot x.png` needs `sips --rotate 270 x.png --out x_r.png` before viewing. Don't mistake the raw portrait capture for a broken orientation lock.
-- **Debug env hooks** (via `SIMCTL_CHILD_` prefix on `simctl launch`): `NS_KIT=nova|tony|henry`, `NS_AUTOFIRE=<sec>`, `NS_AUTOWALK="dx,dy"`, `NS_GODMODE=1`, `NS_DEBUG_HUD=1`. Any of NS_KIT/NS_AUTOFIRE/NS_AUTOWALK skips the menu. All in GameScene.swift / GameView.swift.
-- The simulator can shut down between Bash invocations when Simulator.app isn't open — `open -a Simulator` keeps it alive, or re-boot with `xcrun simctl boot <UDID>`.
-- zsh does not glob-expand unquoted variables — resolve the DerivedData app path with `find`, not a wildcard in a variable.
+Signing is the part no script can do. `xcodebuild -allowProvisioningUpdates` fails with `No Account for Team "<id>"` when Xcode has no authenticated Apple ID, and **being signed in under Xcode → Settings → Accounts is not sufficient** — until a team is picked in the target's Signing & Capabilities, `defaults read com.apple.dt.Xcode IDEProvisioningTeams` is absent and `~/Library/MobileDevice/Provisioning Profiles/` stays empty. Those two are the check for whether signing will work; the certificates in the keychain are not.

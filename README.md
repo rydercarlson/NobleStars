@@ -1,57 +1,75 @@
 # Noble Stars ⭐
 
-A Brawl Stars–inspired top-down 2.5D arena battler for iOS, built with SpriteKit and Swift — no external dependencies, no game engine, all code.
+A Brawl Stars–inspired top-down arena battler for iOS, built in Godot 4 — nine
+fighters based on real people, played against bots or against your friends over
+wifi in the same room.
 
-Current mode: **Showdown** — a solo battle royale against AI bots on a tile-based arena with destructible cover, hiding bushes, and a closing poison gas ring. (Work in progress.)
+Two modes are playable:
+
+- **Showdown** — solo battle royale, ten fighters, a tile arena with destructible
+  cover, hiding bushes and a closing gas ring.
+- **Nobles Cup** — 3v3 on the Lower Field, first to two goals. Carry the ball and
+  you can only kick; a tie at full time goes to overtime with every wall levelled.
 
 ## Requirements
 
-- Xcode 16+ (developed against Xcode 26)
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`)
+- [Godot 4.7](https://godotengine.org) (developed against 4.7.2)
+- Xcode 16+ for the iOS build (developed against Xcode 26)
 
-## Building
-
-The Xcode project is generated — don't edit `NobleStars.xcodeproj` directly:
-
-```sh
-xcodegen generate
-open NobleStars.xcodeproj   # build & run the NobleStars scheme on an iOS Simulator
-```
-
-Or from the command line:
-
-```sh
-xcodebuild -project NobleStars.xcodeproj -scheme NobleStars \
-  -destination 'platform=iOS Simulator,name=iPhone 17' build
-```
-
-## Project layout
-
-- `project.yml` — XcodeGen spec (source of truth for the Xcode project)
-- `NobleStars/App` — SwiftUI shell hosting the SpriteKit scene
-- `NobleStars/Game` — all gameplay: arena, entities, input, systems
-- Arena maps are ASCII grids in `Game/Arena/ArenaMap.swift` (`#` wall, `b` bush, `~` water, `S` spawn, `X` loot box)
-- `Assets/3D` — source 3D models for the in-progress 3D direction (not bundled into the app)
-
-## The menu
-
-The menu is native Godot, in `godot/scripts/menu/` — a Brawl Stars-style home
-(auditorium stage with the selected brawler idling live in 3D, brawlers grid and
-detail, shop with Star Drops, Nobles Pass, modes, matchmaking, news, friends,
-club chat, inbox). It is the only menu: the HTML build it was rebuilt from has
-been removed, because a browser page cannot ship inside the iOS app.
-
-Art lives in `godot/assets/menu/` (background, buttons, icons, svg, portraits,
-cards, treats, decor, fonts) and copy/config in `godot/data/{brawlers,game}.json`.
-Stats come from `kits.gd`, never from the JSON.
+## Running it
 
 ```sh
 /Applications/Godot.app/Contents/MacOS/Godot --path godot
 ```
 
-Solo Showdown is wired through today. The other events remain previews until
-their game modes are implemented.
+A fresh clone must import once (~5s) before the project will open — `godot/.godot/`
+is gitignored. Run **one** Godot at a time on this project; two contend on the
+import lock badly enough to look like a hang.
+
+Desktop controls are WASD to move, Space to auto-aim and fire, E for Super. On a
+phone it's twin floating touch sticks — move on the left half, aim on the right,
+release to fire or tap to auto-aim.
+
+## Project layout
+
+- `godot/scripts/` — the game. `main.gd` is the match hub; `fighter.gd`,
+  `arena.gd`, `bot_brain.gd`, `kits.gd` (all character stats), `cup_mode.gd` +
+  `ball.gd` for Nobles Cup.
+- `godot/scripts/menu/` — the menu (see below).
+- `godot/data/{brawlers,game}.json` — copy and config only. **Stats come from
+  `kits.gd`, never from the JSON.**
+- `Assets/3D` — source Meshy character models, cleaned by `Tools/fix_meshy_glb.py`
+  before they're wired into a kit.
+- `Tools/` — `export_ios.sh` (iOS export), `fix_meshy_glb.py` (model pipeline),
+  `gen_showdown_map.py` (regenerates the Showdown arena).
+
+Almost nothing here ships as an art file. The floor, walls and water are fragment
+shaders over flat colour; the hit sparks and shockwaves are rebuilt per frame from
+vertex colours; all 28 combat sounds are synthesized at runtime. A fixed steep
+camera only ever shows one angle, so the look is cheaper to compute than to author.
+
+## The menu
+
+A game programme's roster page rather than a mobile-game lobby: the selected
+fighter stands on the arena's own ground fading to ink, with their stat column and
+ability write-ups filling the flanks, and ROSTER / SEASON / SHOP / WIFI along the
+bottom. Five screens, flat blocks and hairline rules, two fonts and no chrome art.
+
+## iOS
+
+```sh
+Tools/export_ios.sh          # writes build/ios/noblestars3d.xcodeproj
+```
+
+Then open that project in Xcode, set your team under Signing & Capabilities, and
+run it on a connected device. **Simulator builds are blocked upstream**
+([godotengine/godot#118161](https://github.com/godotengine/godot/issues/118161)) —
+the shipped simulator library is x86_64-only and Xcode 26 has no Rosetta
+simulators, so test on real hardware.
 
 ## Development
 
-This game is being built with [Claude Code](https://claude.com/claude-code). See `CLAUDE.md` for the agent-facing build notes.
+This game is being built with [Claude Code](https://claude.com/claude-code). See
+`CLAUDE.md` for the agent-facing build notes — it carries the gotchas, the debug
+env hooks that are the testing strategy, and the reasoning behind the decisions
+above.
