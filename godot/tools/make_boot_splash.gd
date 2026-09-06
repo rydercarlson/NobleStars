@@ -64,7 +64,7 @@ func _run() -> void:
 	# No kit: at a cold start nobody has picked one, which is also the frame the
 	# lobby-bound transition uses.
 	var parts: Dictionary = LoadingScreen.compose(
-			LoadingScreen.BOOT_TITLE, LoadingScreen.BOOT_SUBTITLE, "")
+			LoadingScreen.BOOT_TITLE, LoadingScreen.BOOT_SUBTITLE, "", false)
 	view.add_child(parts["root"] as Control)
 
 	# Fonts and the keyart both land a frame or two after they are asked for.

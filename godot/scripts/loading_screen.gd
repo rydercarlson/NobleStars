@@ -224,7 +224,16 @@ func _build(title: String, subtitle: String, kit_name: String) -> void:
 ## Authored against the 1280x720 viewport the match HUD uses, not the menu's
 ## 1920x1080 stage, and anchored throughout so "expand" on a taller phone
 ## widens it rather than cropping it.
-static func compose(title: String, subtitle: String, kit_name: String) -> Dictionary:
+##
+## `with_progress` is off for the boot splash, which is a STILL: a progress bar
+## frozen at 0% for the length of a cold start does not read as "loading", it
+## reads as loading that has stalled, and it is the first thing anyone sees. The
+## splash says what the game is; the screen that takes over from it a moment
+## later says how far along it is. The status caption goes with the bar rather
+## than staying behind, because "LOADING" is the bar's label and on its own
+## under "Starting up" it just says the subtitle twice.
+static func compose(title: String, subtitle: String, kit_name: String,
+		with_progress: bool = true) -> Dictionary:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_STOP   # nothing underneath is ready to be poked
@@ -276,6 +285,9 @@ static func compose(title: String, subtitle: String, kit_name: String) -> Dictio
 
 	if kit_name != "":
 		head.add_child(_fighter_badge(kit_name))
+
+	if not with_progress:
+		return {"root": root, "bar": null, "percent": null, "status": null}
 
 	var bar_row: HBoxContainer = MenuUI.hbox(12)
 	strip.add_child(bar_row)

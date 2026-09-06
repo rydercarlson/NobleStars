@@ -9,7 +9,7 @@
 #   Tools/export_ios.sh              # debug export
 #   Tools/export_ios.sh --release    # release export
 #
-# Two things this exists to handle, and one it cannot:
+# Two things this exists to handle, and one it deliberately ignores:
 #
 # 1. The generated project.pbxproj used to contain six unreplaced template
 #    placeholders — bare `$additional_pbx_*` and `$pbx_embeded_frameworks`
@@ -20,13 +20,21 @@
 # 2. xcode-select points at CommandLineTools here, which the export needs
 #    overridden — see DEVELOPER_DIR below.
 #
-# 3. What it cannot fix: the archive step fails with
+# 3. The archive step at the end still fails with
 #      No Account for Team "KJDG3J6ZYY"
 #      No profiles for 'com.ryder.noblestars3d' were found
-#    That is not scriptable — sign into Xcode > Settings > Accounts with the
-#    Apple ID on that team once, and let it create the development profile.
-#    The Xcode project is written either way, so this is only in the way of a
-#    one-command signed build, not of opening the project and hitting Run.
+#    and that failure is COSMETIC. Godot shells out to xcodebuild without
+#    -allowProvisioningUpdates, so it cannot create the development profile it
+#    is asking for. The Xcode project is already written by then, and signing
+#    works fine the moment anything passes that flag - opening the project and
+#    hitting Run does, and so does:
+#      DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+#        -project build/ios/noblestars3d.xcodeproj -scheme noblestars3d \
+#        -configuration Debug -destination 'generic/platform=iOS' \
+#        -allowProvisioningUpdates build
+#    Verified 2026-09-05: BUILD SUCCEEDED, signed as Apple Development. Do not
+#    go hunting for a missing account when this appears - see CLAUDE.md, an
+#    evening went into that misdirection once already.
 #
 # Note that SIMULATOR builds are blocked upstream (godotengine/godot#118161:
 # the 4.6.2+ templates ship a simulator libgodot.a that is x86_64-only and
