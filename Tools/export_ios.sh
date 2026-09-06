@@ -9,7 +9,7 @@
 #   Tools/export_ios.sh              # debug export
 #   Tools/export_ios.sh --release    # release export
 #
-# Two things this exists to handle, and one it deliberately ignores:
+# Two things this exists to handle, and one it used to trip over:
 #
 # 1. The generated project.pbxproj used to contain six unreplaced template
 #    placeholders — bare `$additional_pbx_*` and `$pbx_embeded_frameworks`
@@ -20,21 +20,18 @@
 # 2. xcode-select points at CommandLineTools here, which the export needs
 #    overridden — see DEVELOPER_DIR below.
 #
-# 3. The archive step at the end still fails with
+# 3. The archive step used to fail with
 #      No Account for Team "KJDG3J6ZYY"
 #      No profiles for 'com.ryder.noblestars3d' were found
-#    and that failure is COSMETIC. Godot shells out to xcodebuild without
-#    -allowProvisioningUpdates, so it cannot create the development profile it
-#    is asking for. The Xcode project is already written by then, and signing
-#    works fine the moment anything passes that flag - opening the project and
-#    hitting Run does, and so does:
-#      DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
-#        -project build/ios/noblestars3d.xcodeproj -scheme noblestars3d \
-#        -configuration Debug -destination 'generic/platform=iOS' \
-#        -allowProvisioningUpdates build
-#    Verified 2026-09-05: BUILD SUCCEEDED, signed as Apple Development. Do not
-#    go hunting for a missing account when this appears - see CLAUDE.md, an
-#    evening went into that misdirection once already.
+#    and the cause was the preset naming the WRONG TEAM. KJDG3J6ZYY is the
+#    free personal team of the signing Apple ID; the account develops under
+#    the paid team S7AT3UP8R4. Godot wrote that id into DEVELOPMENT_TEAM, so
+#    there genuinely was no account for the team it named. Fixed 2026-09-05 in
+#    application/app_store_team_id, and this script now runs end to end:
+#    ** EXPORT SUCCEEDED **, no errors, and an .ipa beside the project.
+#    If it ever comes back, read the team off the profile rather than trusting
+#    the error text or the preset:
+#      security cms -D -i <app>/embedded.mobileprovision   # TeamIdentifier
 #
 # Note that SIMULATOR builds are blocked upstream (godotengine/godot#118161:
 # the 4.6.2+ templates ship a simulator libgodot.a that is x86_64-only and

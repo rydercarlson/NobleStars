@@ -814,18 +814,41 @@ those before anything else on the list.
       before/after of Leon at that size is pixel-for-pixel indistinguishable,
       shirt lettering included, and 1024 still leaves ~2.5x the on-screen texel
       density. Re-cap any new character import the same way.
-- [ ] **Get a build onto a real iPhone — and the blocker is now named, and it
-      is Ryder's to clear.** `Tools/export_ios.sh` gets as far as the archive
-      step and stops on:
+- [x] **The export runs end to end, and the blocker was never the account.**
+      `Tools/export_ios.sh` stopped for months on:
 
           error: No Account for Team "KJDG3J6ZYY"
           error: No profiles for 'com.ryder.noblestars3d' were found
 
-      That is not scriptable. It needs signing into Xcode → Settings → Accounts
-      once with the Apple ID on that team and letting Xcode create the
-      development profile; everything after that is automated. Simulator builds
-      stay blocked upstream (godotengine/godot#118161 — simulator `libgodot.a`
-      is x86_64-only), so the arm64 device slice is the only path regardless.
+      Both of those point at the Apple ID, and the Apple ID was fine the whole
+      time. **The preset named the wrong team.** `KJDG3J6ZYY` is the free
+      personal team of the signing account; it develops under the paid team
+      `S7AT3UP8R4` ("ANDREW DWIGHT CARLSON"), so Godot wrote an id into
+      `DEVELOPMENT_TEAM` that genuinely had no account behind it. One line in
+      `application/app_store_team_id` and the script now prints
+      `** EXPORT SUCCEEDED **` with no errors and leaves a 66 MB `.ipa` beside
+      the `.xcodeproj`.
+      - **What hid it was the previous fix.** The note in CLAUDE.md said this
+        error "usually means a signing-identity CONFLICT, not a missing
+        account… the account is fine", which was true of the earlier
+        `Apple Distribution` vs `Automatic` conflict and sent every later look
+        away from the team id. Read the team off the artefact instead of
+        trusting the error or the preset:
+        `security cms -D -i <app>/embedded.mobileprovision` prints
+        `TeamIdentifier` and `TeamName`.
+      - **It is a paid account**, so the profile is good for a year
+        (`TimeToLive 365`) — the 7-day expiry that forces weekly reinstalls is
+        a free personal team and does not apply.
+      - `xcodebuild -allowProvisioningUpdates` builds and signs the written
+        project with no GUI step: BUILD SUCCEEDED, `Apple Development`.
+      - Simulator builds stay blocked upstream (godotengine/godot#118161 —
+        simulator `libgodot.a` is x86_64-only), so the arm64 device slice is
+        the only path regardless.
+      - **Still open, and only Ryder can do it:** installing needs Developer
+        Mode on the handset (Settings → Privacy & Security → Developer Mode,
+        then a restart), or `devicectl` stops with
+        `Developer Mode is disabled`. `devicectl` also needs `DEVELOPER_DIR`
+        set, exactly like the export.
 - [x] **The pbxproj placeholder lines are gone, and the export is scripted.**
       Re-measured against the 4.7.2.stable templates: the generated
       `project.pbxproj` contains **no** `$additional_pbx_*` /
