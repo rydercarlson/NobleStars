@@ -20,11 +20,15 @@ extends Control
 
 var menu: MenuShell
 
-var _browse_box: VBoxContainer     # discovery + host UI
+var _browse_box: Control           # discovery + host + code entry (two columns)
 var _room_box: VBoxContainer       # joined-room UI
 var _games_list: VBoxContainer
 var _status: Label
-var _code_edit: LineEdit
+var _code_label: Label
+var _self_label: Label
+var _join_btn: Button
+## What has been tapped into the pad so far, uppercase by construction.
+var _code := ""
 var _players_list: VBoxContainer
 var _start_btn: Button
 var _room_hint: Label
@@ -81,45 +85,67 @@ func _ready() -> void:
 			_status.text = "Host left"
 			refresh())
 
+## The browse screen is TWO COLUMNS, and that is the whole of what makes the
+## keypad usable.
+##
+## It was one 560-wide strip down the middle, which is a desktop shape on a
+## landscape phone: the stage is over 2000 px wide there and all of it either
+## side was empty, so the keys came out about 4 mm across against Apple's 7 mm
+## minimum tap target. Hosting and browsing go on the left, the code and its pad
+## on the right, and the pad gets nearly twice the width it had — which is what
+## buys keys you can actually hit rather than a smaller font.
+const LEFT_W := 620.0
+const RIGHT_W := 1100.0
+const KEY_GAP := 10.0
+const KEY_H := 84.0
+
 func _build_browse_box() -> void:
-	_browse_box = VBoxContainer.new()
-	_browse_box.add_theme_constant_override("separation", 14)
-	_browse_box.custom_minimum_size = Vector2(560, 0)
-	add_child(_browse_box)
-	_browse_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
-	_browse_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_browse_box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 40)
+	add_child(row)
+	row.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+	row.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	row.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_browse_box = row
 
-	_build_mode_row()
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 14)
+	left.custom_minimum_size = Vector2(LEFT_W, 0)
+	left.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(left)
 
-	var host_btn := UIKit.button("HOST A GAME", 30, Color(0.16, 0.38, 0.23), Vector2(560, 72))
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 12)
+	right.custom_minimum_size = Vector2(RIGHT_W, 0)
+	right.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(right)
+
+	_build_mode_row(left)
+	var host_btn := UIKit.button("HOST A GAME", 30, Color(0.16, 0.38, 0.23), Vector2(LEFT_W, 80))
 	host_btn.pressed.connect(func() -> void:
 		if Net.host_game(SaveGame.player_name, SaveGame.selected_kit, _host_mode) != OK:
 			_status.text = "Could not open the port — already hosting?"
 		refresh())
-	_browse_box.add_child(host_btn)
-
-	# The code first everywhere. It is the control that always works; the list is
-	# the one that sometimes does, so it goes below even on desktop where it is
-	# reliable — being one tap is not a reason to put the fragile path first.
-	_build_join_block()
-	_build_discovery_block()
-
+	left.add_child(host_btn)
+	_build_discovery_block(left)
 	_status = UIKit.label("", 18, Color(0.95, 0.5, 0.4))
-	_browse_box.add_child(_status)
+	left.add_child(_status)
+
+	_build_join_block(right)
 
 ## The mode the host will open the room on. Shown before HOST A GAME because it
-## changes what that button does, and hidden for someone who is only joining —
+## changes what that button does, and irrelevant to someone who is only joining —
 ## a client does not choose, it is told (see Net.mode).
-func _build_mode_row() -> void:
-	_browse_box.add_child(UIKit.label("MODE", 20, UIKit.MUTED))
+func _build_mode_row(parent: Control) -> void:
+	parent.add_child(UIKit.label("MODE", 20, UIKit.MUTED))
 	_mode_row = HBoxContainer.new()
 	_mode_row.add_theme_constant_override("separation", 10)
-	_browse_box.add_child(_mode_row)
+	parent.add_child(_mode_row)
+	var w: float = (LEFT_W - 10.0) / 2.0
 	for m: Dictionary in NET_MODES:
 		var id := str(m.id)
 		var b := UIKit.button("%s\n%s" % [str(m.label), str(m.sub)], 20,
-				UIKit.NAVY_PANEL, Vector2(275, 66))
+				UIKit.NAVY_PANEL, Vector2(w, 72))
 		b.autowrap_mode = TextServer.AUTOWRAP_OFF
 		b.pressed.connect(func() -> void:
 			_host_mode = id
@@ -135,44 +161,133 @@ func _paint_mode_row() -> void:
 		b.add_theme_color_override("font_color",
 				UIKit.GOLD if id == _host_mode else UIKit.MUTED)
 
-func _build_discovery_block() -> void:
-	_browse_box.add_child(UIKit.label("OR PICK A GAME ON YOUR WIFI", 20, UIKit.MUTED))
+func _build_discovery_block(parent: Control) -> void:
+	parent.add_child(UIKit.label("GAMES ON YOUR WIFI", 20, UIKit.MUTED))
 	_games_list = VBoxContainer.new()
 	_games_list.add_theme_constant_override("separation", 8)
-	_browse_box.add_child(_games_list)
+	parent.add_child(_games_list)
+	# This device's own address, dim and small. It earns its place twice over:
+	# it is the thing to compare against a friend's when the list stays empty
+	# (two phones on 192.168.4.x and 192.168.9.x are on one wifi and may not
+	# find each other), and it is the only way to see what iOS actually reports
+	# as the local address, which cannot be read off a phone any other way.
+	_self_label = UIKit.label("", 16, UIKit.FAINT)
+	parent.add_child(_self_label)
 
-func _build_join_block() -> void:
-	_browse_box.add_child(UIKit.label("ENTER JOIN CODE", 20, UIKit.GOLD))
-	var ip_row := HBoxContainer.new()
-	ip_row.add_theme_constant_override("separation", 10)
-	_browse_box.add_child(ip_row)
-	_code_edit = LineEdit.new()
-	_code_edit.placeholder_text = "e.g. 6PBA"
-	_code_edit.text = Net.last_code()   # same host every time in one house
-	_code_edit.custom_minimum_size = Vector2(380, 52)
-	_code_edit.add_theme_font_size_override("font_size", 26)
-	# Codes carry letters, so this is the full keyboard rather than the numeric
-	# pad the IP field used to ask for. The field still takes a typed-out IP —
-	# Net.resolve_target accepts either — for anyone reading one off a router.
-	_code_edit.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_DEFAULT
-	# Codes are printed and spoken in capitals, and the alphabet has no lowercase
-	# half, so a lowercase keyboard should not be able to produce a code that
-	# fails. Uppercasing as it is typed also leaves an IP untouched.
-	_code_edit.text_changed.connect(func(text: String) -> void:
-		var upper := text.to_upper()
-		if upper != text:
-			var caret := _code_edit.caret_column
-			_code_edit.text = upper
-			_code_edit.caret_column = caret)
-	_code_edit.text_submitted.connect(func(text: String) -> void:
-		if text.strip_edges() != "":
-			_join(text))
-	ip_row.add_child(_code_edit)
-	var join_btn := UIKit.button("JOIN", 22, Color(0.16, 0.38, 0.23), Vector2(160, 52))
-	join_btn.pressed.connect(func() -> void:
-		if _code_edit.text.strip_edges() != "":
-			_join(_code_edit.text))
-	ip_row.add_child(join_btn)
+## The code entry: a display strip and the game's own 32-key pad.
+##
+## It was a LineEdit, and typing into it on a phone was the worst thing on the
+## screen. iOS brings up a lowercase QWERTY, so every character arrived in a case
+## the alphabet does not have and got flipped under your thumb as you typed; the
+## keyboard covered half the screen; and two thirds of the keys it offered cannot
+## appear in a code at all — including the four (`0 O 1 I L`) that were removed
+## from the alphabet precisely because people confuse them.
+##
+## A pad of exactly the 32 legal characters fixes all of it at once. Case cannot
+## come up, an invalid character cannot be typed, nothing is covered, and the
+## grid is its own documentation: base 32 falls out as eight columns by four
+## rows, the digits on the top row and the letters below, so the gaps where I and
+## O should be are visible rather than a rule you have to be told.
+##
+## The keys are sized off RIGHT_W rather than a fixed number, because the first
+## pass had them at about 4 mm on a phone — half Apple's minimum tap target — and
+## the fix for that was giving the column width, not shrinking the font.
+##
+## A physical keyboard still works, for desktop play and for testing — see
+## _unhandled_key_input.
+const CODE_COLUMNS := 8
+const CODE_MAX_LEN := 7
+
+func _build_join_block(parent: Control) -> void:
+	parent.add_child(UIKit.label("ENTER JOIN CODE", 20, UIKit.GOLD))
+
+	var strip: PanelContainer = UIKit.panel(10, UIKit.NAVY_DEEP)
+	strip.custom_minimum_size = Vector2(RIGHT_W, 92)
+	parent.add_child(strip)
+	_code_label = UIKit.label("", 56, UIKit.GOLD)
+	_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_code_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	strip.add_child(_code_label)
+
+	var pad := GridContainer.new()
+	pad.columns = CODE_COLUMNS
+	pad.add_theme_constant_override("h_separation", int(KEY_GAP))
+	pad.add_theme_constant_override("v_separation", int(KEY_GAP))
+	parent.add_child(pad)
+	var key_w: float = (RIGHT_W - KEY_GAP * (CODE_COLUMNS - 1)) / CODE_COLUMNS
+	for i in Net.CODE_ALPHABET.length():
+		var ch: String = Net.CODE_ALPHABET[i]
+		var key := UIKit.button(ch, 34, UIKit.NAVY_PANEL, Vector2(key_w, KEY_H))
+		key.pressed.connect(_code_push.bind(ch))
+		pad.add_child(key)
+
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", int(KEY_GAP))
+	parent.add_child(actions)
+	var half: float = (RIGHT_W - KEY_GAP) / 2.0
+	var del := UIKit.button("DELETE", 26, UIKit.NAVY_PANEL, Vector2(half, 72))
+	del.pressed.connect(_code_pop)
+	actions.add_child(del)
+	_join_btn = UIKit.button("JOIN", 28, Color(0.16, 0.38, 0.23), Vector2(half, 72))
+	_join_btn.pressed.connect(_try_join)
+	actions.add_child(_join_btn)
+
+	_code = Net.last_code()   # same host every time in one house
+	_refresh_code()
+
+func _code_push(ch: String) -> void:
+	if _code.length() >= CODE_MAX_LEN:
+		return
+	_code += ch
+	_refresh_code()
+
+func _code_pop() -> void:
+	if _code != "":
+		_code = _code.substr(0, _code.length() - 1)
+		_refresh_code()
+
+## JOIN lights up only when the code actually decodes to an address. That is
+## free — the decoder already rejects most mistyped codes rather than handing
+## back a stranger's machine — and it turns the rejection into something you can
+## see BEFORE you press anything, instead of an error afterwards.
+func _refresh_code() -> void:
+	if _code_label == null:
+		return
+	# Letterspaced, because a code is read out one character at a time.
+	var shown := ""
+	for i in _code.length():
+		shown += ("  " if i > 0 else "") + _code[i]
+	_code_label.text = shown if _code != "" else "–  –  –  –"
+	_code_label.add_theme_color_override("font_color",
+			UIKit.GOLD if _code != "" else UIKit.FAINT)
+	var ready: bool = Net.resolve_target(_code) != ""
+	_join_btn.disabled = not ready
+	UIKit.style_button(_join_btn, Color(0.16, 0.38, 0.23) if ready else UIKit.NAVY_PANEL)
+
+func _try_join() -> void:
+	if _code != "":
+		_join(_code)
+
+## A physical keyboard, for desktop and for testing. Only the alphabet's own
+## characters are accepted, so a stray keypress cannot put a character into the
+## field that the decoder would then reject.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not is_visible_in_tree() or _room_box == null or _room_box.visible:
+		return
+	var key := event as InputEventKey
+	if key == null or not key.pressed:
+		return
+	if key.keycode == KEY_BACKSPACE:
+		_code_pop()
+		accept_event()
+	elif key.keycode == KEY_ENTER or key.keycode == KEY_KP_ENTER:
+		_try_join()
+		accept_event()
+	else:
+		var ch := String.chr(key.unicode).to_upper()
+		if ch.length() == 1 and Net.CODE_ALPHABET.find(ch) >= 0:
+			_code_push(ch)
+			accept_event()
 
 func _build_room_box() -> void:
 	_room_box = VBoxContainer.new()
@@ -220,8 +335,7 @@ func _build_room_box() -> void:
 	_room_box.add_child(leave_btn)
 
 func _join(target: String) -> void:
-	var resolved := Net.resolve_target(target)
-	if resolved == "":
+	if Net.resolve_target(target) == "":
 		_status.text = "No game with that code — check the letters?"
 		return
 	_status.text = "Joining %s…" % target.strip_edges().to_upper()
@@ -278,6 +392,9 @@ func _rebuild_players() -> void:
 func _rebuild_games() -> void:
 	if not is_visible_in_tree() or _games_list == null:
 		return
+	if _self_label != null:
+		var mine := Net.local_ip()
+		_self_label.text = "This device: %s" % (mine if mine != "" else "no wifi address")
 	for c in _games_list.get_children():
 		c.queue_free()
 	if Net.games.is_empty():
@@ -296,6 +413,6 @@ func _rebuild_games() -> void:
 				mode_label(str(g.get("mode", "showdown"))), g.count,
 				int(g.get("cap", Net.MAX_PLAYERS)),
 				"" if code == "" else "  ·  " + code],
-				20, UIKit.NAVY_PANEL, Vector2(560, 56))
+				19, UIKit.NAVY_PANEL, Vector2(LEFT_W, 62))
 		row.pressed.connect(_join.bind(String(ip)))
 		_games_list.add_child(row)

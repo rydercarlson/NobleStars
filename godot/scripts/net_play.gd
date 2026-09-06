@@ -44,7 +44,8 @@ var _discovery: PacketPeerUDP  # host side: answers probes
 var _probe: PacketPeerUDP      # client side: browses for games
 var _next_probe_at := 0.0
 var _next_sweep_at := 0.0
-var _sweep_at := 0             # next host in the unicast sweep, 0 = idle
+var _sweep_at := 0             # next host index in the unicast sweep, 0 = idle
+var _sweep_bits := 24          # prefix width being swept; widens when nothing answers
 var _log_probes := OS.get_environment("NS3_NET_STATS") != ""
 var _last_probe_from := ""     # only announce each searcher once
 
@@ -226,7 +227,15 @@ func host_game(player_name: String, kit: String, room_mode := "showdown") -> Err
 	locked = false
 	players = {1: {"name": player_name, "kit": kit}}
 	_discovery = PacketPeerUDP.new()
-	_discovery.bind(DISCOVERY_PORT)
+	# Checked, because a failure here is SILENT and looks exactly like "iOS
+	# blocked discovery": the room hosts fine, the game is joinable by code, and
+	# nothing on the wifi can see it. It fails when something else already holds
+	# the port — most often a previous instance of this game that did not shut
+	# down — and that cost an hour of blaming the sweep for it.
+	if _discovery.bind(DISCOVERY_PORT) != OK:
+		push_warning("[net] discovery port %d busy — this room will not appear on the wifi (the join code still works)" % DISCOVERY_PORT)
+		print("[net] discovery port %d busy; code-only hosting" % DISCOVERY_PORT)
+		_discovery = null
 	roster_changed.emit()
 	return OK
 
@@ -303,6 +312,20 @@ func _rpc_start_game(room_mode: String) -> void:
 	mode = room_mode
 	get_tree().change_scene_to_file("res://game.tscn")
 
+## The address a peer connected from.
+##
+## Printed on every join because it is the only place the host learns which
+## SUBNET the other machine is on, and that is exactly what decides whether the
+## unicast sweep could ever have found this room. A phone one /24 over joins
+## perfectly happily by code and then never sees a single game in the list —
+## which looks like iOS blocking discovery and is nothing of the sort.
+func peer_address(id: int) -> String:
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet == null:
+		return "?"
+	var p := enet.get_peer(id)
+	return p.get_remote_address() if p != null else "?"
+
 ## This machine's address on the network it shares with its friends: what the
 ## join code is built from, and what the room screen prints.
 ##
@@ -358,8 +381,9 @@ func _fail(reason: String) -> void:
 func _register(player_name: String, kit: String) -> void:
 	if not is_host():
 		return
-	print("[net] %s joined (peer %d)" % [player_name, multiplayer.get_remote_sender_id()])
-	players[multiplayer.get_remote_sender_id()] = {"name": player_name, "kit": kit}
+	var joiner := multiplayer.get_remote_sender_id()
+	print("[net] %s joined (peer %d) from %s" % [player_name, joiner, peer_address(joiner)])
+	players[joiner] = {"name": player_name, "kit": kit}
 	_sync_roster.rpc(players, mode)
 	roster_changed.emit()
 
@@ -394,15 +418,43 @@ func _sync_roster(roster: Dictionary, room_mode: String) -> void:
 # at all. Neither can help if the network has client isolation switched on, which
 # is common on school and guest wifi and blocks device-to-device traffic outright.
 
-## Addresses probed per frame during a sweep. The whole /24 lands inside a fifth
-## of a second at 60fps, well inside the sweep cadence below.
+## Addresses probed per frame during a sweep. A /24 lands inside a fifth of a
+## second at 60fps and the widest sweep below inside a second, both well within
+## the cadence they run at.
 const SWEEP_PER_FRAME := 32
-## Broadcast is one packet, so it goes out every second. A sweep is 254, so it
-## goes out every three — often enough that a room appears while you are still
+## Broadcast is one packet, so it goes out every second. A sweep is hundreds, so
+## it goes out every three — often enough that a room appears while you are still
 ## looking at the screen, rarely enough to stay unremarkable on a network with
 ## someone watching the traffic.
 const PROBE_INTERVAL := 1.0
 const SWEEP_INTERVAL := 3.0
+
+## How wide the sweep goes, in prefix bits, and this is NOT a guess about the
+## network — it is discovered.
+##
+## Godot cannot read a netmask (IP.get_local_interfaces() does not expose one),
+## so the first pass assumes the common /24 and every pass that finds nothing
+## widens by a bit until something answers. The floor is /22, which is 1022
+## addresses, because that is a real home network: the machine this was written
+## on reports netmask 0xfffffc00, so a Mac at 192.168.7.110 and a phone at
+## 192.168.5.x are on ONE network and three /24s apart. Sweeping only our own /24
+## found nothing there, which looked exactly like iOS blocking the sweep and was
+## nothing of the sort — the phone joined by code from the address the sweep was
+## never going to reach.
+##
+## It widens rather than starting wide so the common case stays cheap, and it
+## snaps back the moment a game answers.
+const SWEEP_NARROW_BITS := 24
+const SWEEP_WIDE_BITS := 22
+
+static func _ip_to_int(ip: String) -> int:
+	var o := ip.split(".")
+	if o.size() != 4:
+		return -1
+	return (int(o[0]) << 24) | (int(o[1]) << 16) | (int(o[2]) << 8) | int(o[3])
+
+static func _int_to_ip(n: int) -> String:
+	return "%d.%d.%d.%d" % [(n >> 24) & 255, (n >> 16) & 255, (n >> 8) & 255, n & 255]
 
 func browse_start() -> void:
 	if _probe:
@@ -415,6 +467,7 @@ func browse_start() -> void:
 	_next_probe_at = 0.0
 	_next_sweep_at = 0.0
 	_sweep_at = 0
+	_sweep_bits = SWEEP_NARROW_BITS
 
 func browse_stop() -> void:
 	if _probe:
@@ -456,30 +509,45 @@ func _process(_delta: float) -> void:
 		_collect_replies(clock)
 
 ## The unicast half: SWEEP_PER_FRAME addresses of our own /24 per frame, then
-## idle until the next probe. Our own address is skipped — a host does not need
-## to discover itself, and answering our own probe would list our own room.
+## idle until the next probe.
 func _sweep_tick() -> void:
-	if _sweep_at <= 0 or _sweep_at > 254:
+	if _sweep_at <= 0:
 		return
-	var mine := local_ip()
-	if mine == "":
+	var mine := _ip_to_int(local_ip())
+	if mine < 0:
 		_sweep_at = 0
 		return
-	var parts := mine.rsplit(".", true, 1)
-	if parts.size() != 2:
-		_sweep_at = 0
-		return
-	var prefix: String = parts[0] + "."
-	var self_octet := int(parts[1])
+	var shift: int = 32 - _sweep_bits
+	var base: int = (mine >> shift) << shift        # the network address
+	var hosts: int = (1 << shift) - 2               # .0 and the broadcast excluded
 	var sent := 0
-	while _sweep_at <= 254 and sent < SWEEP_PER_FRAME:
-		if _sweep_at != self_octet:
-			_probe.set_dest_address(prefix + str(_sweep_at), DISCOVERY_PORT)
-			_probe.put_packet(PROBE.to_utf8_buffer())
-			sent += 1
+	# Our own address is probed too, rather than skipped. Browsing and hosting
+	# cannot both be happening in one process — the room screen stops browsing the
+	# moment you are in a room — so this can never list you your own game, and it
+	# costs one packet in hundreds. What it buys is a version of this that can be
+	# TESTED on one machine: a host and a browser side by side on a desktop, which
+	# is the only way to tell "the sweep is broken" from "the sweep never reached".
+	while _sweep_at <= hosts and sent < SWEEP_PER_FRAME:
+		_probe.set_dest_address(_int_to_ip(base + _sweep_at), DISCOVERY_PORT)
+		_probe.put_packet(PROBE.to_utf8_buffer())
+		sent += 1
 		_sweep_at += 1
-	if _sweep_at > 254:
+	if _sweep_at > hosts:
 		_sweep_at = 0
+		# A whole pass with nothing on it means the network is probably wider
+		# than the pass was. Anything answering means it is not, so snap back.
+		if games.is_empty():
+			if _sweep_bits > SWEEP_WIDE_BITS:
+				_sweep_bits -= 1
+				# Straight on to the wider pass rather than waiting out
+				# SWEEP_INTERVAL first. Widening a bit per THREE SECONDS meant a
+				# /22 was not covered until the ninth second, which is well past
+				# the point where an empty list has already been read as "no
+				# games here" and the screen left. Widening back to back gets
+				# there inside a second; only a settled sweep waits.
+				_sweep_at = 1
+		elif _sweep_bits != SWEEP_NARROW_BITS:
+			_sweep_bits = SWEEP_NARROW_BITS
 
 ## Replies in, stale rooms out. A room is keyed on the host's address, so the
 ## same host answering both a broadcast and a sweep probe is one entry.
@@ -489,6 +557,13 @@ func _collect_replies(clock: float) -> void:
 		var parts := _probe.get_packet().get_string_from_utf8().split("|")
 		if parts.size() >= 3 and parts[0] == REPLY:
 			var ip := _probe.get_packet_ip()
+			# NS3_NET_STATS=1: the browsing half of the discovery instrument. The
+			# host says whose probe arrived; this says whose reply came back, so
+			# a discovery failure can be pinned to the direction it failed in
+			# rather than guessed at.
+			if _log_probes and not games.has(ip):
+				print("[net] found game at %s (code %s, %s)" % [ip, ip_to_code(ip),
+						parts[3] if parts.size() > 3 else "showdown"])
 			games[ip] = {"name": parts[1], "count": int(parts[2]),
 					"mode": parts[3] if parts.size() > 3 else "showdown",
 					"cap": int(parts[4]) if parts.size() > 4 else MAX_PLAYERS,

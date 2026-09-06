@@ -318,6 +318,28 @@ func _client_tick(delta: float, now: float) -> void:
 		_banner.text = ""
 	_refresh_hud()
 
+## Client: attach or release the ball for the LOCAL player only, from the newest
+## snapshot rather than the delayed one.
+##
+## Everything else about the ball can afford the interpolation delay, because
+## everything else about it is something you are watching. This is the one part
+## you are doing, and 85 ms between running over a ball and holding it is the
+## difference between the mode feeling responsive and feeling remote.
+func apply_local_carry(carrier_idx: int, my_idx: int) -> void:
+	if my_idx < 0:
+		return
+	var me: Fighter = game.player
+	if not is_instance_valid(me):
+		return
+	if carrier_idx == my_idx:
+		if ball.carrier != me and not me.is_dead():
+			ball.pick_up(me)
+	elif ball.carrier == me:
+		# Somebody took it off me. Released here and left loose; the real
+		# carrier is attached by apply_net_state when the delayed clock reaches
+		# the packet that says who.
+		ball.carrier = null
+
 ## Client: take the match state out of a snapshot. Called from main.gd at the
 ## same delayed instant the puppets are drawn at, so the score changes on the
 ## frame the goal is drawn rather than a fifteenth of a second before it.
@@ -330,8 +352,14 @@ func apply_net_state(now: float, st: Dictionary) -> void:
 	# Sent as time REMAINING rather than as an absolute deadline: the two clocks
 	# are minutes apart and only the difference means anything.
 	_frozen_until = now + float(st.freeze)
-	var who: Fighter = null
 	var idx := int(st.carrier)
+	# My own carry is owned by apply_local_carry, off the newest packet. This
+	# runs on OLDER ones, so letting it near the local case would walk that
+	# straight back: the ball would stick, then come loose again a frame later
+	# when a stale packet said it was still on the grass.
+	if idx == game._my_idx or ball.carrier == game.player:
+		return
+	var who: Fighter = null
 	if idx >= 0 and idx < game.net_fighters.size():
 		var cand = game.net_fighters[idx]
 		if cand != null and is_instance_valid(cand) and not cand.is_dead():

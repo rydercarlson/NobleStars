@@ -191,6 +191,10 @@ const NET_POS_SCALE := 100.0
 ## Nobles Cup's trailer on a snapshot: carrier index, ball x/z, both scores, the
 ## match clock, the kickoff freeze remaining, and a flags byte. Absent entirely
 ## in Showdown, which is why the decoder tests for it by length.
+## Snapshot header: host clock, phase, gas inset, fighters left, the living mask,
+## and how far into the countdown the host is. Named because it is the base
+## offset three separate places index from.
+const NET_HEADER_BYTES := 11
 const NET_CUP_BYTES := 11
 ## Fixed-point divisor for the gas inset in a snapshot. The inset is in TILES and
 ## eases fractionally between steps, so it cannot ride as the plain integer it
@@ -227,6 +231,10 @@ var _pred_pos := Vector3.ZERO     # the reconciled prediction; the body is drawn
 var _pred_error := Vector3.ZERO   # this plus the correction still bleeding off
 var _pred_hist: Array = []        # [[seq, move, resulting position], ...] oldest first
 var _my_net_stats: Dictionary = {}   # what the host says I did, for the results card
+## The host's countdown, and the local instant it was heard at. -1 until the
+## first snapshot arrives, when the client falls back to its own clock.
+var _net_count_elapsed := 0.0
+var _net_count_at := -1.0
 var _rematch_wanted: Dictionary = {} # host: peers that asked for another match
 var results_wait: Label              # the rematch line on the results card
 
@@ -2939,7 +2947,17 @@ func _run_playing(delta: float) -> void:
 			dir = dir.normalized()
 		player.apply_movement(dir.limit_length(1.0))
 
-	if net_host:
+	# `not held` matters here as much as it does for the local player and the
+	# bots above, and this block was the one that did not check it. A Nobles Cup
+	# kickoff zeroes everyone's movement at the top of this function — and then
+	# this put a remote player's LAST input straight back on top, because
+	# `_consume_input` returns the previous one when the queue is empty and a
+	# frozen client has stopped sending. So their fighter crept across the pitch
+	# on the host while standing still on their own screen, and the moment the
+	# freeze lifted the difference came back as a correction. Measured: 2-3 cm
+	# average prediction error with spikes to 29 cm in Cup, against a flat 0 in
+	# Showdown, which has no freeze for this to happen in.
+	if net_host and not held:
 		# Remote players: drive their fighters from the latest input RPC.
 		for i in net_fighters.size():
 			var f = net_fighters[i]
@@ -3140,7 +3158,17 @@ func _kick_instead(stick_value: Vector2, use_super: bool) -> bool:
 	var powerful := use_super and player.is_super_ready()
 	var dir: Vector3 = Vector3(stick_value.x, 0, stick_value.y) \
 			if stick_value.length() >= TAP_THRESHOLD else cup.kick_aim(player, powerful)
-	return cup.kick(player, dir, now, use_super)
+	# Routed through _fire_player rather than straight into cup.kick, because
+	# _fire_player is where "am I a client?" lives — and this, not that, is the
+	# function a tap or a stick release actually reaches. Calling cup.kick here
+	# moved the ball on the client's OWN screen and told nobody: the host never
+	# heard about the kick, and the next snapshot put the ball straight back in
+	# the carrier's hands. It read as the pass button not working at all.
+	_fire_player(player.kit["super"] if use_super else player.kit.weapon,
+			dir, dir.length())
+	# True regardless: the carrier check above already claimed this input for the
+	# ball, and a kick the host declines is still not an attack.
+	return true
 
 ## Which way a tapped escape Super sets off: the way the player is already
 ## running, or their facing when standing still.
@@ -3369,6 +3397,22 @@ func _shot_check() -> void:
 ## starts once everyone is in (or after a timeout so a stall can't hang it).
 func _net_prestart_tick() -> void:
 	if net_host:
+		# ONLY the first match is dealt from here, and the guard is load-bearing.
+		# `_start_from_roster` drops `_match_ready` while it rebuilds and this
+		# function runs on every frame that flag is down, so without the test the
+		# host dealt a brand new match on the very next frame — and because the
+		# rebuild AWAITS a frame partway through, the second pass ran its
+		# `fighters.clear()` and its `get_children()` sweep BEFORE the first pass
+		# had spawned anything. So the first pass's roster was never freed and
+		# never cleared: both passes appended, and the match started with exactly
+		# twice the fighters. Reported from a phone as 12 in a 3v3 and about 20
+		# in a 10-player Showdown, which is precisely 2x each.
+		#
+		# Rematches do not come through here at all — they come from
+		# _net_host_start's own callers: PLAY AGAIN, KEY_R, and the auto-rematch
+		# timer in _update_rematch_note.
+		if _match_seq > 0:
+			return
 		if _net_all_ready() or now >= NET_WAIT_TIMEOUT:
 			_net_host_start()
 	elif now >= _next_ready_send:
@@ -3492,6 +3536,8 @@ func _start_from_roster(room_mode: String, roster: Array) -> void:
 	_lag_inputs.clear()
 	_lag_last_at = -1.0
 	_snap_applied_t = -1.0
+	_net_count_elapsed = 0.0
+	_net_count_at = -1.0
 	_clock_synced = false
 	_input_seq = 0
 	_pred_error = Vector3.ZERO
@@ -3555,8 +3601,11 @@ func _start_from_roster(room_mode: String, roster: Array) -> void:
 		f.reset_physics_interpolation()
 	cam.reset_physics_interpolation()
 	_match_ready = true
-	print("[net] roster applied: %d fighters, I am %s" % [roster.size(),
-			player.display_name if player else "spectator"])
+	# `fighters.size()` rather than `roster.size()`: the roster is what was ASKED
+	# for and the array is what exists, and the double-deal bug above was a
+	# discrepancy between exactly those two that this line was hiding.
+	print("[net] roster applied: %d of %d fighters, I am %s" % [fighters.size(),
+			roster.size(), player.display_name if player else "spectator"])
 
 ## Where roster entry `spawn` puts a fighter. Showdown indexes the map's S tiles;
 ## Nobles Cup indexes its own team's kickoff row, which is why the team has to
@@ -3580,10 +3629,16 @@ func _net_spawn_point(team: int, spawn: int) -> Vector3:
 func _client_tick(delta: float) -> void:
 	_net_intake()
 	if phase == Phase.COUNTDOWN:
+		# The HOST's countdown position, carried forward locally between packets
+		# so it ticks smoothly rather than in 30Hz steps. Falls back to our own
+		# clock only until the first snapshot lands, which is a frame or two.
 		var elapsed_c: float = now - phase_at
+		if _net_count_at >= 0.0:
+			elapsed_c = _net_count_elapsed + (now - _net_count_at)
 		if versus != null and is_instance_valid(versus):
 			versus.update(int(ceil(maxf(PREMATCH_INTRO_AT - elapsed_c, 1.0))), elapsed_c / PREMATCH,
 					elapsed_c >= PREMATCH_INTRO_AT)
+			_count_beep(int(ceil(PREMATCH_INTRO_AT - elapsed_c)))
 		else:
 			center_label.text = str(int(ceil(maxf(3.5 - elapsed_c, 1.0))))
 	elif versus != null:
@@ -3821,13 +3876,22 @@ func _snapshot_bytes() -> PackedByteArray:
 		if peer > 1 and _peer_inputs.has(peer):
 			acks.append([i, int(_peer_inputs[peer].get("seq", 0)) & 0xFFFF])
 	var buf := PackedByteArray()
-	buf.resize(10 + live.size() * 15 + 1 + acks.size() * 3 + (NET_CUP_BYTES if cup else 0))
+	buf.resize(NET_HEADER_BYTES + live.size() * 15 + 1 + acks.size() * 3 \
+			+ (NET_CUP_BYTES if cup else 0))
 	buf.encode_float(0, now)
 	buf.encode_u8(4, int(phase))
 	buf.encode_s16(5, int(round(gas.inset * NET_INSET_SCALE)) if gas else -NET_INSET_SCALE)
 	buf.encode_u8(7, mini(255, fighters.size()))
 	buf.encode_u16(8, mask)
-	var o := 10
+	# How far the HOST is into its countdown. The client cannot work this out for
+	# itself: its own `phase_at` is stamped when IT finished building the match,
+	# which is later than the host by the network hop plus however long its own
+	# fighters took to load — seconds on a phone with cold GLBs. So its countdown
+	# started late, ran behind, and was then cut off mid-number when the host's
+	# PLAYING phase arrived in this same snapshot. Both machines now count the
+	# host's clock, so they reach FIGHT! together.
+	buf.encode_u8(10, clampi(int(round(maxf(0.0, now - phase_at) * 16.0)), 0, 255))
+	var o := NET_HEADER_BYTES
 	for i in live:
 		var f: Fighter = net_fighters[i]
 		buf.encode_u16(o, clampi(int(round(f.position.x * NET_POS_SCALE)), 0, 65535))
@@ -3886,13 +3950,13 @@ func _encode_cup(buf: PackedByteArray, o: int) -> void:
 	buf.encode_u8(o + 10, (1 if cup.overtime else 0) | (2 if cup.finished else 0))
 
 func _decode_snapshot(buf: PackedByteArray) -> Dictionary:
-	if buf.size() < 10:
+	if buf.size() < NET_HEADER_BYTES:
 		return {}
 	var snap := {"t": buf.decode_float(0), "phase": buf.decode_u8(4),
 			"inset": float(buf.decode_s16(5)) / NET_INSET_SCALE, "left": buf.decode_u8(7),
-			"f": {}, "acks": {}}
+			"elapsed": buf.decode_u8(10) / 16.0, "f": {}, "acks": {}}
 	var mask := buf.decode_u16(8)
-	var o := 10
+	var o := NET_HEADER_BYTES
 	for i in 16:
 		if mask & (1 << i) == 0:
 			continue
@@ -4005,6 +4069,20 @@ func _net_intake() -> void:
 				player.position = _pred_pos
 			if player != null and is_instance_valid(player):
 				_apply_fighter_state(player, mine)
+		# Picking the ball up is MY event when it is me picking it up, so it is
+		# taken off the newest packet rather than at the delayed render instant —
+		# the same rule that already applies to my own health and ammo. Waiting
+		# for the delayed clock put NET_INTERP_DELAY (85 ms) on top of the round
+		# trip before the ball stuck to my hands, and running onto a loose ball
+		# is the single most common thing a player does in this mode.
+		if cup != null and snap.has("cup"):
+			cup.apply_local_carry(int(snap.cup.carrier), _my_idx)
+		if phase == Phase.COUNTDOWN and snap.has("elapsed"):
+			# Newest packet, not the delayed render instant: a countdown is a
+			# clock, and showing it 85 ms in the past is the one thing it must
+			# not do when the number it reaches zero on is shared with the host.
+			_net_count_elapsed = float(snap.elapsed)
+			_net_count_at = now
 	_snap_intake.clear()
 
 ## Fold the host's word on where I was into where I think I am.

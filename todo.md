@@ -659,6 +659,9 @@ and dropped in `ios/plugins/`. Ranked by what they cost against what they buy:
   also a transport like Multipeer, so it needs the same `MultiplayerPeer` work,
   and it is iOS/macOS-only.
 
-Verify first, before writing any plugin: whether the unicast sweep actually
-returns hosts on a real iPhone. If it does, discovery is already solved for home
-wifi and Bonjour is only buying the cross-subnet case.
+**VERIFIED 2026-09-06: the unicast sweep DOES work on a real iPhone**, and finds
+a desktop host quickly once it has widened to the network's actual prefix. So
+discovery is solved for home wifi and Bonjour drops a long way down this list —
+it now buys only the case where the network is wider than the /22 the sweep
+widens to, and MultipeerConnectivity buys that *and* client isolation. If any of
+these gets built, build that one.
