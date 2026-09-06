@@ -1064,6 +1064,25 @@ Newest work is roughly at the top of each section.
 
 ## Tooling & workflow
 
+- [x] **The stalled match-feel branch is committed and pushed.** 1,982 lines
+      across nine gameplay scripts, landed as `94f26b5` on 2026-09-06. They had
+      sat uncommitted on top of `a68f3fd`, whose message is
+      `WIP: match feel (stalled agent, unverified)`. **They were verified** —
+      a headless Showdown sim, a headless Cup match, the wifi room screen, the
+      join-code probe and a two-instance LAN Cup match all run with zero script
+      errors, which is what made it safe to land. Until it was committed a second
+      person cloning the repo got none of it, and **two finished features existed only on one machine** —
+      Nobles Cup over wifi, and join codes. Both are written up in `done.md`
+      under **Multiplayer**.
+      - Modified: `cup_mode.gd`, `fighter.gd`, `haptics.gd`, `main.gd`,
+        `menu.gd`, `net_play.gd`, `room_screen.gd`, `virtual_joystick.gd`,
+        `tools/aim_probe.gd`. Staged deletion: `super_button.gd`. Untracked:
+        `tools/code_probe.gd`.
+      - **CLAUDE.md already documents both** — the same changeset updated it, so
+        the working tree is self-consistent. It is only the *committed* CLAUDE.md
+        that still describes join-by-IP and an unhostable Cup, which is one more
+        reason to commit.
+
 - [x] **The reimport footgun is handled automatically — but the hook is not a
       compile check.** A `PostToolUse` hook in `.claude/settings.json` runs
       `Godot --headless --import` after any edit to a `godot/**/*.gd`. Skipping

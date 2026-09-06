@@ -1,7 +1,7 @@
 # Noble Stars — TODO
 
 Open work on the Godot 3D game (`godot/`). **Finished work moved to
-[`done.md`](done.md)** — 48 entries recording what was measured, what was tried
+[`done.md`](done.md)** — 49 entries recording what was measured, what was tried
 and rejected, and why things are the shape they are. Read it before reopening
 anything here; several items on this list have a rejected first attempt on
 record.
@@ -38,7 +38,6 @@ they are not urgent, and `Voicelines` is the extreme case.
 
 | # | Item | Area | Pri | Effort | Blocked on |
 |---|---|---|---|---|---|
-| 0.1 | Commit the 1,982 uncommitted lines | Repo | P0 | S | — |
 | 1.1 | Match does not reach the screen edges | Phone fit | P0 | S | — |
 | 1.2 | Menu does not reach the screen edges | Phone fit | P0 | S | — |
 | 1.3 | Buttons and text are too small | Phone fit | P0 | M | — |
@@ -72,28 +71,6 @@ they are not urgent, and `Voicelines` is the extreme case.
 | 9.3 | Per-kit weapon sounds, positional audio | Audio | P3 | S | — |
 | 9.4 | More music | Audio | P3 | L | — |
 | 11.1 | Nothing forces `Tools/godot.sh` | Tooling | P3 | XS | — |
-
----
-
-# 0. The working tree
-
-- [ ] **0.1 — 1,982 uncommitted lines across nine gameplay scripts.** `P0` `S`
-      They sit on top of `a68f3fd`, whose message is
-      `WIP: match feel (stalled agent, unverified)`. **They are verified now** —
-      a headless Showdown sim, a headless Cup match, the wifi room screen, the
-      join-code probe and a two-instance LAN Cup match all run with zero script
-      errors — but until they are committed, a second person cloning the repo
-      gets none of it, and **two finished features exist only on this machine** —
-      Nobles Cup over wifi, and join codes. Both are written up in `done.md`
-      under **Multiplayer**.
-      - Modified: `cup_mode.gd`, `fighter.gd`, `haptics.gd`, `main.gd`,
-        `menu.gd`, `net_play.gd`, `room_screen.gd`, `virtual_joystick.gd`,
-        `tools/aim_probe.gd`. Staged deletion: `super_button.gd`. Untracked:
-        `tools/code_probe.gd`.
-      - **CLAUDE.md already documents both** — the same changeset updated it, so
-        the working tree is self-consistent. It is only the *committed* CLAUDE.md
-        that still describes join-by-IP and an unhostable Cup, which is one more
-        reason to commit.
 
 ---
 
