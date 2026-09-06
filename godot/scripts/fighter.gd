@@ -79,6 +79,26 @@ var stats := {
 }
 
 var knockback_vel := Vector3.ZERO
+## The shove that is currently pushing this fighter around: how hard it was as
+## DEALT, which way it pointed, and who landed it. `knockback_vel` decays by 14%
+## a frame, so by the time a rule reads it the number has already moved — and
+## none of the three can be recovered from it at all. Nobles Cup uses them to
+## tell a Super's knock from a regular attack's (`CupMode._knock_was_super`) and
+## to give a stripped ball the direction it was knocked in. Cleared together
+## with `knockback_vel` the moment the shove runs out, so nothing downstream can
+## read a stale attacker.
+var knock_strength := 0.0
+var knock_dir := Vector3.ZERO
+var knock_from: Fighter = null
+
+## Who this fighter has most recently traded damage with, and when. Set on BOTH
+## sides of every hit, so it answers "who am I in a fight with" whether you are
+## the one shooting or the one being shot at. main.gd's Super picker leans on it:
+## the target worth a charge is usually the one you were already fighting, and
+## nothing else on the fighter remembers that.
+var engaged_with: Fighter = null
+var engaged_at := -100.0
+
 var dash: Dictionary = {}   # empty = not dashing; `steer` marks a Downhill ride
 var leap: Dictionary = {}   # empty = grounded; used by jump-smash Supers
 var disconnected_until := -1.0
@@ -548,6 +568,11 @@ func lunge(direction: Vector3, distance: float) -> void:
 	if distance <= 0.0 or direction.length() < 0.01:
 		return
 	knockback_vel += direction.normalized() * (distance / IMPULSE_TRAVEL)
+	# A lunge is self-inflicted, so it names no attacker. Clearing rather than
+	# leaving the last real hit in place: a fighter who is shoved and then swings
+	# would otherwise carry that attacker forward on their own hop, and Nobles
+	# Cup's strip rule reads exactly these three fields.
+	forget_knock()
 
 func face_direction(dir: Vector3) -> void:
 	var flat := Vector3(dir.x, 0, dir.z)
@@ -663,8 +688,22 @@ func take_damage(amount: int, now: float) -> void:
 	else:
 		_flash_model()
 
-func receive_knockback(direction: Vector3, strength: float) -> void:
-	knockback_vel += direction.normalized() * strength
+## `from` is who dealt it. It is optional so the signature keeps working for any
+## caller that has no attacker to name, but main.gd's deal_damage always has one
+## and always passes it: Nobles Cup's strip rule is "harder than that fighter's
+## own regular attack", and without the attacker there is nothing to compare to.
+func receive_knockback(direction: Vector3, strength: float, from: Fighter = null) -> void:
+	var unit := direction.normalized()
+	knockback_vel += unit * strength
+	knock_strength = strength
+	knock_dir = unit
+	knock_from = from
+
+func note_engagement(other: Fighter, at: float) -> void:
+	if other == null or other == self:
+		return
+	engaged_with = other
+	engaged_at = at
 
 ## Ayaan's snow spray. Overlapping sprays take the STRONGEST slow and the
 ## LATEST expiry, so skiing through the same crowd twice never shortens the
@@ -691,7 +730,11 @@ func tick(delta: float, now: float) -> void:
 	if _pending_popup > 0 and now - last_damage_at > 0.12:
 		_popup(str(_pending_popup), Color(1.0, 0.25, 0.2))
 		_pending_popup = 0
-	knockback_vel = knockback_vel * pow(0.0001, delta) if knockback_vel.length() > 0.05 else Vector3.ZERO
+	if knockback_vel.length() > 0.05:
+		knockback_vel = knockback_vel * pow(0.0001, delta)
+	else:
+		knockback_vel = Vector3.ZERO
+		forget_knock()
 
 # MARK: going down and coming back
 
@@ -772,6 +815,7 @@ func die() -> void:
 func knock_out() -> void:
 	velocity = Vector3.ZERO
 	knockback_vel = Vector3.ZERO
+	forget_knock()
 	dash = {}
 	leap = {}
 	# Off every layer and mask FIRST, and before the pop has finished: a fighter
@@ -917,10 +961,23 @@ func kickoff_restore(game_now: float) -> void:
 	slow_until = -1.0
 	slow_factor = 1.0
 	knockback_vel = Vector3.ZERO
+	forget_knock()
 	dash = {}
 	leap = {}
 	last_damage_at = game_now
 	next_attack_at = -1.0
+
+## Drops the record of the last shove — who landed it, how hard, which way. It is
+## called wherever `knockback_vel` is zeroed, so the record can never outlive the
+## shove, and it is called by anything that ACTS on a shove so that nothing can
+## act on the same one twice. That second job is not optional: a 10 m/s knock
+## takes 0.58s to decay out of the record, the ball it strips is catchable again
+## after 0.35s, and without spending the record Kovacs' Super stripped the same
+## carrier three times over off one cast (measured, NS3_BALL_LOG=1).
+func forget_knock() -> void:
+	knock_strength = 0.0
+	knock_dir = Vector3.ZERO
+	knock_from = null
 
 ## Damage feedback on a rigged model. The capsule can simply go white, but a
 ## textured character cannot: `albedo_color` MULTIPLIES the texture, so setting

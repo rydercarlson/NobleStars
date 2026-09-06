@@ -126,6 +126,19 @@ var sim_active := sim_matches > 0
 var sim_stats := {}   # kit name -> {spawns, wins, kills, damage, placement_sum}
 var _sim_done := 0
 
+## NS3_AUTOPLAY=1: hand the player's own fighter to a bot brain and let the match
+## play itself at normal speed, HUD and all. NS3_SIM cannot do this job — it
+## bolts on Showdown's gas ring and Showdown's end-of-match bookkeeping, neither
+## of which a Nobles Cup match wants — and without it a Cup match run from the
+## command line is a 2v3 against a player who never moves, which is over inside
+## fifteen seconds and never produces the situation being watched for.
+var autoplay := OS.get_environment("NS3_AUTOPLAY") != ""
+
+## NS3_AIM_SHOW=attack|super|kick: hold the tap aim indicator on with nobody
+## touching the screen, so it can be shot with NS3_SHOTS. See
+## _update_aim_indicator.
+var _aim_show := OS.get_environment("NS3_AIM_SHOW")
+
 ## Opponent usernames left to deal this match; refilled and reshuffled by
 ## next_bot_name(). Emptied by start_match so a rematch cannot repeat a name
 ## inside one lobby by carrying the tail of the previous shuffle into it.
@@ -994,7 +1007,10 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 		return   # Nobles Cup teams; Showdown fighters are never allies
 	target.take_damage(amount, now)
 	if kb_strength > 0.0:
-		target.receive_knockback(kb_dir, kb_strength)
+		# The attacker goes with the shove: Nobles Cup's strip rule compares this
+		# impulse against that fighter's OWN regular attack, which is the only way
+		# to tell a Super's knock from a basic one — see CupMode._knock_was_super.
+		target.receive_knockback(kb_dir, kb_strength, attacker)
 	if now - _last_impact_at >= IMPACT_GAP:
 		_last_impact_at = now
 		sfx_at(impact_sound, target.global_position)
@@ -1006,6 +1022,11 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 		_hit_spark(target.global_position, from, target.kit.get("color", Color.WHITE))
 	if attacker != null:
 		attacker.stats.damage += amount
+		# Both sides remember the exchange. "Who you have been fighting" is the
+		# strongest single term in the Super's target picker, and damage landing is
+		# the only honest evidence of it — aiming at someone is not fighting them.
+		attacker.note_engagement(target, now)
+		target.note_engagement(attacker, now)
 		var was_charged: bool = attacker.is_super_ready()
 		attacker.charge_super(amount)
 		# The moment the bar fills is the only cue the player gets that the
@@ -1854,15 +1875,103 @@ func _lobbed(weapon: Dictionary) -> bool:
 	return style == Kits.Style.LOB or style == Kits.Style.DISCONNECT \
 			or style == Kits.Style.KEEP_IT_UP
 
-## What a tap fires at: the nearest visible enemy, or a loot box when no enemy
-## is in range, so tapping in a quiet corner opens boxes instead of firing at
-## nothing. Reach is 1.1x the weapon's range, matching the enemy check.
+## What a tapped ATTACK fires at: the nearest visible enemy, or a loot box when
+## no enemy is in range, so tapping in a quiet corner opens boxes instead of
+## firing at nothing. Reach is 1.1x the weapon's range, matching the enemy check.
+##
+## Deliberately still nearest, while a tapped Super is scored (`_super_target`),
+## and the difference is the point. A regular attack repeats two to five times a
+## second, so the cost of it picking the wrong fighter is one shot and the next
+## tap can correct it — while a picker that re-ranks on every tap sends
+## consecutive shots at different people, which reads as the game arguing with
+## you. Nearest is also the only rule a player can predict without looking at a
+## marker. A Super is the one shot in the game that costs something, and the
+## scoring machinery is priced for that.
 func auto_aim_target(viewer: Fighter, weapon: Dictionary) -> Node3D:
 	var reach: float = weapon.range * 1.1
 	var enemy := nearest_visible_enemy(viewer, reach, _lobbed(weapon))
 	if enemy:
 		return enemy
 	return nearest_visible_lootbox(viewer, reach, _lobbed(weapon))
+
+## How long "the fighter you have been trading with" keeps counting. Long enough
+## to survive a reload or a step behind a wall, short enough that a fight you
+## walked away from is not still steering the charge you saved since.
+const SUPER_ENGAGE_MEMORY := 4.0
+## The Super picker's weights. They are a ranking rather than a measured
+## quantity: a shot that FINISHES someone beats the fight you are already in,
+## which beats a wounded bystander, which beats whoever happens to be nearest.
+const SUPER_KILL_WEIGHT := 1.0
+const SUPER_ENGAGE_WEIGHT := 0.6
+const SUPER_WOUND_WEIGHT := 0.7
+const SUPER_CLOSE_WEIGHT := 0.35
+## Nothing is scored at zero for delivery: an unlikely shot is still better than
+## sitting on a charge, so the odds only ever shade a target down, never out.
+const SUPER_CONNECT_FLOOR := 0.2
+
+## What a tapped SUPER fires at. The candidate set is exactly the one the old
+## rule used — `weapon.range * 1.1`, the same wall and bush rules — and only the
+## choice within it has changed.
+##
+## Nearest is the wrong metric for the one shot that costs something. The fighter
+## a metre closer is very often a full-health bystander who wandered into the
+## lane, while the one you have spent the last five seconds trading with is a
+## metre further out and nearly dead. So each candidate is scored as an expected
+## value: what the target is WORTH, multiplied by how likely the shot is to
+## actually arrive on them.
+func _super_target(weapon: Dictionary) -> Fighter:
+	var reach: float = float(weapon.range) * 1.1
+	var through := _lobbed(weapon)
+	var best: Fighter = null
+	var best_score := -INF
+	for f in fighters:
+		if f == player or f.is_dead() or player.is_ally(f):
+			continue
+		var d := player.global_position.distance_to(f.global_position)
+		if d >= reach or not can_see(player, f, through):
+			continue
+		var score := _super_target_score(weapon, f, d, reach)
+		if score > best_score:
+			best_score = score
+			best = f
+	return best
+
+func _super_target_score(weapon: Dictionary, f: Fighter, dist: float,
+		reach: float) -> float:
+	var hp := float(f.health) / maxf(float(f.max_health), 1.0)
+	var worth := SUPER_WOUND_WEIGHT * (1.0 - hp) \
+			+ SUPER_CLOSE_WEIGHT * (1.0 - dist / maxf(reach, 0.01))
+	# Would this Super finish them? `damage` is the per-hit figure, so for a
+	# multi-pellet Super this asks whether ONE hit is lethal — the floor rather
+	# than the ceiling, which is the right way round for a promise.
+	if float(weapon.damage) * player.damage_multiplier() >= float(f.health):
+		worth += SUPER_KILL_WEIGHT
+	# The fight you are already in, faded out over SUPER_ENGAGE_MEMORY. Both
+	# sides of every hit record the exchange, so this is true whether you have
+	# been shooting them or they have been shooting you.
+	var since := now - player.engaged_at
+	if f == player.engaged_with and since <= SUPER_ENGAGE_MEMORY:
+		worth += SUPER_ENGAGE_WEIGHT * (1.0 - since / SUPER_ENGAGE_MEMORY)
+	return worth * _connect_odds(weapon, f, dist)
+
+## Roughly how likely this Super is to arrive on `f`, 0..1. `_aim_lead` assumes
+## the target holds its current velocity, so the error is whatever a change of
+## direction buys them over the flight — which grows with distance and with how
+## fast they are moving, and is forgiven by however wide the Super lands. A
+## sprinting target at the far end of the range is the worst pick a "nearest"
+## rule can make, and this is the term that says so. An instant style (melee,
+## shockwave, a dash) has no flight time, no drift and no discount.
+func _connect_odds(weapon: Dictionary, f: Fighter, dist: float) -> float:
+	var speed: float = Kits.aim_speed(weapon, dist)
+	var flight := 0.0
+	if int(weapon.style) == Kits.Style.JUMP_SMASH:
+		flight = BotBrain.LEAP_FLIGHT      # a leap, not a projectile: fixed airtime
+	elif speed > 0.1:
+		flight = dist / speed
+	var drift := Vector3(f.velocity.x, 0.0, f.velocity.z).length() * flight
+	var forgive: float = maxf(float(weapon.get("aoe", 0.0)),
+			float(weapon.get("radius", 0.0)) + Kits.FIGHTER_RADIUS)
+	return maxf(SUPER_CONNECT_FLOOR, forgive / maxf(forgive + drift, 0.01))
 
 func nearest_loot(pos: Vector3):
 	var best = null
@@ -2292,26 +2401,39 @@ func _update_aim_indicator() -> void:
 	if phase != Phase.PLAYING or player == null or not is_instance_valid(player) \
 			or player.is_dead():
 		return
+	# NS3_AIM_SHOW=attack|super|kick holds the tap indicator on with no finger on
+	# the stick. The indicator is drawn only while a touch is down, so it is the
+	# one thing on screen NS3_SHOTS could never catch — the same reason NS3_END
+	# and NS3_KILL exist. `kick` needs a Nobles Cup match and the ball in hand.
+	if _aim_show != "":
+		# Carrying beats everything here exactly as it does below, so the hook can
+		# never draw an attack the player is not allowed to make.
+		if cup != null and cup.ball.carrier == player:
+			_draw_kick_aim(im, Vector2.ZERO, _aim_show == "super", false)
+		elif _aim_show != "kick":
+			_draw_tap_aim(im, _aim_show == "super")
+		return
 	# The dedicated Super stick takes priority over the aim stick.
 	var use_super := super_stick.active
 	var stick: TouchStick = super_stick if use_super else aim_stick
-	if not stick.active or stick.value.length() < TAP_THRESHOLD:
+	if not stick.active:
 		return
+	# A finger that is down but not yet dragged is a TAP, and a tap does not go
+	# where the stick points — it goes wherever the auto-aim sends it. Nothing at
+	# all used to be drawn in that state, which is most of why Nobles Cup aiming
+	# reads as unpredictable: a tapped kick is a shot at goal inside SHOT_RANGE
+	# and a pass outside it, and the distance that decides between them is not on
+	# screen anywhere. Both halves of the indicator now cover the tap.
+	var dragging := stick.value.length() >= TAP_THRESHOLD
 	# Holding the ball replaces the weapon's aimer with the ball's own path.
 	# The kick is a different action with a different reach, and it banks off
 	# walls, so drawing the weapon lane here would preview an attack the player
 	# cannot currently make and hide the one they can.
 	if cup != null and cup.ball.carrier == player:
-		var powerful := use_super and player.is_super_ready()
-		var kick_dir := Vector3(stick.value.x, 0, stick.value.y).normalized()
-		var from := Vector3(cup.ball.position.x, 0.08, cup.ball.position.z)
-		var tint: Color = SUPER_KICK_AIM_COLOR if powerful else KICK_AIM_COLOR
-		im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-		im.surface_set_color(tint)
-		for segment in _aim_bounce_segments(from, kick_dir,
-				Ball.kick_range(Ball.SUPER_KICK_MULT if powerful else 1.0), 2, Ball.BOUNCE):
-			_aim_add_segment(im, segment[0], segment[1], Ball.RADIUS, tint)
-		im.surface_end()
+		_draw_kick_aim(im, stick.value, use_super, dragging)
+		return
+	if not dragging:
+		_draw_tap_aim(im, use_super)
 		return
 
 	var weapon: Dictionary = player.kit["super"] if use_super else player.kit.weapon
@@ -2399,6 +2521,89 @@ func _update_aim_indicator() -> void:
 			var height := 4.0 * arc_height * t * (1.0 - t)
 			im.surface_add_vertex(flat + Vector3(0, height + 0.3, 0))
 		im.surface_end()
+
+## The carrier's aimer: the ball's own path, bounces and all. A drag goes where
+## the stick points; a tap goes wherever CupMode decides, so it is drawn from the
+## same `kick_plan` the kick itself runs on and marked with a ring on the thing
+## being aimed at — the goal for a shot, a team-mate's feet for a pass. That ring
+## is the whole tell. The rule (shoot inside SHOT_RANGE, pass outside it) is
+## Brawl Ball's own and is unchanged; what was missing was any way to know which
+## of the two a tap was about to be, since the deciding distance is invisible.
+##
+## A clearance draws no ring on purpose. It is aimed at the goal like a shot but
+## will not reach it, and a ring out at the goal would promise exactly the thing
+## the lane is already showing it cannot do — the lane stops where the ball does.
+func _draw_kick_aim(im: ImmediateMesh, stick_value: Vector2, use_super: bool,
+		dragging: bool) -> void:
+	var powerful := use_super and player.is_super_ready()
+	var plan: Dictionary = cup.kick_plan(player, powerful)
+	var kick_dir: Vector3 = Vector3(stick_value.x, 0, stick_value.y).normalized() if dragging \
+			else (plan.dir as Vector3).normalized()
+	if kick_dir == Vector3.ZERO:
+		return
+	var from := Vector3(cup.ball.position.x, 0.08, cup.ball.position.z)
+	var tint: Color = SUPER_KICK_AIM_COLOR if powerful else KICK_AIM_COLOR
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	im.surface_set_color(tint)
+	for segment in _aim_bounce_segments(from, kick_dir,
+			Ball.kick_range(Ball.SUPER_KICK_MULT if powerful else 1.0), 2, Ball.BOUNCE):
+		_aim_add_segment(im, segment[0], segment[1], Ball.RADIUS, tint)
+	if not dragging and String(plan.kind) != "clear":
+		var at: Vector3 = plan.at
+		_aim_add_ring(im, Vector3(at.x, 0.09, at.z), MARK_RADIUS, MARK_WIDTH, tint)
+	im.surface_end()
+
+## What a tap is about to shoot at, drawn while the finger is down and before it
+## has been dragged. It resolves through `_tap_plan`, which is the same call the
+## shot itself makes, so the ring can never point at someone the tap will not
+## fire at. A Super with nothing worth spending it on keeps its charge and says
+## so with a ring around your own feet — otherwise "the tap did nothing" and
+## "the indicator is broken" look identical.
+func _draw_tap_aim(im: ImmediateMesh, use_super: bool) -> void:
+	var weapon: Dictionary = player.kit["super"] if use_super else player.kit.weapon
+	var plan := _tap_plan(weapon, use_super)
+	var color := Color(1.0, 0.7, 0.2, 0.4) if use_super else Color(1, 1, 1, 0.3)
+	var origin := player.global_position + Vector3(0, 0.08, 0)
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	im.surface_set_color(color)
+	match String(plan.kind):
+		"target":
+			var at: Vector3 = (plan.target as Node3D).global_position
+			var flat := Vector3(at.x, 0.08, at.z)
+			_aim_add_segment(im, origin, flat, 0.16, color)
+			_aim_add_ring(im, Vector3(at.x, 0.09, at.z), MARK_RADIUS, MARK_WIDTH, color)
+		"free":
+			# Pop Off's escape and Downhill's set-off: no target, but the tap
+			# still goes, and it goes the way you are already running.
+			_aim_add_segment(im, origin, origin + (plan.dir as Vector3) * float(weapon.range),
+					Kits.FIGHTER_RADIUS, color)
+		"hold":
+			_aim_add_ring(im, Vector3(origin.x, 0.09, origin.z), MARK_RADIUS,
+					MARK_WIDTH, Color(color.r, color.g, color.b, color.a * 0.55))
+	im.surface_end()
+
+## A flat ring on the ground, for marking what a tap has picked. Sized to be seen
+## rather than to be accurate: the match camera shows about 55 px per metre, so
+## a marker any smaller than a fighter is a handful of pixels.
+const MARK_RADIUS := 1.15
+const MARK_WIDTH := 0.22
+
+func _aim_add_ring(im: ImmediateMesh, center: Vector3, radius: float,
+		width: float, color: Color) -> void:
+	var steps := 28
+	im.surface_set_color(color)
+	for i in steps:
+		var a0 := TAU * i / steps
+		var a1 := TAU * (i + 1) / steps
+		var d0 := Vector3(cos(a0), 0, sin(a0))
+		var d1 := Vector3(cos(a1), 0, sin(a1))
+		var inner := maxf(radius - width, 0.01)
+		im.surface_add_vertex(center + d0 * inner)
+		im.surface_add_vertex(center + d0 * radius)
+		im.surface_add_vertex(center + d1 * radius)
+		im.surface_add_vertex(center + d0 * inner)
+		im.surface_add_vertex(center + d1 * radius)
+		im.surface_add_vertex(center + d1 * inner)
 
 func _aim_add_segment(im: ImmediateMesh, from: Vector3, to: Vector3,
 		half_width: float, color: Color) -> void:
@@ -2506,6 +2711,12 @@ func _run_playing(delta: float) -> void:
 		elif player != null and is_instance_valid(player):
 			_end_match(fighters.size(), fighters.size() == 1)
 		return
+	# NS3_AIM_SHOW=kick shoots the carrier's aimer, and that needs a carrier. Over
+	# a whole match the ball is in the player's own hands for a few seconds and
+	# never on the frame NS3_SHOTS asked for, so the hook puts it there.
+	if _aim_show == "kick" and cup != null and cup.ball.carrier == null \
+			and not cup.frozen(now) and is_instance_valid(player) and not player.is_dead():
+		cup.ball.pick_up(player)
 	# In sim mode the player slot is brain-driven; skip input. After it dies
 	# the node is freed while the match runs on, hence the validity guards.
 	# Nobles Cup holds everyone still through the kickoff beat and once the
@@ -2515,7 +2726,8 @@ func _run_playing(delta: float) -> void:
 		for f in fighters:
 			if not f.is_dead():
 				f.apply_movement(Vector3.ZERO)
-	if not sim_active and is_instance_valid(player) and not player.is_dead() and not held:
+	if not sim_active and not autoplay and is_instance_valid(player) and not player.is_dead() \
+			and not held:
 		var dir := Vector3.ZERO
 		if OS.get_environment("NS3_AUTOWALK") != "":
 			var parts := OS.get_environment("NS3_AUTOWALK").split(",")
@@ -2719,39 +2931,62 @@ func _kick_instead(stick_value: Vector2, use_super: bool) -> bool:
 			if stick_value.length() >= TAP_THRESHOLD else cup.kick_aim(player, powerful)
 	return cup.kick(player, dir, now, use_super)
 
+## Which way a tapped escape Super sets off: the way the player is already
+## running, or their facing when standing still.
+func _run_or_facing() -> Vector3:
+	var run := Vector3(player.velocity.x, 0.0, player.velocity.z)
+	return run.normalized() if run.length() > 0.5 else player.facing
+
+## What a tap will do with `weapon`, resolved in one place so the aim indicator
+## and the shot itself cannot disagree — the indicator draws this and
+## `_auto_aim_fire` fires it. `kind` is one of:
+##
+##   "target"  fire at `target`, already led — a Fighter, or a loot box for a
+##             regular attack in a quiet corner
+##   "free"    nobody in reach, but the tap still goes: Pop Off's escape and
+##             Downhill's set-off, and any regular attack, which fires forward
+##   "hold"    a tapped Super with nothing worth spending it on, which keeps its
+##             charge rather than firing at nothing
+##
+## The three deliberate exceptions this had before all survive verbatim, because
+## they are the reason a tap is not simply "shoot the picker's answer".
+func _tap_plan(weapon: Dictionary, use_super: bool) -> Dictionary:
+	var style := int(weapon.get("style", -1))
+	# Pop Off is an ESCAPE, so a tapped one leaps the way Anders is already
+	# running. Auto-aiming it at the nearest enemy made the tap jump him into the
+	# fight he was trying to leave. Drag from the button to aim it anywhere else.
+	if style == Kits.Style.POP_OFF:
+		return {"kind": "free", "dir": _run_or_facing(), "target": null}
+	# A Super only ever aims at fighters, and picks among them on worth rather
+	# than on distance — burning the charge on a loot box, or on whoever happens
+	# to be a metre closer, is never what the tap meant.
+	var target: Node3D = _super_target(weapon) if use_super \
+			else auto_aim_target(player, weapon)
+	if target != null:
+		var aim: Vector3 = _aim_lead(player, target as Fighter, weapon) if target is Fighter \
+				else target.global_position
+		return {"kind": "target", "dir": aim - player.global_position, "target": target}
+	if not use_super:
+		return {"kind": "free", "dir": player.facing, "target": null}
+	if style == Kits.Style.DOWNHILL:
+		# Downhill is travel as much as damage, so with nobody in reach a tap
+		# still sets off down the hill — rotating, or leaving a fight — rather
+		# than sitting on the charge.
+		return {"kind": "free", "dir": _run_or_facing(), "target": null}
+	return {"kind": "hold", "dir": Vector3.ZERO, "target": null}
+
 func _auto_aim_fire(weapon: Dictionary, use_super: bool) -> void:
 	if _kick_instead(Vector2.ZERO, use_super):
 		return
-	# Pop Off is an ESCAPE, so a tapped one leaps the way Anders is already
-	# running. Auto-aiming it at the nearest enemy made the tap jump him into
-	# the fight he was trying to leave. Falls back to his facing when standing
-	# still; drag from the button to aim it anywhere else.
-	if int(weapon.get("style", -1)) == Kits.Style.POP_OFF:
-		var run := Vector3(player.velocity.x, 0.0, player.velocity.z)
-		var away: Vector3 = run.normalized() if run.length() > 0.5 else player.facing
-		_fire_player(weapon, away, float(weapon.range))
-		return
-	# A Super only auto-aims at fighters — burning the charge on a loot box is
-	# never what the tap meant.
-	var target: Node3D = nearest_visible_enemy(player, weapon.range * 1.1, _lobbed(weapon)) \
-			if use_super else auto_aim_target(player, weapon)
-	if target:
-		var aim: Vector3 = _aim_lead(player, target as Fighter, weapon) if target is Fighter \
-				else target.global_position
-		var v := aim - player.global_position
-		_fire_player(weapon, v, v.length())
-	elif not use_super:
-		_fire_player(weapon, player.facing, weapon.range)
-	elif int(weapon.get("style", -1)) == Kits.Style.DOWNHILL:
-		# Downhill is travel as much as damage, so with nobody in reach a tap
-		# still sets off down the hill — rotating, or leaving a fight — rather
-		# than sitting on the charge. It runs the way the player is already
-		# going, falling back to their facing when standing still.
-		var run := Vector3(player.velocity.x, 0.0, player.velocity.z)
-		_fire_player(weapon, run.normalized() if run.length() > 0.5 else player.facing,
-				float(weapon.range))
-	# Any other tapped Super with no target keeps its charge instead of firing
-	# blind; drag from the button to aim it manually.
+	# A plan of "hold" fires nothing: a tapped Super with no target keeps its
+	# charge rather than firing blind. Drag from the button to aim it manually.
+	var plan := _tap_plan(weapon, use_super)
+	match String(plan.kind):
+		"target":
+			var v: Vector3 = plan.dir
+			_fire_player(weapon, v, v.length())
+		"free":
+			_fire_player(weapon, plan.dir, float(weapon.range))
 
 func _update_concealment() -> void:
 	if player == null or not is_instance_valid(player):
