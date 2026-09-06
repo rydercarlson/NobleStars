@@ -54,15 +54,51 @@ overlaps.
       all three are the one ratio between how big a fighter is, how much map is
       on screen and how far it crosses per second. Do not tune one alone. The
       numbers to start from are in those two entries.
-- [ ] **No haptics.** `Input.vibrate_handheld(ms)` is the whole API on iOS and
-      nothing calls it. Wants a small vocabulary rather than a buzz per event:
-      taking a hit, an elimination, the Super charging, a goal. Gate it on a
-      `SaveGame` setting beside Music and SFX.
+- [x] **Haptics.** `scripts/haptics.gd` — a static `Haptics.fire(name)` over a
+      fourteen-entry table of duration + amplitude, gated on
+      `SaveGame.haptics_on` (Settings, beside Music and SFX) and on
+      `OS.has_feature("mobile")`. What the pass turned on:
+      - **Godot routes `vibrate_handheld` through Core Haptics on iOS 13+**, so
+        both the duration and the amplitude are real. Older devices ignore both
+        and fire the same ~0.4s buzz, which is why the table is short and hard
+        throttled — every entry has to survive arriving as a fixed buzz.
+      - **Damage is watched in `_update_status`, not hooked into `deal_damage`.**
+        A wifi client never runs `deal_damage` and takes its health off the
+        snapshot stream, so reading the number frame to frame is the one hook
+        that covers both — and a nine-pellet shotgun arrives as one exchange
+        rather than nine taps.
+      - **`HEAVY_FRACTION` was measured with `NS3_HAPTIC_LOG=1`, not picked.** A
+        bot's shot landing is 29% of max health and a gas tick 17%, so 0.22 is
+        the only threshold that separates them; the first pass at 0.12 made
+        every hit heavy, gas included, which is the same as having one entry.
+      - **`REPEAT_GAP` on top of `MIN_GAP`** for the taps that arrive as a
+        stream. Gas ticks about twice a second for as long as you stand in it,
+        and at the global 0.09s floor it rattles.
+      - **`NS3_HAPTIC_LOG=1` is the whole verification story**, since nothing can
+        be felt on a desktop. Confirmed firing on real runs: `count_go`,
+        `hit_taken`, `hit_heavy`, `super_ready`, `super_fire`, `elimination`,
+        `death`, `goal_for`, `goal_against`, and `ui_tap` off a real menu button
+        press. **Not yet seen fire: `cube`, `ball_get`, `ui_reward`** — each is a
+        one-line hook beside an already-working sound in the same closure, but
+        the situation did not arise in the runs that were made.
+      - Still open: nothing is tuned against an actual phone. The amplitudes are
+        first guesses and want a pass on the device.
 - [ ] **The Super is hard to aim.** Aiming a Super costs the same drag as a shot
       but the miss is far more expensive, and the button and stick are separate
       controls (`super_button.gd` + `virtual_joystick.gd`), so the aim starts
       only once the finger is already on the button. Worth trying the Brawl
       Stars arrangement: the Super button is itself a stick you drag off.
+- [ ] **The Super's auto-aim picks badly.** A tapped Super takes
+      `nearest_visible_enemy(player, range * 1.1, ...)` and nothing else
+      (`main.gd:_auto_aim_fire`) — no lead beyond `_aim_lead`, no preference for
+      a target that is actually worth a charge, and no memory of what you were
+      already shooting at. Nearest is the wrong metric for the one shot that
+      costs something: the right target is usually the one you have been
+      fighting, or the low one, not whoever happens to be a metre closer. Note
+      the deliberate exceptions already in there (Pop Off runs the way you are
+      running, Downhill sets off with nobody in reach, and any other Super with
+      no target keeps its charge rather than firing at nothing) — those are not
+      the bug and should survive whatever replaces the picker.
 - [ ] **Nobles Cup aiming is weird.** `CupMode.kick_aim` shoots inside
       `SHOT_RANGE` and passes otherwise, and the indicator is the ball's own
       bounce path — so a tap does one of two quite different things depending on
@@ -112,10 +148,41 @@ overlaps.
 
 ### Boot
 
-- [ ] **The app still boots on Godot's own splash.** `project.godot` sets no
-      `application/boot_splash/*` at all, so the first thing a player sees is the
-      engine logo. Wants the game's own art plus a matching `bg_color`, and iOS
-      launch art alongside the app icon (both in the **Ship** section below).
+- [x] **The app boots on the loading screen.** Not a second design — the splash
+      *is* `loading_screen.gd`'s own first frame, rendered to a PNG by
+      `tools/make_boot_splash.gd` because the engine paints it before any of our
+      code is running and a still image is all it can paint. The screen builds
+      itself through a static `LoadingScreen.compose()` that both the live
+      transition and the renderer call, so the two cannot drift; re-run the tool
+      after changing the screen:
+
+          /Applications/Godot.app/Contents/MacOS/Godot --path godot \
+              --script res://tools/make_boot_splash.gd     # NOT --headless
+
+      Copy is `BOOT_TITLE` / `BOOT_SUBTITLE` on the screen itself ("Starting up"
+      — "returning to the lobby" is the one line that cannot carry over to a
+      cold start). `bg_color` is the screen's own `BASE_INK` (`#05070f`) by
+      hand, and it is load-bearing: 4.7's `boot_splash/stretch_mode` defaults to
+      **Keep**, which FITS the image, so on anything wider than 16:9 that colour
+      is the columns either side. Fit rather than Cover deliberately — the title
+      and the bar are anchored to the bottom of the frame, and Cover crops 11%
+      off the bottom of a 19.5:9 phone, which is exactly where they live.
+      Three more things it learned: the render is composed at the screen's
+      authored 1280x720 and shot at 1920 via `size_2d_override`, which
+      rasterizes the type at the larger size the way the game's own
+      `canvas_items` stretch does (scaling the Control tree instead upscales the
+      glyph bitmaps); 1920 and not more because that is the keyart's own
+      resolution and the same frame at 2560 is a 4 MB PNG against a 500 KB
+      source; and the PNG is imported `keep` with an `exclude_filter` entry in
+      `export_presets.cfg`, because the exporter adds the boot splash to the
+      pack by path *on top of* the resource sweep and it shipped twice
+      (measured: 40.0 MB → 37.2 MB). `minimum_display_time=750` is `MIN_SHOW`'s
+      rule — a splash that flashes for three frames reads as a glitch.
+      **iOS gets it free on the next export**: the launch storyboard falls back
+      to `boot_splash/image` and `boot_splash/bg_color` when the preset names no
+      `storyboard/custom_image@2x`, which is why the last export's storyboard
+      carries the engine's own `0.14, 0.14, 0.14`. Only the app icon is left in
+      **Ship**.
 
 ### Balance, from play
 
@@ -415,6 +482,16 @@ those before anything else on the list.
         y = 1 inside a box that starts at 0. 2.05 m was shot and looks
         chunkier and more like the reference; 1.5 m keeps more floor out of
         shadow. Taste, one constant, no balance consequence either way.
+- [ ] **The gas ring looks crappy, and it jumps.** `gas_ring.gd` moves
+      `inset` by `TILES_PER_SHRINK` (2) in one assignment every
+      `SHRINK_INTERVAL` (12s), so the wall teleports two tiles inward with no
+      motion at all — and `inset` is an **int** that the geometry, `contains()`
+      and `depth_inside()` all read, so making it drift means making the visual
+      edge a float that eases toward the logical one while the rules keep
+      stepping (or committing to a float inset everywhere, which touches the
+      bots' `gas_depth` steering). Decide which before starting. The look is the
+      other half: it is flat cloud geometry reseeded off `rng.seed = 7 + inset`,
+      so it also pops its whole pattern on every step.
 - [ ] **Camera framing — measured, and the lens is the wrong lever.** The
       numbers, so this is not re-derived: the camera is 105.5 m out at a 60
       degree pitch behind a 7 degree vertical FOV, which is **22.9 x 12.9 m** at
@@ -722,8 +799,9 @@ those before anything else on the list.
 ## Ship
 
 - [ ] **The app icon is a placeholder.** `godot/icon.png` is a flat gold star on
-      navy at 1024x1024, and there is no iOS launch art. Script-drawable
-      (pipeline 3), and needed before a build on a phone looks like a real game.
+      navy at 1024x1024. Script-drawable (pipeline 3), and needed before a build
+      on a phone looks like a real game. The launch art beside it is done — the
+      iOS storyboard inherits the boot splash, see **Boot** above.
 - [x] **Character and prop textures are capped; the bundle is less than half
       what it was.** The seven `assets/*_texture_0.png.import` files carried
       `process/size_limit=0` against 4096x4096 sources. Characters are now

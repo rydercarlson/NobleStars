@@ -20,6 +20,22 @@ const MATCH_SCENE := "res://game.tscn"
 const MENU_SCENE := "res://menu.tscn"
 const KEYART := "res://assets/menu/background/loading_keyart.jpg"
 
+## What the engine's own boot splash says, and the size it is rendered at.
+## The splash is not a second design — it is a PNG of THIS screen's first frame,
+## shot by tools/make_boot_splash.gd, because the engine paints it before any of
+## our code is running and a static image is all it can paint. "Returning" is
+## the one word that cannot carry over: a cold start has nowhere to return to.
+const BOOT_TITLE := "NOBLE STARS"
+const BOOT_SUBTITLE := "Starting up"
+## The viewport this screen is authored against — the match HUD's, not the
+## menu's 1920x1080 stage. Also what the splash render composes at.
+const BOOT_SIZE := Vector2i(1280, 720)
+## The ground the keyart sits on. `application/boot_splash/bg_color` in
+## project.godot is this colour by hand, and has to stay that way: the engine
+## fits the splash inside the window, so on anything wider than 16:9 this is
+## what fills the columns either side of it.
+const BASE_INK := Color("#05070f")
+
 ## A loading screen that flashes for three frames is worse than none: it reads
 ## as a glitch. Below this the screen is held even once the work is done.
 const MIN_SHOW := 0.75
@@ -189,21 +205,34 @@ func _set_progress(ratio: float) -> void:
 # MARK: the screen itself
 
 ## Rebuilt per transition — it is cheap, and the copy differs every time.
-## Authored against the 1280x720 viewport the match HUD uses, not the menu's
-## 1920x1080 stage, and anchored throughout so "expand" on a taller phone
-## widens it rather than cropping it.
 func _build(title: String, subtitle: String, kit_name: String) -> void:
 	if is_instance_valid(_root):
 		_root.queue_free()
-	_root = Control.new()
-	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_root.mouse_filter = Control.MOUSE_FILTER_STOP   # nothing underneath is ready to be poked
+	var parts := compose(title, subtitle, kit_name)
+	_root = parts["root"]
+	_bar = parts["bar"]
+	_percent = parts["percent"]
+	_status = parts["status"]
 	add_child(_root)
 
+## The screen as a detached Control tree, plus the three nodes the loader drives.
+## Static, and building into nothing in particular, so that
+## tools/make_boot_splash.gd can render this exact frame into the engine's boot
+## splash without an autoload and a scene change. Change the screen and the
+## splash is one command behind it rather than a second thing to redraw.
+##
+## Authored against the 1280x720 viewport the match HUD uses, not the menu's
+## 1920x1080 stage, and anchored throughout so "expand" on a taller phone
+## widens it rather than cropping it.
+static func compose(title: String, subtitle: String, kit_name: String) -> Dictionary:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP   # nothing underneath is ready to be poked
+
 	var base := ColorRect.new()
-	base.color = Color("#05070f")
+	base.color = BASE_INK
 	base.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_root.add_child(base)
+	root.add_child(base)
 
 	if ResourceLoader.exists(KEYART):
 		var art := TextureRect.new()
@@ -212,7 +241,7 @@ func _build(title: String, subtitle: String, kit_name: String) -> void:
 		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		art.set_anchors_preset(Control.PRESET_FULL_RECT)
 		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_root.add_child(art)
+		root.add_child(art)
 
 	# A scrim over the bottom third so the copy reads against whatever the art
 	# happens to be doing down there. Its own vertical ramp rather than MenuUI's
@@ -225,7 +254,7 @@ func _build(title: String, subtitle: String, kit_name: String) -> void:
 	scrim.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	scrim.offset_top = -340
 	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(scrim)
+	root.add_child(scrim)
 
 	var strip: VBoxContainer = MenuUI.vbox(6)
 	strip.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
@@ -234,7 +263,7 @@ func _build(title: String, subtitle: String, kit_name: String) -> void:
 	strip.offset_top = -212
 	strip.offset_bottom = -30
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(strip)
+	root.add_child(strip)
 
 	var head: HBoxContainer = MenuUI.hbox(16)
 	strip.add_child(head)
@@ -250,19 +279,20 @@ func _build(title: String, subtitle: String, kit_name: String) -> void:
 
 	var bar_row: HBoxContainer = MenuUI.hbox(12)
 	strip.add_child(bar_row)
-	_bar = MenuUI.bar(16, MenuUI.YELLOW, MenuUI.YELLOW_HI)
-	_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	bar_row.add_child(_bar)
-	_percent = MenuUI.display("0%", 22, MenuUI.TEXT_SOFT, 4)
-	_percent.custom_minimum_size = Vector2(72, 0)
-	_percent.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_percent.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	bar_row.add_child(_percent)
+	var bar: Panel = MenuUI.bar(16, MenuUI.YELLOW, MenuUI.YELLOW_HI)
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar_row.add_child(bar)
+	var percent: Label = MenuUI.display("0%", 22, MenuUI.TEXT_SOFT, 4)
+	percent.custom_minimum_size = Vector2(72, 0)
+	percent.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	percent.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar_row.add_child(percent)
 
-	_status = MenuUI.body("LOADING", 16, MenuUI.TEXT_DIM, true)
-	strip.add_child(_status)
-	MenuUI.set_bar(_bar, 0.0, false)
+	var status: Label = MenuUI.body("LOADING", 16, MenuUI.TEXT_DIM, true)
+	strip.add_child(status)
+	MenuUI.set_bar(bar, 0.0, false)
+	return {"root": root, "bar": bar, "percent": percent, "status": status}
 
 static var _scrim: GradientTexture2D
 
@@ -288,7 +318,7 @@ static func _scrim_texture() -> GradientTexture2D:
 
 ## The fighter you picked, riding on the right of the title. Falls back to the
 ## kit's initial for Nova and Ayaan, which have no portrait yet.
-func _fighter_badge(kit_name: String) -> Control:
+static func _fighter_badge(kit_name: String) -> Control:
 	var holder: Panel = MenuUI.card("dark", 14, 5)
 	holder.custom_minimum_size = Vector2(118, 118)
 	holder.size_flags_vertical = Control.SIZE_SHRINK_END
