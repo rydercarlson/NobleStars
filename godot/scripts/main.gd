@@ -38,10 +38,12 @@ var versus: VersusScreen
 var players_label: Label
 var feed_label: Label
 var status_label: Label
+## The three touch controls, parked on screen and colour-coded: blue walks, red
+## shoots, gold is the Super. The Super's stick draws its own charge dial, so
+## there is no separate Super button any more.
 var move_stick: TouchStick
 var aim_stick: TouchStick
-var super_stick: TouchStick   # dedicated Super joystick, anchored at the button
-var super_btn: SuperButton
+var super_stick: TouchStick
 var fighter_bars: FighterBars
 var results: Control
 ## The "you are down" wash and the count to your return. Nobles Cup only — a
@@ -134,8 +136,10 @@ var _sim_done := 0
 ## fifteen seconds and never produces the situation being watched for.
 var autoplay := OS.get_environment("NS3_AUTOPLAY") != ""
 
-## NS3_AIM_SHOW=attack|super|kick: hold the tap aim indicator on with nobody
-## touching the screen, so it can be shot with NS3_SHOTS. See
+## NS3_AIM_SHOW=attack|super|kick: hold the aim indicator on with nobody
+## touching the screen, so it can be shot with NS3_SHOTS. `attack`/`super` draw
+## the DRAG indicator at full deflection along the player's facing — a tap draws
+## nothing on purpose, so there is no tap state left to shoot. See
 ## _update_aim_indicator.
 var _aim_show := OS.get_environment("NS3_AIM_SHOW")
 
@@ -184,6 +188,10 @@ const NET_INPUT_QUEUE_MAX := 3
 ## Snapshot wire format: positions in centimetres. The Showdown map is 78 m
 ## across and world coordinates start at zero, so u16 covers it with room over.
 const NET_POS_SCALE := 100.0
+## Nobles Cup's trailer on a snapshot: carrier index, ball x/z, both scores, the
+## match clock, the kickoff freeze remaining, and a flags byte. Absent entirely
+## in Showdown, which is why the decoder tests for it by length.
+const NET_CUP_BYTES := 11
 ## Fixed-point divisor for the gas inset in a snapshot. The inset is in TILES and
 ## eases fractionally between steps, so it cannot ride as the plain integer it
 ## once was. 1/256th of a tile is far finer than the ~2 cm a pixel covers at the
@@ -292,6 +300,20 @@ var _last_empty_click := -1.0
 ## CLIENT never runs deal_damage at all — `authoritative` returns it early — and
 ## its own health arrives in the snapshot stream. Reading the number covers both.
 var _last_player_health := -1
+## Damage the PLAYER dealt, and the max health of whoever took it. Banked in
+## deal_damage and spent in _update_status for the same reason the line above is
+## watched there: one exchange should be one tap.
+##
+## Banked over a WINDOW rather than a frame, which the first pass got wrong. A
+## shotgun's nine pellets are nine projectiles with their own flight times, so
+## they land across three or four frames, not one — the repeat gap in haptics.gd
+## still collapsed them to a single tap, but that tap carried the first frame's
+## share of the damage and read as a third of the blow it was. The window is
+## short enough that the delay it adds is under a tenth of a second.
+const LANDED_WINDOW := 0.07
+var _landed_damage := 0.0
+var _landed_max := 1.0
+var _landed_at := 0.0
 
 func _start_battle_music() -> void:
 	if not SaveGame.music_on or not ResourceLoader.exists(BATTLE_MUSIC):
@@ -376,6 +398,34 @@ func _ready() -> void:
 	else:
 		start_match()
 
+## What the three sticks look like and where they park. Colour is the only thing
+## telling them apart at a glance, so they are the three that never read as each
+## other: blue walks, red shoots, gold spends.
+const MOVE_STICK_COLOR := Color(0.36, 0.64, 1.0)
+const AIM_STICK_COLOR := Color(1.0, 0.34, 0.30)
+const SUPER_STICK_COLOR := Color(1.0, 0.82, 0.20)
+const SUPER_STICK_RADIUS := 70.0
+const SUPER_STICK_KNOB := 30.0
+## The Super's grab radius is deliberately much wider than the ring it draws.
+## The old button was 62 px with a 16 px pad and it was genuinely hard to hit
+## with a thumb mid-fight, which is exactly the complaint this answers — and
+## because an uncharged Super now falls THROUGH to the aim stick, a generous
+## radius costs nothing when there is no charge to spend.
+const SUPER_GRAB_RADIUS := 118.0
+## How far the move and aim sticks park from their corner, and where the Super
+## sits relative to the aim stick: up and inboard, so a thumb reaching for it
+## never crosses the stick it is already holding.
+const STICK_INSET := 168.0
+const SUPER_STICK_OFFSET := Vector2(-186.0, -132.0)
+
+## Re-park the sticks for the current viewport. They are drawn in viewport
+## pixels rather than laid out as Controls, so this runs on every resize.
+func _layout_sticks(size: Vector2) -> void:
+	move_stick.park(Vector2(STICK_INSET, size.y - STICK_INSET))
+	var aim_home := Vector2(size.x - STICK_INSET, size.y - STICK_INSET)
+	aim_stick.park(aim_home)
+	super_stick.park(aim_home + SUPER_STICK_OFFSET)
+
 func _build_hud() -> void:
 	hud = CanvasLayer.new()
 	add_child(hud)
@@ -383,16 +433,21 @@ func _build_hud() -> void:
 	fighter_bars.game = self
 	hud.add_child(fighter_bars)   # under the sticks and labels
 	move_stick = TouchStick.new()
+	move_stick.tint = MOVE_STICK_COLOR
 	aim_stick = TouchStick.new()
+	aim_stick.tint = AIM_STICK_COLOR
 	super_stick = TouchStick.new()
-	super_btn = SuperButton.new()
+	super_stick.tint = SUPER_STICK_COLOR
+	super_stick.radius = SUPER_STICK_RADIUS
+	super_stick.knob = SUPER_STICK_KNOB
+	super_stick.grab_radius = SUPER_GRAB_RADIUS
+	super_stick.charge = 0.0      # >= 0 is what puts the dial and the star on it
 	hud.add_child(move_stick)
 	hud.add_child(aim_stick)
-	hud.add_child(super_btn)
 	hud.add_child(super_stick)
-	super_btn.layout(get_viewport().get_visible_rect().size)
+	_layout_sticks(get_viewport().get_visible_rect().size)
 	get_viewport().size_changed.connect(func() -> void:
-		super_btn.layout(get_viewport().get_visible_rect().size))
+		_layout_sticks(get_viewport().get_visible_rect().size))
 
 	center_label = _label(Vector2(640, 240), 72, HORIZONTAL_ALIGNMENT_CENTER)
 	players_label = _label(Vector2(1130, 20), 26, HORIZONTAL_ALIGNMENT_RIGHT)
@@ -816,6 +871,12 @@ func start_match() -> void:
 	cup = null
 	_name_pool = []   # a fresh shuffle per match, so no lobby repeats a username
 	_last_player_health = -1
+	_landed_damage = 0.0
+	# Ahead of the first tap rather than on it: Godot builds the Core Haptics
+	# engine with auto-shutdown on, so it idles down between taps and the first
+	# one after a lull pays the start-up cost. A Showdown lull is easily ten
+	# seconds, which makes the late tap exactly the one that mattered.
+	Haptics.warm()
 
 	arena = Arena.new()
 	arena.map_mode = "cup" if mode == "cup" else "showdown"
@@ -1159,11 +1220,16 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 		_hit_spark(target.global_position, from, target.kit.get("color", Color.WHITE))
 	if attacker != null:
 		attacker.stats.damage += amount
-		# Both sides remember the exchange. "Who you have been fighting" is the
-		# strongest single term in the Super's target picker, and damage landing is
-		# the only honest evidence of it — aiming at someone is not fighting them.
-		attacker.note_engagement(target, now)
-		target.note_engagement(attacker, now)
+		# Your shot arriving on somebody — the one piece of feedback the first
+		# haptics pass had no entry for at all, and the one thing in a firefight
+		# you genuinely cannot read off the screen. Banked rather than fired, so
+		# the whole exchange is one tap; skipped when the target goes down,
+		# because `elimination` outranks it a few lines below and says more.
+		if attacker == player and target != player and not target.is_dead():
+			if _landed_damage <= 0.0:
+				_landed_at = now
+			_landed_damage += float(amount)
+			_landed_max = float(target.max_health)
 		var was_charged: bool = attacker.is_super_ready()
 		attacker.charge_super(amount)
 		# The moment the bar fills is the only cue the player gets that the
@@ -1202,9 +1268,11 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			3.0 if is_super else 0.0)
 	# Only your own, and only the Super: a tap per ordinary shot would fire
 	# several times a second, which the throttle would mostly eat and the rest
-	# of which would be noise.
+	# of which would be noise. The style picks the shape — a Super that carries
+	# you somewhere gets a launch and then a bed under the ride, which is the
+	# one thing a continuous-only haptic API is genuinely the right tool for.
 	if is_super and f == player:
-		Haptics.fire("super_fire")
+		Haptics.super_fired(int(weapon.style))
 	_muzzle_flash(f, unit, weapon)
 	match int(weapon.style):
 		Kits.Style.PELLETS:
@@ -2024,14 +2092,10 @@ func _lobbed(weapon: Dictionary) -> bool:
 ## no enemy is in range, so tapping in a quiet corner opens boxes instead of
 ## firing at nothing. Reach is 1.1x the weapon's range, matching the enemy check.
 ##
-## Deliberately still nearest, while a tapped Super is scored (`_super_target`),
-## and the difference is the point. A regular attack repeats two to five times a
-## second, so the cost of it picking the wrong fighter is one shot and the next
-## tap can correct it — while a picker that re-ranks on every tap sends
+## Nearest, and `_super_target` is nearest too — the one rule a player can
+## predict without reading a marker. A picker that re-ranks on every tap sends
 ## consecutive shots at different people, which reads as the game arguing with
-## you. Nearest is also the only rule a player can predict without looking at a
-## marker. A Super is the one shot in the game that costs something, and the
-## scoring machinery is priced for that.
+## you.
 func auto_aim_target(viewer: Fighter, weapon: Dictionary) -> Node3D:
 	var reach: float = weapon.range * 1.1
 	var enemy := nearest_visible_enemy(viewer, reach, _lobbed(weapon))
@@ -2039,84 +2103,19 @@ func auto_aim_target(viewer: Fighter, weapon: Dictionary) -> Node3D:
 		return enemy
 	return nearest_visible_lootbox(viewer, reach, _lobbed(weapon))
 
-## How long "the fighter you have been trading with" keeps counting. Long enough
-## to survive a reload or a step behind a wall, short enough that a fight you
-## walked away from is not still steering the charge you saved since.
-const SUPER_ENGAGE_MEMORY := 4.0
-## The Super picker's weights. They are a ranking rather than a measured
-## quantity: a shot that FINISHES someone beats the fight you are already in,
-## which beats a wounded bystander, which beats whoever happens to be nearest.
-const SUPER_KILL_WEIGHT := 1.0
-const SUPER_ENGAGE_WEIGHT := 0.6
-const SUPER_WOUND_WEIGHT := 0.7
-const SUPER_CLOSE_WEIGHT := 0.35
-## Nothing is scored at zero for delivery: an unlikely shot is still better than
-## sitting on a charge, so the odds only ever shade a target down, never out.
-const SUPER_CONNECT_FLOOR := 0.2
-
-## What a tapped SUPER fires at. The candidate set is exactly the one the old
-## rule used — `weapon.range * 1.1`, the same wall and bush rules — and only the
-## choice within it has changed.
+## What a tapped SUPER fires at: the nearest visible enemy, over the same reach
+## and the same wall and bush rules a tapped attack uses.
 ##
-## Nearest is the wrong metric for the one shot that costs something. The fighter
-## a metre closer is very often a full-health bystander who wandered into the
-## lane, while the one you have spent the last five seconds trading with is a
-## metre further out and nearly dead. So each candidate is scored as an expected
-## value: what the target is WORTH, multiplied by how likely the shot is to
-## actually arrive on them.
+## This was briefly an expected-value picker — worth of the target (would it
+## finish them, were you already trading with them, are they hurt, are they
+## close) times how likely the shot looked to arrive. It read as the game
+## arguing with you. A Super is aimed under pressure at the fighter you are
+## looking at, and any rule that quietly prefers a different one is wrong at the
+## moment it matters however good its reasoning is. The one thing kept from the
+## split is that a Super never picks a LOOT BOX, which `auto_aim_target` will:
+## burning a charge on a box is never what the tap meant.
 func _super_target(weapon: Dictionary) -> Fighter:
-	var reach: float = float(weapon.range) * 1.1
-	var through := _lobbed(weapon)
-	var best: Fighter = null
-	var best_score := -INF
-	for f in fighters:
-		if f == player or f.is_dead() or player.is_ally(f):
-			continue
-		var d := player.global_position.distance_to(f.global_position)
-		if d >= reach or not can_see(player, f, through):
-			continue
-		var score := _super_target_score(weapon, f, d, reach)
-		if score > best_score:
-			best_score = score
-			best = f
-	return best
-
-func _super_target_score(weapon: Dictionary, f: Fighter, dist: float,
-		reach: float) -> float:
-	var hp := float(f.health) / maxf(float(f.max_health), 1.0)
-	var worth := SUPER_WOUND_WEIGHT * (1.0 - hp) \
-			+ SUPER_CLOSE_WEIGHT * (1.0 - dist / maxf(reach, 0.01))
-	# Would this Super finish them? `damage` is the per-hit figure, so for a
-	# multi-pellet Super this asks whether ONE hit is lethal — the floor rather
-	# than the ceiling, which is the right way round for a promise.
-	if float(weapon.damage) * player.damage_multiplier() >= float(f.health):
-		worth += SUPER_KILL_WEIGHT
-	# The fight you are already in, faded out over SUPER_ENGAGE_MEMORY. Both
-	# sides of every hit record the exchange, so this is true whether you have
-	# been shooting them or they have been shooting you.
-	var since := now - player.engaged_at
-	if f == player.engaged_with and since <= SUPER_ENGAGE_MEMORY:
-		worth += SUPER_ENGAGE_WEIGHT * (1.0 - since / SUPER_ENGAGE_MEMORY)
-	return worth * _connect_odds(weapon, f, dist)
-
-## Roughly how likely this Super is to arrive on `f`, 0..1. `_aim_lead` assumes
-## the target holds its current velocity, so the error is whatever a change of
-## direction buys them over the flight — which grows with distance and with how
-## fast they are moving, and is forgiven by however wide the Super lands. A
-## sprinting target at the far end of the range is the worst pick a "nearest"
-## rule can make, and this is the term that says so. An instant style (melee,
-## shockwave, a dash) has no flight time, no drift and no discount.
-func _connect_odds(weapon: Dictionary, f: Fighter, dist: float) -> float:
-	var speed: float = Kits.aim_speed(weapon, dist)
-	var flight := 0.0
-	if int(weapon.style) == Kits.Style.JUMP_SMASH:
-		flight = BotBrain.LEAP_FLIGHT      # a leap, not a projectile: fixed airtime
-	elif speed > 0.1:
-		flight = dist / speed
-	var drift := Vector3(f.velocity.x, 0.0, f.velocity.z).length() * flight
-	var forgive: float = maxf(float(weapon.get("aoe", 0.0)),
-			float(weapon.get("radius", 0.0)) + Kits.FIGHTER_RADIUS)
-	return maxf(SUPER_CONNECT_FLOOR, forgive / maxf(forgive + drift, 0.01))
+	return nearest_visible_enemy(player, float(weapon.range) * 1.1, _lobbed(weapon))
 
 func nearest_loot(pos: Vector3):
 	var best = null
@@ -2167,6 +2166,10 @@ func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
 	if cup == null:
 		f.stats.survived = maxf(0.0, now - match_start)
 	if cup != null:
+		# Ahead of on_death, which parks the body: a client runs the same call in
+		# _net_cup_down and has to see it in the same order.
+		if net_host:
+			_net_cup_down.rpc(net_fighters.find(f), killer)
 		# Your own death is the only one that gets the wash and the counter, and
 		# only when there is something to count to — overtime books no respawn.
 		if f == player and not cup.overtime:
@@ -2259,6 +2262,14 @@ func _end_match(rank: int, victory: bool) -> void:
 	aim_stick.release()
 	super_stick.release()
 	sfx_ui("victory" if victory else "defeat", 2.0)
+	# Losing while dead is silent on purpose: `death` fired a beat earlier in
+	# _eliminate and outlasts this call, and a second, smaller statement on top
+	# of it says nothing the first one did not. In Showdown that is every loss;
+	# the branch is here for a Cup scoreline, where you can lose on your feet.
+	if victory:
+		Haptics.fire("victory")
+	elif player == null or not is_instance_valid(player) or not player.is_dead():
+		Haptics.fire("defeat")
 	# A winner is still standing, so their clock stops here; a loser's was
 	# stopped by _eliminate on the way in.
 	if player != null and is_instance_valid(player) and not player.is_dead():
@@ -2271,7 +2282,7 @@ func _end_match(rank: int, victory: bool) -> void:
 ## borrows Showdown's reward curve at the ranks that pay what a 3v3 result
 ## should: a win like a Showdown win, a draw mid-table, a loss just under the
 ## break-even rank.
-func end_cup_match(blue: int, red: int) -> void:
+func end_cup_match(blue: int, red: int, rows: Array = []) -> void:
 	phase = Phase.ENDED
 	center_label.text = ""
 	move_stick.release()
@@ -2280,10 +2291,19 @@ func end_cup_match(blue: int, red: int) -> void:
 	var won := blue > red
 	var drew := blue == red
 	sfx_ui("victory" if won else "defeat", 2.0)
+	# The whistle, not an elimination: a Cup match ends on the clock with the
+	# player usually alive, so unlike Showdown there is nothing already playing
+	# for this to sit on top of. A draw takes the losing shape — it is not a win.
+	Haptics.fire("victory" if won else "defeat")
 	var award: Dictionary = SaveGame.award_match(player.kit.name, 1 if won else (5 if drew else 9))
+	var board_rows: Array = rows if not rows.is_empty() else _cup_rows()
+	if net_host:
+		# The host is the only machine that counted a goal or a hit, so the whole
+		# table goes out from here — see _cup_rows.
+		_net_cup_over.rpc(blue, red, board_rows)
 	_show_results(1 if won else (0 if drew else -1), "%d — %d" % [blue, red],
 			str(player.kit.name), award, [], authoritative,
-			_cup_scoreboard([blue, red]))
+			_cup_scoreboard([blue, red], board_rows), net_active and not net_host)
 
 ## Nobles Cup's end card: a TEAM SCOREBOARD, both sides, every player — the way
 ## Brawl Stars ends a Brawl Ball match. It replaced a four-row personal table,
@@ -2301,11 +2321,49 @@ func end_cup_match(blue: int, red: int) -> void:
 ## NS3_SAVE_LOG=1 the ball changes hands about seven times a match and nearly
 ## every one is a team collecting its own forward pass, so the column would read
 ## 0 for all six. `Fighter.stats.saves` and `CupMode._is_save` stay maintained.
-func _cup_scoreboard(score: Array) -> Control:
+func _cup_scoreboard(score: Array, rows: Array) -> Control:
 	var board: HBoxContainer = MenuUI.hbox(16)
-	for team in 2:
-		board.add_child(_cup_team_column(team, int(score[team])))
+	# Your OWN side on the left, not team 0. In single player you are always team
+	# 0 and the two are the same thing; over wifi you may well be on team 1, and
+	# a card that labels the other team "YOUR TEAM" is worse than no label.
+	var mine: int = player.team if is_instance_valid(player) and player.team >= 0 else 0
+	for side in 2:
+		var team: int = mine if side == 0 else 1 - mine
+		board.add_child(_cup_team_column(team, int(score[team]), rows, team == mine))
 	return board
+
+## The board as DATA rather than as six live fighters.
+##
+## It has to be data because of who holds the numbers. Every hit and every goal
+## is resolved on the host — `deal_damage` returns early when `not authoritative`
+## — so a client's own `Fighter.stats` are a column of noughts, and a table built
+## from them locally would report a match nobody played. The host builds this
+## once and sends the identical array to everyone, which also means the two cards
+## cannot disagree about who finished top.
+##
+## `idx` is the roster index, and it is what each machine uses to find ITSELF in
+## someone else's table: the host marks its own row with `you` on the way out,
+## and a client re-marks the row matching its own `_my_idx` on the way in. In
+## single player there is no roster, `find` returns -1, and `you` stands as sent.
+func _cup_rows() -> Array:
+	var rows: Array = []
+	for f: Fighter in fighters:
+		if not is_instance_valid(f) or f.team < 0:
+			continue
+		var idx := net_fighters.find(f)
+		# The REAL name off the roster, never `display_name`. Every machine calls
+		# its own fighter "You", so a table built from display_name and broadcast
+		# gives all five other players a team-mate literally called YOU — and it
+		# is the host's fighter, not theirs. Who "you" is has to be decided at
+		# each end, which is what the `you` flag and `idx` are for.
+		var who := String(f.display_name)
+		if idx >= 0 and idx < _net_roster.size():
+			who = String((_net_roster[idx] as Dictionary).get("fname", who))
+		rows.append({"name": who, "kit": String(f.kit.name),
+				"team": f.team, "goals": int(f.stats.goals),
+				"kills": int(f.stats.kills), "damage": int(f.stats.damage),
+				"idx": idx, "you": f == player})
+	return rows
 
 ## Width of one stat cell. Fixed rather than shrink-to-fit so the three columns
 ## line up down the card however wide the damage number gets.
@@ -2314,7 +2372,7 @@ const CUP_STAT_W := 54.0
 ## sits over the numbers rather than 8px off them.
 const CUP_ROW_PAD := 8
 
-func _cup_team_column(team: int, goals: int) -> Control:
+func _cup_team_column(team: int, goals: int, rows: Array, mine: bool) -> Control:
 	var tint: Color = Arena.TEAM_COLORS[team]
 	var column: VBoxContainer = MenuUI.vbox(6)
 	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2324,7 +2382,7 @@ func _cup_team_column(team: int, goals: int) -> Control:
 	head.add_child(head_line)
 	# Named by side rather than by colour: "YOUR TEAM" is what the player needs
 	# to find first, and team 0 is always theirs in single-player Cup.
-	var side: Label = MenuUI.display("YOUR TEAM" if team == 0 else "OPPONENTS", 20, tint, 4)
+	var side: Label = MenuUI.display("YOUR TEAM" if mine else "OPPONENTS", 20, tint, 4)
 	side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	side.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head_line.add_child(side)
@@ -2332,22 +2390,22 @@ func _cup_team_column(team: int, goals: int) -> Control:
 	column.add_child(head)
 
 	column.add_child(_cup_column_key())
-	for f: Fighter in _cup_team_fighters(team):
-		column.add_child(_cup_player_row(f, tint))
+	for row: Dictionary in _cup_team_rows(team, rows):
+		column.add_child(_cup_player_row(row, tint))
 	return column
 
 ## One team's fighters, best contribution first, so whoever decided the match is
 ## at the top of their column. Goals outrank damage: a striker who scored once
 ## and dealt little did more than a team-mate who chipped away and did not.
-func _cup_team_fighters(team: int) -> Array:
+func _cup_team_rows(team: int, rows: Array) -> Array:
 	var out: Array = []
-	for f: Fighter in fighters:
-		if is_instance_valid(f) and f.team == team:
-			out.append(f)
-	out.sort_custom(func(a: Fighter, b: Fighter) -> bool:
-		if int(a.stats.goals) != int(b.stats.goals):
-			return int(a.stats.goals) > int(b.stats.goals)
-		return int(a.stats.damage) > int(b.stats.damage))
+	for row: Dictionary in rows:
+		if int(row.get("team", -1)) == team:
+			out.append(row)
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a.goals) != int(b.goals):
+			return int(a.goals) > int(b.goals)
+		return int(a.damage) > int(b.damage))
 	return out
 
 func _cup_column_key() -> Control:
@@ -2364,23 +2422,25 @@ func _cup_column_key() -> Control:
 		line.add_child(l)
 	return margin
 
-func _cup_player_row(f: Fighter, tint: Color) -> Control:
-	var you: bool = f == player
+func _cup_player_row(row: Dictionary, tint: Color) -> Control:
+	var you: bool = bool(row.get("you", false))
 	# Your own row is lifted out of its column with a brighter plate and a white
 	# name, so you can find yourself in six without reading the names.
-	var row: PanelContainer = MenuUI.dark_panel(10, 0.52 if you else 0.30, CUP_ROW_PAD)
+	var plate: PanelContainer = MenuUI.dark_panel(10, 0.52 if you else 0.30, CUP_ROW_PAD)
 	var line: HBoxContainer = MenuUI.hbox(8)
-	row.add_child(line)
-	line.add_child(_cup_face(f, tint))
-	var name_l: Label = MenuUI.body(str(f.display_name).to_upper(), 17,
-			Color.WHITE if you else MenuUI.TEXT_SOFT, true)
+	plate.add_child(line)
+	line.add_child(_cup_face(str(row.get("kit", "")), tint))
+	# Your own row says YOU on whichever machine is reading it, the way the
+	# nameplate and the feed already do; everyone else is named.
+	var name_l: Label = MenuUI.body("YOU" if you else str(row.get("name", "")).to_upper(),
+			17, Color.WHITE if you else MenuUI.TEXT_SOFT, true)
 	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	line.add_child(name_l)
-	line.add_child(_cup_stat(str(int(f.stats.goals))))
-	line.add_child(_cup_stat(str(int(f.stats.kills))))
-	line.add_child(_cup_stat(MenuUI.fmt(int(f.stats.damage))))
-	return row
+	line.add_child(_cup_stat(str(int(row.get("goals", 0)))))
+	line.add_child(_cup_stat(str(int(row.get("kills", 0)))))
+	line.add_child(_cup_stat(MenuUI.fmt(int(row.get("damage", 0)))))
+	return plate
 
 func _cup_stat(text: String) -> Label:
 	var l: Label = MenuUI.display(text, 20, Color.WHITE, 4)
@@ -2391,11 +2451,10 @@ func _cup_stat(text: String) -> Label:
 
 ## A row's portrait chip, on its team colour. Same fallback as the big card:
 ## a kit with no rendered portrait (Nova, Ayaan) shows its initial in kit colour.
-func _cup_face(f: Fighter, tint: Color) -> Control:
+func _cup_face(kit_name: String, tint: Color) -> Control:
 	var holder: Panel = MenuUI.card("dark", 9, 3)
 	holder.custom_minimum_size = Vector2(38, 38)
 	holder.add_child(MenuUI.card_backdrop(Color(tint.r, tint.g, tint.b, 0.34)))
-	var kit_name: String = str(f.kit.name)
 	var tex: Texture2D = MenuData.portrait(kit_name.to_lower())
 	if tex != null:
 		var pr := TextureRect.new()
@@ -2407,7 +2466,7 @@ func _cup_face(f: Fighter, tint: Color) -> Control:
 		holder.add_child(pr)
 	else:
 		var initial: Label = MenuUI.display(kit_name.substr(0, 1).to_upper(), 22,
-				f.kit.get("color", Color.WHITE), 4)
+				Kits.named(kit_name).get("color", Color.WHITE), 4)
 		initial.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -2542,7 +2601,7 @@ func _physics_process(delta: float) -> void:
 	_update_concealment()
 	_update_status()
 	_shot_check()
-	if net_host and _match_ready:
+	if net_host and _match_ready and _net_live():
 		_snap_tick += 1
 		if _snap_tick % 2 == 0:   # 30Hz is plenty on LAN; clients interpolate
 			_net_send_snapshot()
@@ -2554,45 +2613,58 @@ func _update_aim_indicator() -> void:
 	if phase != Phase.PLAYING or player == null or not is_instance_valid(player) \
 			or player.is_dead():
 		return
-	# NS3_AIM_SHOW=attack|super|kick holds the tap indicator on with no finger on
-	# the stick. The indicator is drawn only while a touch is down, so it is the
-	# one thing on screen NS3_SHOTS could never catch — the same reason NS3_END
-	# and NS3_KILL exist. `kick` needs a Nobles Cup match and the ball in hand.
+	# NS3_AIM_SHOW=attack|super|kick holds the indicator on with no finger on the
+	# stick. It is drawn only while a touch is DRAGGED, so it is the one thing on
+	# screen NS3_SHOTS could never catch — the same reason NS3_END and NS3_KILL
+	# exist. `kick` needs a Nobles Cup match and the ball in hand. The synthetic
+	# stick is a full deflection along the player's own facing, which is the one
+	# direction that is meaningful with nobody holding the stick.
 	if _aim_show != "":
+		var facing := Vector2(player.facing.x, player.facing.z).normalized()
 		# Carrying beats everything here exactly as it does below, so the hook can
 		# never draw an attack the player is not allowed to make.
 		if cup != null and cup.ball.carrier == player:
 			_draw_kick_aim(im, Vector2.ZERO, _aim_show == "super", false)
 		elif _aim_show != "kick":
-			_draw_tap_aim(im, _aim_show == "super")
+			_draw_weapon_aim(im, facing, _aim_show == "super")
 		return
 	# The dedicated Super stick takes priority over the aim stick.
 	var use_super := super_stick.active
 	var stick: TouchStick = super_stick if use_super else aim_stick
 	if not stick.active:
 		return
-	# A finger that is down but not yet dragged is a TAP, and a tap does not go
-	# where the stick points — it goes wherever the auto-aim sends it. Nothing at
-	# all used to be drawn in that state, which is most of why Nobles Cup aiming
-	# reads as unpredictable: a tapped kick is a shot at goal inside SHOT_RANGE
-	# and a pass outside it, and the distance that decides between them is not on
-	# screen anywhere. Both halves of the indicator now cover the tap.
 	var dragging := stick.value.length() >= TAP_THRESHOLD
 	# Holding the ball replaces the weapon's aimer with the ball's own path.
 	# The kick is a different action with a different reach, and it banks off
 	# walls, so drawing the weapon lane here would preview an attack the player
-	# cannot currently make and hide the one they can.
+	# cannot currently make and hide the one they can. Its tap DOES draw, because
+	# the ring there disambiguates a pass from a shot at goal rather than
+	# pointing out a target — see `_draw_kick_aim`.
 	if cup != null and cup.ball.carrier == player:
 		_draw_kick_aim(im, stick.value, use_super, dragging)
 		return
+	# A finger that is down but not yet dragged is a TAP, and a tap draws
+	# NOTHING. It used to preview the auto-aim's pick — a lane to the chosen
+	# fighter and a ring around their feet — and that is a lock-on marker: it
+	# hands you the target for free and makes the tap the obvious play, when
+	# aiming is meant to be the thing you get good at. It was also where Nova's
+	# indicator turned into a thin straight line, since the lane to a target is
+	# drawn the same way for every kit and has nothing to do with the shape the
+	# weapon actually covers. Drag and the real cone comes back.
 	if not dragging:
-		_draw_tap_aim(im, use_super)
 		return
+	_draw_weapon_aim(im, stick.value, use_super)
 
+## The weapon's own lane, cone, arc or weave, in the direction and to the reach
+## `stick_value` asks for — the drag indicator, and the only combat indicator
+## there is. Split out of `_update_aim_indicator` so NS3_AIM_SHOW can hold it on.
+func _draw_weapon_aim(im: ImmediateMesh, stick_value: Vector2, use_super: bool) -> void:
 	var weapon: Dictionary = player.kit["super"] if use_super else player.kit.weapon
 	var color := Color(1.0, 0.7, 0.2, 0.4) if use_super else Color(1, 1, 1, 0.3)
 	var origin := player.global_position + Vector3(0, 0.08, 0)
-	var dir := Vector3(stick.value.x, 0, stick.value.y).normalized()
+	var dir := Vector3(stick_value.x, 0, stick_value.y).normalized()
+	if dir == Vector3.ZERO:
+		return
 	var style := int(weapon.style)
 	var bouncing := int(weapon.get("bounces", 0)) > 0
 	var targeted := style == Kits.Style.LOB or style == Kits.Style.JUMP_SMASH \
@@ -2601,7 +2673,7 @@ func _update_aim_indicator() -> void:
 			or style == Kits.Style.BUTTONS \
 			or (style == Kits.Style.PELLETS and int(weapon.pellets) > 1 \
 					and float(weapon.spread_deg) > 0.0)
-	var target_dist: float = clamp(stick.value.length() * weapon.range,
+	var target_dist: float = clamp(stick_value.length() * weapon.range,
 			Kits.TILE if style == Kits.Style.JUMP_SMASH else Kits.TILE * 1.5, weapon.range)
 
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -2643,7 +2715,7 @@ func _update_aim_indicator() -> void:
 		# own floor, and _release_fire hands the shot this same unclamped number,
 		# so anything else here would draw a weave that is not the one fired.
 		var weave: Dictionary = Kits.slalom_weave(weapon,
-				stick.value.length() * float(weapon.range))
+				stick_value.length() * float(weapon.range))
 		for curve_sign in [1.0, -1.0]:
 			_aim_add_ribbon(im, _slalom_path(origin, dir, weapon, curve_sign, weave),
 					maxf(float(weapon.radius), 0.16), color)
@@ -2706,36 +2778,7 @@ func _draw_kick_aim(im: ImmediateMesh, stick_value: Vector2, use_super: bool,
 		_aim_add_ring(im, Vector3(at.x, 0.09, at.z), MARK_RADIUS, MARK_WIDTH, tint)
 	im.surface_end()
 
-## What a tap is about to shoot at, drawn while the finger is down and before it
-## has been dragged. It resolves through `_tap_plan`, which is the same call the
-## shot itself makes, so the ring can never point at someone the tap will not
-## fire at. A Super with nothing worth spending it on keeps its charge and says
-## so with a ring around your own feet — otherwise "the tap did nothing" and
-## "the indicator is broken" look identical.
-func _draw_tap_aim(im: ImmediateMesh, use_super: bool) -> void:
-	var weapon: Dictionary = player.kit["super"] if use_super else player.kit.weapon
-	var plan := _tap_plan(weapon, use_super)
-	var color := Color(1.0, 0.7, 0.2, 0.4) if use_super else Color(1, 1, 1, 0.3)
-	var origin := player.global_position + Vector3(0, 0.08, 0)
-	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-	im.surface_set_color(color)
-	match String(plan.kind):
-		"target":
-			var at: Vector3 = (plan.target as Node3D).global_position
-			var flat := Vector3(at.x, 0.08, at.z)
-			_aim_add_segment(im, origin, flat, 0.16, color)
-			_aim_add_ring(im, Vector3(at.x, 0.09, at.z), MARK_RADIUS, MARK_WIDTH, color)
-		"free":
-			# Pop Off's escape and Downhill's set-off: no target, but the tap
-			# still goes, and it goes the way you are already running.
-			_aim_add_segment(im, origin, origin + (plan.dir as Vector3) * float(weapon.range),
-					Kits.FIGHTER_RADIUS, color)
-		"hold":
-			_aim_add_ring(im, Vector3(origin.x, 0.09, origin.z), MARK_RADIUS,
-					MARK_WIDTH, Color(color.r, color.g, color.b, color.a * 0.55))
-	im.surface_end()
-
-## A flat ring on the ground, for marking what a tap has picked. Sized to be seen
+## A flat ring on the ground, for marking a kick's destination. Sized to be seen
 ## rather than to be accurate: the match camera shows about 55 px per metre, so
 ## a marker any smaller than a fighter is a handful of pixels.
 const MARK_RADIUS := 1.15
@@ -2964,16 +3007,21 @@ func _fire_player(weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	if cup != null and cup.frozen(now):
 		return
 	var use_super: bool = weapon == player.kit["super"]
+	if net_active and not net_host:
+		# Clients ask the host to fire; the attack echoes back as _net_attack, and
+		# a kick as _net_cup_kick. This test comes BEFORE the kick below, which is
+		# the whole of what stops a client moving the ball on its own screen and
+		# never telling anybody — the host runs the identical cup.kick inside
+		# _net_fire. The aim was already resolved by _release_fire, which reads
+		# CupMode.kick_plan, so a client still aims its kicks locally.
+		_net_fire.rpc_id(1, use_super, dir, dist)
+		return
 	# Last line of defence for the carrier's kick. _release_fire and
 	# _auto_aim_fire resolve the aim and kick before they reach here, but every
 	# player attack funnels through this call — NS3_AUTOFIRE included — and none
 	# of them may fire a weapon while the ball is in hand. A Super spent here
 	# goes into the ball rather than the kit.
 	if cup != null and cup.kick(player, dir, now, use_super):
-		return
-	if net_active and not net_host:
-		# Clients ask the host to fire; the attack echoes back as _net_attack.
-		_net_fire.rpc_id(1, use_super, dir, dist)
 		return
 	if use_super:
 		if player.consume_super():
@@ -2986,6 +3034,11 @@ func _fire_player(weapon: Dictionary, dir: Vector3, dist: float) -> void:
 		# be constant. Held fire still repeats, but at a rate you can hear.
 		_last_empty_click = now
 		sfx_ui("empty_click", -6.0)
+		# You pressed fire and nothing came out, which is the definition of a
+		# state change you would otherwise have to look at the screen to notice.
+		# Two flat identical ticks: the only shape in the vocabulary that
+		# neither rises nor falls, because it is the one that means "no".
+		Haptics.fire("empty")
 
 func _unhandled_input(event: InputEvent) -> void:
 	if player == null or not is_instance_valid(player):
@@ -2997,11 +3050,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.pressed:
 			if phase != Phase.PLAYING:
 				return
-			if super_btn.hit(event.position) and not super_stick.active:
-				# The Super has its own joystick, anchored at the button.
-				if player.is_super_ready():
-					super_stick.begin(super_btn.center, event.index)
-					super_stick.update_drag(event.position)
+			if player.is_super_ready() and not super_stick.active \
+					and super_stick.hit(event.position):
+				# The Super's own stick gets first refusal on a touch near it,
+				# and ONLY while there is a charge to spend. An uncharged Super
+				# used to swallow the press: a thumb that landed on the button in
+				# the half second before it filled fired nothing at all, which is
+				# indistinguishable from a control that does not work. Now it
+				# falls through and shoots.
+				super_stick.begin(event.position, event.index)
 			elif event.position.x < half and not move_stick.active:
 				move_stick.begin(event.position, event.index)
 			elif event.position.x >= half and not aim_stick.active:
@@ -3091,56 +3148,48 @@ func _run_or_facing() -> Vector3:
 	var run := Vector3(player.velocity.x, 0.0, player.velocity.z)
 	return run.normalized() if run.length() > 0.5 else player.facing
 
-## What a tap will do with `weapon`, resolved in one place so the aim indicator
-## and the shot itself cannot disagree — the indicator draws this and
-## `_auto_aim_fire` fires it. `kind` is one of:
+## What a tap will do with `weapon`. `kind` is one of:
 ##
 ##   "target"  fire at `target`, already led — a Fighter, or a loot box for a
 ##             regular attack in a quiet corner
-##   "free"    nobody in reach, but the tap still goes: Pop Off's escape and
-##             Downhill's set-off, and any regular attack, which fires forward
-##   "hold"    a tapped Super with nothing worth spending it on, which keeps its
-##             charge rather than firing at nothing
+##   "free"    nobody in reach, and the tap goes anyway: forward for most kits,
+##             the way you are already running for Pop Off and Downhill
 ##
-## The three deliberate exceptions this had before all survive verbatim, because
-## they are the reason a tap is not simply "shoot the picker's answer".
+## **Every tap fires.** There used to be a third case, "hold", where a tapped
+## Super with nobody in reach kept its charge rather than spending it. It reads
+## as a dead button — you press the thing and the game decides not to — and a
+## Super aimed at empty ground is the player's call to make, not this function's.
 func _tap_plan(weapon: Dictionary, use_super: bool) -> Dictionary:
 	var style := int(weapon.get("style", -1))
 	# Pop Off is an ESCAPE, so a tapped one leaps the way Anders is already
 	# running. Auto-aiming it at the nearest enemy made the tap jump him into the
-	# fight he was trying to leave. Drag from the button to aim it anywhere else.
+	# fight he was trying to leave. Drag from the stick to aim it anywhere else.
 	if style == Kits.Style.POP_OFF:
 		return {"kind": "free", "dir": _run_or_facing(), "target": null}
-	# A Super only ever aims at fighters, and picks among them on worth rather
-	# than on distance — burning the charge on a loot box, or on whoever happens
-	# to be a metre closer, is never what the tap meant.
+	# A Super only ever aims at fighters, never at a loot box: burning the charge
+	# on a crate is never what the tap meant.
 	var target: Node3D = _super_target(weapon) if use_super \
 			else auto_aim_target(player, weapon)
 	if target != null:
 		var aim: Vector3 = _aim_lead(player, target as Fighter, weapon) if target is Fighter \
 				else target.global_position
 		return {"kind": "target", "dir": aim - player.global_position, "target": target}
-	if not use_super:
-		return {"kind": "free", "dir": player.facing, "target": null}
+	# Downhill is travel as much as damage, so with nobody in reach a tap sets
+	# off down the hill — rotating, or leaving a fight — rather than firing at
+	# the wall in front of you.
 	if style == Kits.Style.DOWNHILL:
-		# Downhill is travel as much as damage, so with nobody in reach a tap
-		# still sets off down the hill — rotating, or leaving a fight — rather
-		# than sitting on the charge.
 		return {"kind": "free", "dir": _run_or_facing(), "target": null}
-	return {"kind": "hold", "dir": Vector3.ZERO, "target": null}
+	return {"kind": "free", "dir": player.facing, "target": null}
 
 func _auto_aim_fire(weapon: Dictionary, use_super: bool) -> void:
 	if _kick_instead(Vector2.ZERO, use_super):
 		return
-	# A plan of "hold" fires nothing: a tapped Super with no target keeps its
-	# charge rather than firing blind. Drag from the button to aim it manually.
 	var plan := _tap_plan(weapon, use_super)
-	match String(plan.kind):
-		"target":
-			var v: Vector3 = plan.dir
-			_fire_player(weapon, v, v.length())
-		"free":
-			_fire_player(weapon, plan.dir, float(weapon.range))
+	if String(plan.kind) == "target":
+		var v: Vector3 = plan.dir
+		_fire_player(weapon, v, v.length())
+	else:
+		_fire_player(weapon, plan.dir, float(weapon.range))
 
 func _update_concealment() -> void:
 	if player == null or not is_instance_valid(player):
@@ -3191,9 +3240,20 @@ func _process(_delta: float) -> void:
 			CAM_PAN if now < _cam_focus_until else CAM_FOLLOW)
 
 func _update_status() -> void:
+	# The sticks are part of the frame while you are alive and playing, and
+	# nothing but clutter under a results card or over a body waiting out a
+	# Nobles Cup respawn. Set before the validity guard below, because a
+	# Showdown elimination FREES the player and would otherwise leave three
+	# parked joysticks sitting under the results card for the rest of the match.
+	var live: bool = phase == Phase.PLAYING and player != null \
+			and is_instance_valid(player) and not player.is_dead()
+	move_stick.visible = live
+	aim_stick.visible = live
+	super_stick.visible = live
 	if player == null or not is_instance_valid(player):
 		return
-	super_btn.set_charge(player.super_charge)
+	super_stick.set_charge(player.super_charge)
+	_update_aim_detent()
 	status_label.text = "%s   HP %d/%d   ammo %.1f   cubes %d" % [
 		player.kit.name, player.health, player.max_health, player.ammo, player.cubes]
 	# A pip crossing a whole number is a shot you have got back. Watched here
@@ -3202,6 +3262,13 @@ func _update_status() -> void:
 	var pips := int(player.ammo)
 	if phase == Phase.PLAYING and pips > _last_ammo_pips:
 		sfx_ui("reload_tick", -12.0)
+		# Only the pip that takes you from empty back to able to shoot, not
+		# every pip returning. A tap per pip fires three or four times a reload
+		# cycle for the whole match, which is the fastest way to teach a hand to
+		# stop reading the feedback; going from nothing to something is the
+		# state change, and the other pips you can afford to wait for.
+		if pips == 1 and _last_ammo_pips == 0:
+			Haptics.fire("ammo_ready")
 	_last_ammo_pips = pips
 	# Your health going DOWN is the one thing worth a buzz whatever caused it —
 	# a pellet, the gas, a Super you never saw. Health only ever climbs on a
@@ -3209,6 +3276,13 @@ func _update_status() -> void:
 	if _last_player_health >= 0 and player.health < _last_player_health:
 		Haptics.hit(float(_last_player_health - player.health), float(player.max_health))
 	_last_player_health = player.health
+	# The other half of the exchange, banked by deal_damage over LANDED_WINDOW so
+	# a nine-pellet shotgun is one connect at the weight of nine pellets. Spent
+	# after the damage-taken watch on purpose: when you trade, what landed on
+	# YOU is the tap worth keeping.
+	if _landed_damage > 0.0 and now - _landed_at >= LANDED_WINDOW:
+		Haptics.landed(_landed_damage, _landed_max)
+		_landed_damage = 0.0
 	# A slow pulse under a quarter health, so the decision to break off is one
 	# you can make without watching the bar.
 	if phase == Phase.PLAYING and not player.is_dead() \
@@ -3219,6 +3293,48 @@ func _update_status() -> void:
 	else:
 		_low_health_at = -1.0
 
+## A tap on the aim stick's detent — the moment `value` crosses `TAP_THRESHOLD`
+## in either direction, which is where the stick stops meaning "tap to auto-aim"
+## and starts meaning "this is the lane". That boundary is invisible: the aim
+## indicator does change with it, but the indicator is under your thumb and your
+## eyes are on the fight, which makes it exactly the state change haptics are
+## for. The Super stick takes priority over the aim stick here for the same
+## reason it does in `_update_aim_indicator` — only one of them is ever the one
+## being aimed.
+##
+## Watched per frame rather than hooked into `_unhandled_input`, because a drag
+## event only arrives while the finger is MOVING: a thumb that crosses the line
+## and then holds still stops generating them, and a dwell counted off those
+## events alone would never complete.
+const AIM_DETENT_DWELL := 0.05
+var _aim_detent_on := false
+var _aim_detent_since := -1.0
+
+func _update_aim_detent() -> void:
+	var stick: TouchStick = super_stick if super_stick.active else aim_stick
+	if not stick.active or phase != Phase.PLAYING:
+		# Releasing is not a crossing. The shot that follows has its own
+		# feedback, and a tap on top of it would land inside the same frame.
+		_aim_detent_on = false
+		_aim_detent_since = -1.0
+		return
+	var dragging: bool = stick.value.length() >= TAP_THRESHOLD
+	if dragging == _aim_detent_on:
+		_aim_detent_since = -1.0
+		return
+	# The new state has to HOLD before it is reported. This is a debounce and
+	# not hysteresis on purpose: a hysteresis band would have the tap claim a
+	# state the game is not actually in for the width of the band, whereas this
+	# only declines to report a crossing that did not last. A thumb resting on
+	# the threshold is otherwise the one input that can chatter across it every
+	# single frame.
+	if _aim_detent_since < 0.0:
+		_aim_detent_since = now
+	elif now - _aim_detent_since >= AIM_DETENT_DWELL:
+		_aim_detent_on = dragging
+		_aim_detent_since = -1.0
+		Haptics.fire("aim_on" if dragging else "aim_off")
+
 ## One beep per second of the pre-match countdown, on the second the number on
 ## screen changes rather than on a timer of its own.
 func _count_beep(count: int) -> void:
@@ -3226,6 +3342,10 @@ func _count_beep(count: int) -> void:
 		return
 	_last_count_beep = count
 	sfx_ui("count_beep", -2.0)
+	# GO used to arrive with no rhythm leading into it, which is most of what a
+	# countdown is for: three light ticks a second apart make the fourth one
+	# land as a release rather than as the first thing you felt.
+	Haptics.fire("count_beep")
 
 func _shot_check() -> void:
 	if _shot_times.is_empty() or _shot_prefix == "":
@@ -3261,33 +3381,93 @@ func _net_all_ready() -> bool:
 			return false
 	return true
 
-## Host: roster = connected players first, bots filling the empty slots, each
-## assigned a shuffled spawn index (spawn count comes from the map's S tiles).
+## Host: deal the match everyone will build, and broadcast it.
+##
+## The roster is the ONLY thing that decides what a match is on every peer — the
+## mode, who is in it, what they are wearing, which side they are on and which
+## tile they start on. Nothing downstream is allowed to roll its own dice,
+## because two machines rolling separately is two different matches.
 func _net_host_start() -> void:
 	_match_seq += 1
 	_rematch_wanted.clear()
 	_net_rematch_fired = false
-	# Wifi play is Showdown only, so the spawn count comes from that map.
+	_name_pool = []   # a fresh shuffle per match, so no lobby repeats a username
+	var room_mode: String = "cup" if Net.mode == "cup" else "showdown"
+	var roster: Array = _net_cup_roster() if room_mode == "cup" else _net_showdown_roster()
+	_net_start.rpc(_match_seq, room_mode, roster)
+	_start_from_roster(room_mode, roster)
+
+## Showdown: connected players first, bots filling the empty slots, each assigned
+## a shuffled spawn index (the spawn count comes from the map's S tiles).
+##
+## Bots are dealt through `lineup_kits` and `next_bot_name` like every other
+## match rather than a `pick_random()` and a "Nova 3" label — this was the one
+## lineup in the game still doing it the old way, so a wifi lobby could field
+## four Kovacses with debug names on their nameplates.
+func _net_showdown_roster() -> Array:
 	var spawn_idx: Array = range(Arena.SHOWDOWN_MAP.count("S"))
 	spawn_idx.shuffle()
 	var roster: Array = []
 	var ids: Array = Net.players.keys()
 	ids.sort()
 	for id in ids:
+		if roster.size() >= spawn_idx.size():
+			break
 		var p: Dictionary = Net.players[id]
 		roster.append({"peer": int(id), "kit": String(p.kit), "fname": String(p.name),
-				"spawn": spawn_idx[roster.size()]})
-	var bot_n := 1
-	while roster.size() < spawn_idx.size():
-		var kit: Dictionary = Kits.all().pick_random()
-		roster.append({"peer": 0, "kit": String(kit.name), "fname": "%s %d" % [kit.name, bot_n],
-				"spawn": spawn_idx[roster.size()]})
-		bot_n += 1
-	_net_start.rpc(_match_seq, roster)
-	_start_from_roster(roster)
+				"spawn": spawn_idx[roster.size()], "team": -1})
+	var bots: Array = lineup_kits(maxi(0, spawn_idx.size() - roster.size()))
+	for kit: Dictionary in bots:
+		roster.append({"peer": 0, "kit": String(kit.name), "fname": next_bot_name(),
+				"spawn": spawn_idx[roster.size()], "team": -1})
+	return roster
 
-## Both sides build the identical match from the host's roster.
-func _start_from_roster(roster: Array) -> void:
+## Nobles Cup: two teams of three, humans first, bots making up the numbers.
+##
+## Friends fill ONE side before the other, the way a party does in Brawl Stars.
+## Two people who pressed "play with friends" want to be on the same side, and
+## splitting them across the halfway line is the one arrangement nobody asked
+## for; past three they spill onto the other side, which is what makes a full
+## room a real 3v3. Kits are dealt per side, so no character appears twice on a
+## team while a mirror across the halfway line stays legal — the same rule
+## CupMode.build_match follows in single player.
+func _net_cup_roster() -> Array:
+	var sides: Array = [[], []]
+	var ids: Array = Net.players.keys()
+	ids.sort()
+	for id in ids:
+		var team := 0 if sides[0].size() < CupMode.TEAM_SIZE else 1
+		if sides[team].size() >= CupMode.TEAM_SIZE:
+			break   # room already full; Net.room_capacity() should have stopped this
+		var p: Dictionary = Net.players[id]
+		sides[team].append({"peer": int(id), "kit": String(p.kit), "fname": String(p.name)})
+	var roster: Array = []
+	for team in 2:
+		var bots: Array = lineup_kits(CupMode.TEAM_SIZE - sides[team].size())
+		for kit: Dictionary in bots:
+			sides[team].append({"peer": 0, "kit": String(kit.name),
+					"fname": next_bot_name()})
+		# Which of the team's three kickoff tiles each of them takes. Shuffled so
+		# the host, who is always the first entry on team 0, does not open every
+		# match on the same tile — and dealt HERE rather than in CupMode so that
+		# both machines place everyone identically. See CupMode._kick_spot for
+		# what happened when two ends of this disagreed.
+		var spots: Array = range(CupMode.TEAM_SIZE)
+		spots.shuffle()
+		for i in sides[team].size():
+			var e: Dictionary = sides[team][i]
+			e["team"] = team
+			e["spawn"] = spots[i % spots.size()]
+			roster.append(e)
+	return roster
+
+## Both sides build the identical match from the host's roster. The MODE travels
+## with it rather than being read from Session: a client that reached the scene
+## with a stale Session.mode would otherwise build the wrong arena and then
+## disagree with every position in the stream.
+func _start_from_roster(room_mode: String, roster: Array) -> void:
+	mode = room_mode
+	cup = null
 	_net_roster = roster
 	_match_ready = false
 	for c in get_children():
@@ -3320,15 +3500,20 @@ func _start_from_roster(roster: Array) -> void:
 	_stat_at = now
 
 	arena = Arena.new()
+	arena.map_mode = "cup" if mode == "cup" else "showdown"
 	add_child(arena)
 	gas = null
 	await get_tree().process_frame   # let arena _ready run
 
 	var my_id := multiplayer.get_unique_id()
+	var kick_spots: Array = []
 	for i in roster.size():
 		var e: Dictionary = roster[i]
 		var own := int(e.peer) == my_id
-		var f := _spawn_fighter(Kits.named(e.kit), arena.spawn_points[int(e.spawn)], own)
+		var team := int(e.get("team", -1))
+		var spot: Vector3 = _net_spawn_point(team, int(e.spawn))
+		kick_spots.append(spot)
+		var f := _spawn_fighter(Kits.named(e.kit), spot, own, team)
 		f.name = "F%d" % i
 		f.display_name = "You" if own else String(e.fname)
 		f.set_meta("peer", int(e.peer))
@@ -3343,8 +3528,18 @@ func _start_from_roster(roster: Array) -> void:
 	if net_host and player and OS.get_environment("NS3_SUPER") != "":
 		player.super_charge = 1.0
 
-	for bi in arena.box_points.size():
-		_spawn_lootbox(arena.box_points[bi], "Box%d" % bi)
+	if mode == "cup":
+		# The rules engine on every peer, running only on the host. Its fighters
+		# are already spawned above, so it takes the kickoff tiles and starts the
+		# match rather than dealing one of its own — see CupMode.adopt_net_match.
+		cup = CupMode.new()
+		cup.game = self
+		cup.authoritative = authoritative
+		add_child(cup)
+		cup.adopt_net_match(now, kick_spots)
+	else:
+		for bi in arena.box_points.size():
+			_spawn_lootbox(arena.box_points[bi], "Box%d" % bi)
 	_cube_seq = 0
 
 	phase = Phase.COUNTDOWN
@@ -3363,6 +3558,21 @@ func _start_from_roster(roster: Array) -> void:
 	print("[net] roster applied: %d fighters, I am %s" % [roster.size(),
 			player.display_name if player else "spectator"])
 
+## Where roster entry `spawn` puts a fighter. Showdown indexes the map's S tiles;
+## Nobles Cup indexes its own team's kickoff row, which is why the team has to
+## come along with the index. Clamped rather than trusted: the roster arrives
+## over the wire, and an index off the end of the array is a crash on the frame
+## the match starts.
+func _net_spawn_point(team: int, spawn: int) -> Vector3:
+	if team < 0:
+		if arena.spawn_points.is_empty():
+			return arena.centre()
+		return arena.spawn_points[clampi(spawn, 0, arena.spawn_points.size() - 1)]
+	var spots: Array = arena.team_spawns[clampi(team, 0, 1)]
+	if spots.is_empty():
+		return arena.centre()
+	return spots[clampi(spawn, 0, spots.size() - 1)]
+
 ## Client frame. Three jobs, in this order: take delivery of whatever arrived,
 ## predict my own fighter forward on my own stick, and draw everyone else at a
 ## fixed delay behind the host so their motion is a straight line between two
@@ -3380,6 +3590,8 @@ func _client_tick(delta: float) -> void:
 		_hide_versus()
 	_net_predict(delta)
 	_net_render_puppets(delta)
+	if cup != null:
+		cup.tick(delta, now)
 	_net_stats_tick()
 
 ## Move MY fighter on MY stick, this frame, and tell the host what I did.
@@ -3398,6 +3610,12 @@ func _client_tick(delta: float) -> void:
 func _net_predict(delta: float) -> void:
 	if phase != Phase.PLAYING or player == null or not is_instance_valid(player) \
 			or player.is_dead():
+		return
+	# A Nobles Cup kickoff holds everyone still, and the freeze is in the stream.
+	# Predicting through it would walk the client off its spot and then have the
+	# host drag it back on the next packet, which is the one correction big
+	# enough to look like a bug.
+	if cup != null and cup.frozen(now):
 		return
 	var dir := Vector3.ZERO
 	if OS.get_environment("NS3_AUTOWALK") != "":
@@ -3500,13 +3718,29 @@ func _net_render_puppets(delta: float) -> void:
 		f.rotation.y = lerp_angle(float(sa.rot), float(sb.rot), clampf(u, 0.0, 1.0))
 		f.facing = Vector3(-sin(f.rotation.y), 0, -cos(f.rotation.y))
 		f.velocity = (f.position - prev) / delta   # drives run/idle animation
+	# A LOOSE ball is a puppet like any other and is interpolated on the same
+	# delayed clock, not snapped to the newest packet. It is the fastest thing on
+	# the pitch — a Super Shot leaves at 28 m/s, which is nearly a metre between
+	# snapshots — so taking it straight off the stream at 30 Hz would show as a
+	# ball stepping across the grass on a 60 fps screen. A CARRIED ball is not
+	# touched here: CupMode._client_tick rides it in its carrier's hands.
+	if cup != null and cup.ball != null and cup.ball.carrier == null \
+			and a.has("cup") and b.has("cup"):
+		var ball_at: Vector3 = (a.cup.pos as Vector3).lerp(b.cup.pos as Vector3, clampf(u, 0.0, 1.0))
+		cup.ball.position = Vector3(ball_at.x, Ball.LOOSE_HEIGHT, ball_at.z)
 
 ## The half of a snapshot that is state rather than motion. Skips my own
 ## fighter, whose numbers were applied the moment they arrived — his body is
 ## drawn at `now`, so delaying his health bar to match everyone else's would put
 ## his own hit flash behind his own screen.
 func _apply_snapshot_state(s: Dictionary) -> void:
-	players_label.text = "%d LEFT" % int(s.left)
+	# Nobles Cup owns this corner of the HUD with its own score and clock, and
+	# "6 LEFT" over the top of them is both wrong and permanent — nobody leaves a
+	# Cup match.
+	if cup == null:
+		players_label.text = "%d LEFT" % int(s.left)
+	elif s.has("cup"):
+		cup.apply_net_state(now, s.cup)
 	if phase == Phase.COUNTDOWN and int(s.phase) == int(Phase.PLAYING):
 		phase = Phase.PLAYING
 		match_start = now
@@ -3587,7 +3821,7 @@ func _snapshot_bytes() -> PackedByteArray:
 		if peer > 1 and _peer_inputs.has(peer):
 			acks.append([i, int(_peer_inputs[peer].get("seq", 0)) & 0xFFFF])
 	var buf := PackedByteArray()
-	buf.resize(10 + live.size() * 15 + 1 + acks.size() * 3)
+	buf.resize(10 + live.size() * 15 + 1 + acks.size() * 3 + (NET_CUP_BYTES if cup else 0))
 	buf.encode_float(0, now)
 	buf.encode_u8(4, int(phase))
 	buf.encode_s16(5, int(round(gas.inset * NET_INSET_SCALE)) if gas else -NET_INSET_SCALE)
@@ -3614,7 +3848,42 @@ func _snapshot_bytes() -> PackedByteArray:
 		buf.encode_u8(o, int(a[0]))
 		buf.encode_u16(o + 1, int(a[1]))
 		o += 3
+	if cup:
+		_encode_cup(buf, o)
 	return buf
+
+## Nobles Cup's eleven bytes, appended only in Cup — Showdown pays nothing for
+## them. Everything here is state a client cannot derive: who is holding the
+## ball, where a loose one is, the score, the clock, and the two flags that
+## decide whether input is held.
+##
+## Nothing here is an EVENT. A goal, a knock-out, a respawn and a kickoff all
+## arrive as reliable RPCs instead, for the same reason the elimination feed does
+## in Showdown: they happen once, they are not recoverable from a later
+## snapshot, and this stream is allowed to drop packets.
+##
+## The carrier rides as a roster INDEX rather than as the ball's position while
+## carried, so a client draws the ball in its carrier's hands using its own copy
+## of Ball._carry_point. That is what makes the ball follow the client's own
+## PREDICTED fighter with no round trip when the client is the one carrying it.
+func _encode_cup(buf: PackedByteArray, o: int) -> void:
+	var carrier := 255
+	if cup.ball.carrier != null:
+		var at := net_fighters.find(cup.ball.carrier)
+		if at >= 0:
+			carrier = at
+	buf.encode_u8(o, carrier)
+	buf.encode_u16(o + 1, clampi(int(round(cup.ball.position.x * NET_POS_SCALE)), 0, 65535))
+	buf.encode_u16(o + 3, clampi(int(round(cup.ball.position.z * NET_POS_SCALE)), 0, 65535))
+	buf.encode_u8(o + 5, clampi(cup.score[0], 0, 255))
+	buf.encode_u8(o + 6, clampi(cup.score[1], 0, 255))
+	buf.encode_u16(o + 7, clampi(int(round(cup.clock * 16.0)), 0, 65535))
+	# Time REMAINING on the kickoff hold, not a deadline: the two machines'
+	# clocks are minutes apart and only the difference means anything. A
+	# sixteenth of a second over a two-second freeze is far finer than the frame
+	# it is read on.
+	buf.encode_u8(o + 9, clampi(int(round(maxf(0.0, cup.frozen_left(now)) * 16.0)), 0, 255))
+	buf.encode_u8(o + 10, (1 if cup.overtime else 0) | (2 if cup.finished else 0))
 
 func _decode_snapshot(buf: PackedByteArray) -> Dictionary:
 	if buf.size() < 10:
@@ -3651,6 +3920,19 @@ func _decode_snapshot(buf: PackedByteArray) -> Dictionary:
 				break
 			snap.acks[buf.decode_u8(o)] = buf.decode_u16(o + 1)
 			o += 3
+	if o + NET_CUP_BYTES <= buf.size():
+		var flags := buf.decode_u8(o + 10)
+		snap["cup"] = {
+			"carrier": buf.decode_u8(o),
+			"pos": Vector3(buf.decode_u16(o + 1) / NET_POS_SCALE, Ball.LOOSE_HEIGHT,
+					buf.decode_u16(o + 3) / NET_POS_SCALE),
+			"s0": buf.decode_u8(o + 5),
+			"s1": buf.decode_u8(o + 6),
+			"clock": buf.decode_u16(o + 7) / 16.0,
+			"freeze": buf.decode_u8(o + 9) / 16.0,
+			"overtime": (flags & 1) != 0,
+			"finished": (flags & 2) != 0,
+		}
 	return snap
 
 func _net_send_snapshot() -> void:
@@ -3674,7 +3956,16 @@ func _legacy_snapshot() -> Array:
 					f.health, f.max_health, f.ammo, f.super_charge, f.cubes,
 					f.heat_hits, maxf(0.0, f.on_fire_until - now),
 					maxf(0.0, f.burn_until - now)])
-	return [int(phase), gas.inset if gas else -1, fighters.size(), states]
+	var out: Array = [int(phase), gas.inset if gas else -1, fighters.size(), states]
+	if cup:
+		# The Cup trailer counted too, or NS3_NET_STATS compares a packed
+		# snapshot that carries the ball and the score against an unpacked one
+		# that does not, and quietly understates its own saving.
+		out.append([cup.ball.position.x, cup.ball.position.z,
+				net_fighters.find(cup.ball.carrier) if cup.ball.carrier else -1,
+				cup.score[0], cup.score[1], cup.clock, cup.frozen_left(now),
+				cup.overtime, cup.finished])
+	return out
 
 # MARK: net client intake, clock and reconciliation
 
@@ -3941,6 +4232,48 @@ func _update_rematch_note() -> void:
 			results.visible = false
 			_net_host_start())
 
+## Whether there is still a peer to send to.
+##
+## The multiplayer peer is torn down BEFORE the scene stops ticking — closing the
+## host window, or leaving for the lobby, drops it while `_physics_process` runs
+## on for a few more frames. Each of those frames then tried to broadcast a
+## snapshot and logged "Trying to call an RPC while no multiplayer peer is
+## active" with a full backtrace, which is dozens of lines over a window being
+## closed and buries whatever actually happened in the match just before it.
+## Seen for real the first time a phone joined this host and the window was shut.
+func _net_live() -> bool:
+	if not net_active:
+		return false
+	var peer := multiplayer.multiplayer_peer
+	return peer != null \
+			and peer.get_connection_status() != MultiplayerPeer.CONNECTION_DISCONNECTED
+
+## MARK: Nobles Cup net events (host -> clients)
+##
+## The four things a Cup client cannot get from the snapshot stream, because each
+## happens once and a dropped packet would lose it for good: a goal, a knock-out,
+## a return from one, and a restart. CupMode calls these; they no-op outside wifi
+## play, so single player runs the identical code path with nothing attached.
+
+func net_cup_goal(conceded: int, who: String, own: bool) -> void:
+	if net_host and _net_live():
+		_net_cup_goal.rpc(conceded, who, own)
+
+func net_cup_kickoff(opening: bool) -> void:
+	if net_host and _net_live():
+		_net_cup_kickoff.rpc(opening)
+
+func net_cup_respawned(f: Fighter, spot: Vector3) -> void:
+	if net_host and _net_live() and is_instance_valid(f):
+		_net_cup_respawn.rpc(net_fighters.find(f), spot)
+
+## A kick that actually left someone's hands — a player's, a remote player's or
+## a bot's. CupMode.kick calls this after the launch, so the caller has already
+## established that it was not swallowed for want of ammo or charge.
+func net_cup_kick(f: Fighter, use_super: bool) -> void:
+	if net_host and _net_live() and is_instance_valid(f):
+		_net_cup_kick.rpc(net_fighters.find(f), use_super)
+
 func _on_net_peer_left(id: int) -> void:
 	_peer_inputs.erase(id)
 	_peer_queue.erase(id)
@@ -3950,7 +4283,24 @@ func _on_net_peer_left(id: int) -> void:
 	if not _match_ready:
 		return
 	for f in fighters.duplicate():
-		if is_instance_valid(f) and int(f.get_meta("peer", 0)) == id and not f.is_dead():
+		if not is_instance_valid(f) or int(f.get_meta("peer", 0)) != id:
+			continue
+		if cup != null:
+			# Nobles Cup is 3v3 with no spare bodies, so a player who leaves
+			# cannot simply be removed — that would hand their side a permanent
+			# two-against-three. Their fighter is handed to a bot brain instead
+			# and the match carries on at full strength. The peer meta is cleared
+			# first so nothing downstream still treats the body as somebody's.
+			f.set_meta("peer", 0)
+			var taken := false
+			for b in brains:
+				if b.fighter == f:
+					taken = true
+					break
+			if not taken:
+				brains.append(BotBrain.new(f))
+			feed_label.text = "%s left the game" % f.display_name
+		elif not f.is_dead():
 			_eliminate(f, "", true)
 
 func _on_net_host_lost() -> void:
@@ -3972,7 +4322,7 @@ func _net_client_ready() -> void:
 	var id := multiplayer.get_remote_sender_id()
 	_net_ready_peers[id] = true
 	if _match_ready:   # joined after kickoff (slow load): catch them up
-		_net_start.rpc_id(id, _match_seq, _net_roster)
+		_net_start.rpc_id(id, _match_seq, mode, _net_roster)
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
 func _net_input(seq: int, move: Vector3, face: Vector3) -> void:
@@ -4017,6 +4367,12 @@ func _net_fire(use_super: bool, dir: Vector3, dist: float) -> void:
 	var f: Fighter = net_fighters[idx]
 	if f.is_dead() or f.is_dashing() or f.is_disconnected(now):
 		return
+	# The same backstop _fire_player carries: a carrier may not fire a weapon,
+	# and a Super spent while carrying goes into the ball. It has to be repeated
+	# here because a client's input reaches the sim through this function and not
+	# through that one.
+	if cup != null and cup.kick(f, dir, now, use_super):
+		return   # cup.kick announces the launch itself; see net_cup_kick
 	if use_super:
 		if f.consume_super():
 			perform_attack(f, f.kit["super"], dir, dist)
@@ -4026,11 +4382,11 @@ func _net_fire(use_super: bool, dir: Vector3, dist: float) -> void:
 # MARK: net RPCs (host -> clients)
 
 @rpc("authority", "call_remote", "reliable")
-func _net_start(seq: int, roster: Array) -> void:
+func _net_start(seq: int, room_mode: String, roster: Array) -> void:
 	if seq <= _net_seen_seq:
 		return   # duplicate (re-sent for a late joiner)
 	_net_seen_seq = seq
-	_start_from_roster(roster)
+	_start_from_roster(room_mode, roster)
 
 ## `inset` is a float because `GasRing.inset` is: the ring eases between its
 ## steps rather than teleporting, so an int here would land the client's wall
@@ -4141,3 +4497,100 @@ func _net_wall_broken(wall_name: String) -> void:
 			arena.open_at(w.global_position)
 			w.queue_free()
 			break
+
+# MARK: net RPCs (host -> clients, Nobles Cup)
+
+## A fighter went down. The client parks the body itself rather than being sent
+## a "hidden" flag, because going down is an animation and a feed line and a red
+## wash, not a boolean — and CupMode.on_death is already all three.
+##
+## Health is zeroed FIRST: knock_out() does not touch it, and Fighter._hide_body
+## and fighter_bars both ask is_dead(), so a body parked while still reading full
+## health leaves its health bar hanging over an empty patch of pitch.
+@rpc("authority", "call_remote", "reliable")
+func _net_cup_down(idx: int, killer: String) -> void:
+	if net_host or cup == null or idx < 0 or idx >= net_fighters.size():
+		return
+	var f = net_fighters[idx]
+	if f == null or not is_instance_valid(f) or f.is_dead():
+		return
+	f.health = 0
+	sfx_at("elimination", f.global_position, 3.0)
+	if f == player:
+		Haptics.fire("death")
+		if not cup.overtime:
+			_down_until = now + CupMode.RESPAWN_SECONDS
+	cup.on_death(f, killer)
+
+## Back on your feet, at the tile the HOST picked. The spot is sent rather than
+## recomputed: CupMode._spawn_for takes the emptiest of the three goal-mouth
+## tiles, and "emptiest" is measured against positions a client only holds a
+## delayed copy of, so two machines choosing separately would choose differently.
+@rpc("authority", "call_remote", "reliable")
+func _net_cup_respawn(idx: int, spot: Vector3) -> void:
+	if net_host or idx < 0 or idx >= net_fighters.size():
+		return
+	var f = net_fighters[idx]
+	if f == null or not is_instance_valid(f):
+		return
+	f.respawn(spot, now)
+	if f == player:
+		_net_resync_prediction()
+
+@rpc("authority", "call_remote", "reliable")
+func _net_cup_goal(conceded: int, who: String, own: bool) -> void:
+	if net_host or cup == null:
+		return
+	# The score itself is NOT applied here — it rides the snapshot, and applying
+	# it twice would double every goal. This is the presentation only.
+	cup.goal_effects(conceded, who, own)
+
+@rpc("authority", "call_remote", "reliable")
+func _net_cup_kickoff(opening: bool) -> void:
+	if net_host or cup == null:
+		return
+	cup.kickoff(now, opening)
+	_net_resync_prediction()
+
+## Anything that TELEPORTS the client's own fighter has to say so here.
+##
+## `_net_predict` starts each frame with `player.position = _pred_pos`, so a
+## kickoff or a respawn that moved the body without moving the prediction is
+## undone on the first frame after the freeze lifts — the fighter snaps back to
+## wherever it was standing when the goal went in, holds for the round trip it
+## takes the host to disagree, and is then dragged forward again. It reads as the
+## respawn simply not working. Both of those moves are also exactly the case
+## `_reconcile` cannot smooth (they are far past NET_PRED_HARD_SNAP), so the
+## history is dropped rather than replayed against a position it never predicted.
+func _net_resync_prediction() -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	_pred_pos = player.position
+	_pred_error = Vector3.ZERO
+	_pred_hist.clear()
+
+## A kick that actually left someone's hands, for its sound and its animation.
+## The ball's own motion needs nothing from this: it is already in the stream.
+@rpc("authority", "call_remote", "reliable")
+func _net_cup_kick(idx: int, use_super: bool) -> void:
+	if net_host or cup == null or idx < 0 or idx >= net_fighters.size():
+		return
+	var f = net_fighters[idx]
+	if f == null or not is_instance_valid(f) or f.is_dead():
+		return
+	sfx_at("super_fire" if use_super else "cup_kick", f.global_position,
+			3.0 if use_super else 0.0)
+	if f == player:
+		Haptics.fire("super_shot" if use_super else "kick")
+	f.play_attack_animation(now, use_super)
+
+## Full time, with the host's scoreboard. `you` is re-marked against this
+## machine's own roster index: the host sent the table with ITS row flagged.
+@rpc("authority", "call_remote", "reliable")
+func _net_cup_over(blue: int, red: int, rows: Array) -> void:
+	if net_host or cup == null:
+		return
+	cup.finished = true
+	for row in rows:
+		row["you"] = int(row.get("idx", -1)) == _my_idx
+	end_cup_match(blue, red, rows)

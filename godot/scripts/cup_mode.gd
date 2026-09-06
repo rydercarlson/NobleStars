@@ -8,6 +8,15 @@ extends Node
 ## Showdown one it has always been: main calls build_match(), tick() and
 ## on_death(), and asks frozen() whether input should be held. Nothing in this
 ## file runs unless Session.mode is "cup".
+##
+## OVER WIFI this object exists on every peer, but only the HOST runs the rules.
+## A client's copy is a presentation layer: `authoritative` is false, so tick()
+## takes the branch that writes the score, the clock and the ball straight out of
+## the snapshot stream and returns, and every rule below it — pickups, goals,
+## carrier checks, the clock, respawns — is skipped. That is the same split
+## GasRing already uses, where a client builds the node and never calls start().
+## Everything a client cannot infer from state (a goal, a knock-out, a kickoff, a
+## kick's sound) arrives instead as a reliable RPC from main.gd's net section.
 
 const TEAM_SIZE := 3
 const GOALS_TO_WIN := 2
@@ -53,6 +62,9 @@ const KNOCK_BALL_HOLD := 0.35
 const HUD_GROUP := "cup_hud"
 
 var game                          # main.gd; typed loosely, as BotBrain does
+## False on a wifi client, where every rule in this file belongs to the host.
+## Mirrors main.gd's own flag rather than being a second source of truth.
+var authoritative := true
 var ball: Ball
 var score := [0, 0]
 var clock := MATCH_SECONDS
@@ -65,10 +77,18 @@ var _frozen_until := 0.0
 ## draw, and that layer outlives a match, so they get one owner that CupMode can
 ## take down with it — see _build_hud.
 var _hud_root: Control
-## Each team's kickoff spots in the order they are handed out, shuffled once in
-## build_match. build_match and kickoff both deal from this by index, so the two
-## cannot drift; see the comment there for what happens when they do.
-var _lineup: Array[Array] = [[], []]
+## Every fighter's own kickoff tile, decided once when the match is built and
+## read by every kickoff after it.
+##
+## This used to be two arrays of spots that build_match and kickoff each walked
+## with their own counter, and when those two counters disagreed every fighter
+## was teleported onto a team-mate's tile on the opening frame, where the
+## overlapping capsules depenetrated hard enough to fire them off the pitch and
+## several hundred metres into the air. Storing the answer per fighter instead of
+## the recipe for computing it twice is what makes that impossible — and it is
+## also what lets a wifi client agree with the host, since the host simply sends
+## each fighter's spot index in the match roster.
+var _kick_spot: Dictionary = {}   # Fighter -> Vector3
 var _score_label: Label
 var _clock_label: Label
 var _banner: Label
@@ -115,19 +135,16 @@ func _log_settled(how: String) -> void:
 
 ## Fills both teams and puts the ball on the centre spot. The arena is already
 ## built by the time this runs — main.gd sets Arena.map_mode before adding it.
+##
+## Single-player only. Over wifi the host deals the roster instead and main.gd
+## spawns from it on every peer, then calls adopt_net_match() — see there.
 func build_match(now: float) -> void:
 	var arena: Arena = game.arena
 	for team in 2:
-		# Shuffled ONCE, here, into _lineup — and kickoff() reads that same array
-		# rather than the arena's, because the two MUST agree. When they did not,
-		# every fighter was teleported onto a team-mate's tile on the opening
-		# frame and the overlapping capsules depenetrated hard enough to fire
-		# them off the pitch and several hundred metres into the air. The shuffle
-		# is what stops the player, who is always team 0 slot 0, opening every
+		# Shuffled so the player, who is always team 0 slot 0, does not open every
 		# single match on the same tile at the left end of the kickoff row.
-		_lineup[team] = arena.team_spawns[team].duplicate()
-		_lineup[team].shuffle()
-		var spots: Array = _lineup[team]
+		var spots: Array = arena.team_spawns[team].duplicate()
+		spots.shuffle()
 		# One lineup PER SIDE: no character appears twice on a team, and the two
 		# sides are dealt independently, so the same character may well line up
 		# opposite themselves. That is Brawl Ball's own rule and it is deliberate
@@ -142,6 +159,7 @@ func build_match(now: float) -> void:
 			var kit: Dictionary = roster[i]
 			var f: Fighter = game._spawn_fighter(kit, spot, is_you, team)
 			f.display_name = "You" if is_you else game.next_bot_name()
+			_kick_spot[f] = spot
 			if is_you:
 				game.player = f
 			# NS3_AUTOPLAY hands the player's own slot to a brain as well, so a
@@ -161,6 +179,27 @@ func build_match(now: float) -> void:
 	ball = Ball.new()
 	game.add_child(ball)
 	ball.place(arena.centre(), now)
+	_build_hud()
+	kickoff(now, true)
+
+## Wifi play: the fighters already exist. main.gd spawned them from the host's
+## roster on every peer — same kits, same teams, same order, same indices — so
+## all this has left to do is remember where each one kicks off from and start
+## the match the way build_match ends.
+##
+## `spots` is parallel to `game.fighters`, which is safe here in a way it is not
+## in Showdown: a Cup death parks a fighter rather than freeing it, so that array
+## never shrinks and index i means the same fighter on both machines for the
+## whole match. It comes from the host so that both sides teleport everyone to
+## the SAME tiles on every kickoff; deriving it locally from a shuffle would put
+## two fighters on one tile the moment the two shuffles disagreed.
+func adopt_net_match(now: float, spots: Array) -> void:
+	for i in game.fighters.size():
+		if i < spots.size():
+			_kick_spot[game.fighters[i]] = spots[i]
+	ball = Ball.new()
+	game.add_child(ball)
+	ball.place(game.arena.centre(), now)
 	_build_hud()
 	kickoff(now, true)
 
@@ -211,25 +250,26 @@ func _exit_tree() -> void:
 func frozen(now: float) -> bool:
 	return finished or now < _frozen_until
 
+## How much of the kickoff hold is left, for the snapshot. Sent as a remaining
+## duration rather than as `_frozen_until`, which is a point on the host's clock
+## and means nothing on anyone else's.
+func frozen_left(now: float) -> float:
+	return maxf(0.0, _frozen_until - now)
+
 ## Both teams back to their spawns, ball on the centre spot, everyone held for
 ## a beat. Used for the opening whistle and after every goal.
 func kickoff(now: float, opening := false) -> void:
 	var arena: Arena = game.arena
-	var used := {0: 0, 1: 0}
 	for f: Fighter in game.fighters:
 		if f.team < 0:
 			continue
-		var spots: Array = _lineup[f.team] if not _lineup[f.team].is_empty() \
-				else arena.team_spawns[f.team]
-		if not spots.is_empty():
-			var spot: Vector3 = spots[used[f.team] % spots.size()]
-			used[f.team] += 1
-			if f.is_dead():
-				f.respawn(spot, now)
-			else:
-				f.position = spot
-				f.kickoff_restore(now)
-				f.reset_physics_interpolation()
+		var spot: Vector3 = _kick_spot.get(f, arena.centre())
+		if f.is_dead():
+			f.respawn(spot, now)
+		else:
+			f.position = spot
+			f.kickoff_restore(now)
+			f.reset_physics_interpolation()
 		f.face_direction(_attack_dir(f.team))
 	_respawning.clear()
 	# A lob or a boomerang thrown a moment before the whistle is still in the
@@ -245,6 +285,61 @@ func kickoff(now: float, opening := false) -> void:
 	_banner.text = "" if opening else "%d — %d" % [score[0], score[1]]
 	if not opening:
 		game.sfx_ui("cup_whistle", -2.0)
+	# Announced from HERE rather than from each of the three callers, so a
+	# restart can never reach one machine and not the other. A client runs this
+	# same function on receipt: every fighter's kickoff tile is in _kick_spot on
+	# both sides, so the two teleport everyone to the same places.
+	if authoritative:
+		game.net_cup_kickoff(opening)
+
+## A wifi client's tick. No rule runs: the score, the clock, the freeze and who
+## is holding the ball all came down in the last snapshot, and everything else a
+## client needs to know arrived as an event.
+##
+## The ball is ticked ONLY while it is carried. That path reads the carrier's
+## position and facing and writes nothing else, so it costs nothing and it is
+## right on both halves of the split — the carrier is either this client's own
+## predicted fighter, where the ball tracking it immediately is the whole point,
+## or an interpolated puppet already drawn where the host had it. A LOOSE ball is
+## not simulated at all; it is interpolated straight from the stream by
+## main.gd:_net_render_puppets, because its path is decided by wall bounces that
+## a client would have to reproduce exactly, and exact reproduction is the one
+## thing an unreliable stream cannot promise.
+func _client_tick(delta: float, now: float) -> void:
+	if ball.carrier != null:
+		ball.tick(delta, now, game.arena)
+	# Mirrors the host's own banner rule rather than being pushed over the wire:
+	# it is a pure function of the freeze clock and the overtime flag, both of
+	# which are already in the snapshot.
+	if frozen(now):
+		if int(ceil(_frozen_until - now)) <= 1 and not overtime:
+			_banner.text = "GO!"
+	else:
+		_banner.text = ""
+	_refresh_hud()
+
+## Client: take the match state out of a snapshot. Called from main.gd at the
+## same delayed instant the puppets are drawn at, so the score changes on the
+## frame the goal is drawn rather than a fifteenth of a second before it.
+func apply_net_state(now: float, st: Dictionary) -> void:
+	score[0] = int(st.s0)
+	score[1] = int(st.s1)
+	clock = float(st.clock)
+	overtime = bool(st.overtime)
+	finished = bool(st.finished)
+	# Sent as time REMAINING rather than as an absolute deadline: the two clocks
+	# are minutes apart and only the difference means anything.
+	_frozen_until = now + float(st.freeze)
+	var who: Fighter = null
+	var idx := int(st.carrier)
+	if idx >= 0 and idx < game.net_fighters.size():
+		var cand = game.net_fighters[idx]
+		if cand != null and is_instance_valid(cand) and not cand.is_dead():
+			who = cand
+	if who == null:
+		ball.carrier = null
+	elif ball.carrier != who:
+		ball.pick_up(who)
 
 ## Which way a team is attacking: toward the goal it does NOT defend.
 func _attack_dir(team: int) -> Vector3:
@@ -253,6 +348,9 @@ func _attack_dir(team: int) -> Vector3:
 
 func tick(delta: float, now: float) -> void:
 	if finished:
+		return
+	if not authoritative:
+		_client_tick(delta, now)
 		return
 	if frozen(now):
 		ball.tick(delta, now, game.arena)
@@ -425,17 +523,28 @@ func _respawn_check(now: float) -> void:
 		var f: Fighter = entry.fighter
 		if not is_instance_valid(f):
 			continue
-		f.respawn(_spawn_for(f), now)
+		# Which mouth tile is emptiest is decided by positions the client only
+		# has a delayed copy of, so the spot is chosen HERE and sent, never
+		# recomputed at the other end.
+		var spot := _spawn_for(f)
+		f.respawn(spot, now)
+		game.net_cup_respawned(f, spot)
 
 ## Nobles Cup death: park the fighter and book its return. Overtime is sudden
 ## death, so a fighter that falls then stays down.
+## Runs on every peer: a client is told about a knock-out by _net_cup_down and
+## comes through here too, because parking the body, the feed line and the health
+## bar going away are all things it has to do for itself. What a client does NOT
+## do is decide anything — where the ball ends up comes down in the stream, and
+## the return is booked by the host and announced by _net_cup_respawn. Ball.tick
+## drops a dead carrier on its own, so the client needs no placement here.
 func on_death(f: Fighter, killer: String) -> void:
-	if ball.carrier == f:
+	if authoritative and ball.carrier == f:
 		ball.place(_free_spot(f.global_position), game.now, 0.35)
 	f.knock_out()
 	game.feed_label.text = "%s eliminated %s" % [killer, f.display_name] if killer != "" \
 			else "%s went down" % f.display_name
-	if not overtime:
+	if authoritative and not overtime:
 		_respawning.append({"fighter": f, "at": game.now + RESPAWN_SECONDS})
 
 ## A death puts you back in your own goal, not at the kickoff spot. It is the
@@ -490,6 +599,21 @@ func _goal_check(now: float) -> bool:
 	var own := is_instance_valid(ball.last_touch) and ball.last_touch.team == conceded
 	if is_instance_valid(ball.last_touch) and not own:
 		ball.last_touch.stats.goals += 1
+	goal_effects(conceded, who, own)
+	game.net_cup_goal(conceded, who, own)
+	_refresh_hud()
+	if score[scorer] >= GOALS_TO_WIN or overtime:
+		_finish(now)
+	else:
+		kickoff(now)
+	return true
+
+## Everything a goal LOOKS like, kept apart from everything it decides. A wifi
+## client is handed the three facts it cannot work out for itself — which end was
+## conceded, who put it in, and whether they meant to — and runs this; the host
+## runs it too, on its way through _goal_check. One body of code, so the goal
+## that a client sees cannot drift from the goal the host scored.
+func goal_effects(conceded: int, who: String, own: bool) -> void:
 	game.feed_label.text = "%s scored%s" % [who, " (own goal)" if own else ""]
 	game.sfx_ui("cup_goal", 2.0)
 	# Scored FOR your side, whoever put it in — an own goal by the opposition is
@@ -506,11 +630,6 @@ func _goal_check(now: float) -> bool:
 	game.focus_camera(game.arena.goal_centers[conceded].lerp(game.arena.centre(),
 			GOAL_CAMERA_INSET), GOAL_CAMERA_HOLD)
 	_refresh_hud()
-	if score[scorer] >= GOALS_TO_WIN or overtime:
-		_finish(now)
-	else:
-		kickoff(now)
-	return true
 
 func _time_up(now: float) -> void:
 	if score[0] != score[1]:
@@ -590,8 +709,23 @@ func kick(f: Fighter, dir: Vector3, now: float, use_super := false) -> bool:
 	# rather than a louder boot.
 	game.sfx_at("super_fire" if use_super else "cup_kick", f.global_position,
 			3.0 if use_super else 0.0)
+	# A kick never reaches perform_attack — main.gd:_fire_player returns as soon
+	# as this claims the input — so the Super Shot had no haptic at all, and the
+	# plain kick, the thing you do all match, had none either. Both come from
+	# here for the same reason their sounds do.
+	# A Super Shot is its own entry rather than the kit's Super, because it is a
+	# ball launch whatever the kit would otherwise have done — routing it
+	# through super_fired would put a dash's rumble bed under a kick.
+	if f == game.player:
+		Haptics.fire("super_shot" if use_super else "kick")
 	f.face_direction(dir)
 	f.play_attack_animation(now, use_super)
+	# Announced from HERE, not from main.gd's _net_fire handler, because that
+	# only ever sees a REMOTE PLAYER's kick — and most of the kicking in a Cup
+	# match is done by bots, whose kicks come through the brain loop and would
+	# have reached the other machines silently. Every kick in the game funnels
+	# through this one call, which is the only place that covers all three.
+	game.net_cup_kick(f, use_super)
 	return true
 
 ## Where a tap-to-kick sends the ball, AND what it is doing with it: a shot at

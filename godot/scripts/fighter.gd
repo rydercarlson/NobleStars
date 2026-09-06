@@ -91,14 +91,6 @@ var knock_strength := 0.0
 var knock_dir := Vector3.ZERO
 var knock_from: Fighter = null
 
-## Who this fighter has most recently traded damage with, and when. Set on BOTH
-## sides of every hit, so it answers "who am I in a fight with" whether you are
-## the one shooting or the one being shot at. main.gd's Super picker leans on it:
-## the target worth a charge is usually the one you were already fighting, and
-## nothing else on the fighter remembers that.
-var engaged_with: Fighter = null
-var engaged_at := -100.0
-
 var dash: Dictionary = {}   # empty = not dashing; `steer` marks a Downhill ride
 var leap: Dictionary = {}   # empty = grounded; used by jump-smash Supers
 var disconnected_until := -1.0
@@ -698,12 +690,6 @@ func receive_knockback(direction: Vector3, strength: float, from: Fighter = null
 	knock_strength = strength
 	knock_dir = unit
 	knock_from = from
-
-func note_engagement(other: Fighter, at: float) -> void:
-	if other == null or other == self:
-		return
-	engaged_with = other
-	engaged_at = at
 
 ## Ayaan's snow spray. Overlapping sprays take the STRONGEST slow and the
 ## LATEST expiry, so skiing through the same crowd twice never shortens the

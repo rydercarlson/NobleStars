@@ -35,6 +35,10 @@ var _currency_labels: Array = []   # [{label, kind}]
 func _ready() -> void:
 	SaveGame.ensure_loaded()
 	MenuData.ensure_loaded()
+	# The menu is where the first tap of a session happens, and the haptic
+	# engine idles down on its own — so warm it here as well as at match start,
+	# or the very first button press is the one that arrives late.
+	Haptics.warm()
 	if _handle_debug_hooks():
 		return
 	_build_stage()
@@ -45,7 +49,13 @@ func _ready() -> void:
 func _handle_debug_hooks() -> bool:
 	if OS.get_environment("NS3_HOST") != "":
 		var want := int(OS.get_environment("NS3_HOST"))
-		Net.host_game(SaveGame.player_name, SaveGame.selected_kit)
+		# NS3_MODE picks the room's mode for the harness, the same way it picks
+		# the mode for a single-player run. Only the HOST reads it: the room's
+		# mode travels to the client with the roster, which is exactly the
+		# behaviour the harness exists to check.
+		var room_mode := OS.get_environment("NS3_MODE")
+		Net.host_game(SaveGame.player_name, SaveGame.selected_kit,
+				room_mode if room_mode != "" else "showdown")
 		Net.roster_changed.connect(func() -> void:
 			if Net.active and Net.players.size() >= want and not Net.locked:
 				Net.start_game())
