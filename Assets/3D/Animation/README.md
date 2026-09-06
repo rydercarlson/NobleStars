@@ -18,9 +18,9 @@ produce. The raw Meshy export of the tennis brawler is preserved in git history
 | `paddle_brawler_animated.glb` | Henry | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.5 MB |
 | `staff_brawler_animated.glb` | Sanjit (planned) | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 8 | ~7,300 | 9.8 MB |
 
-Tony and Henry are wired into the game: copied to `godot/assets/<kit>.glb` and declared
-in `godot/scripts/kits.gd` (`model` + `clips`). Sanjit is asset-only for now — he has no
-kit in `kits.gd` yet (see `plans.md`: double punch primary, boomeranging staff super).
+All three are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
+`godot/scripts/kits.gd` (`model` + `clips`). Sanjit shipped as designed — double punch
+primary, boomeranging staff Super.
 
 ## `staff_brawler_animated.glb` (Sanjit — planned kit)
 
@@ -33,7 +33,7 @@ atlas. The richest clip set of the three:
 |---|---|---|
 | `Idle` | 4.00 s | Synthesized by the tool (export shipped none) |
 | `Running` / `RunFast` / `Walking` | 0.63 / 0.47 / 1.03 s | |
-| `Double_Combo_Attack` | 2.83 s | The plans.md "double punch" primary — sped up like Tony's 3× Thrust_Slash when wired |
+| `Double_Combo_Attack` | 2.83 s | The "double punch" primary — sped up like Tony's 3× Thrust_Slash, `attack_speed` 4.5 |
 | `Attack` | 2.80 s | Generic strike, spare |
 | `Axe_Spin_Attack` | 2.50 s | Spin attack, spare |
 | `Crouch_Charge_and_Throw` | 7.70 s | Charge-up and throw — raw material for the boomeranging-staff Super |

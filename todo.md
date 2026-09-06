@@ -1,298 +1,557 @@
 # Noble Stars — TODO
 
-Running list of the major fixes and gaps in the Godot 3D game (`godot/`). Roughly
-priority-ordered inside each section. v1 SpriteKit (`NobleStars/`) is maintenance
-only and is not tracked here.
+Open work on the Godot 3D game (`godot/`). **Finished work moved to
+[`done.md`](done.md)** — 48 entries recording what was measured, what was tried
+and rejected, and why things are the shape they are. Read it before reopening
+anything here; several items on this list have a rejected first attempt on
+record.
 
-## From play on a phone — 5 Sep 2026
+Reference material that is *not* a task — the three asset pipelines and the
+"which Godot plugins" finding — is at the bottom under **Reference**.
 
-Ryder's list off a real session, verbatim in intent and grouped here by where the
-fix actually lands. Everything in this section is unstarted unless it says
-otherwise; the older sections below are still the reference for anything that
-overlaps.
+## How to read this
 
-### The lineup — done, this pass
+**Priority** is about the player, not about how interesting the work is.
 
-- [x] **Nobody appears twice on a team, and the bots have names.** Three of the
-      list at once, because all three lived in the same twenty lines of match
-      setup:
-      - **`Kits.all().pick_random()` per slot** meant Nobles Cup routinely
-        fielded two of the same character on one side (a 1-in-3 chance per pair
-        at nine kits), and Showdown's ten slots could deal the same fighter four
-        times. `main.gd:lineup_kits(count, first)` deals a shuffled pool without
-        replacement instead: Cup's three-a-side never repeats within a team,
-        and Showdown fills nine of its ten slots with nine different characters
-        and only the tenth can echo one. The two Cup sides are dealt
-        independently, so a character can still line up opposite themselves —
-        Brawl Ball's own rule, and Ryder's call.
-      - **The player always spawned on the left of the Cup kickoff row.**
-        `build_match` read `team_spawns[team][i]` by index and the player is
-        always team 0, slot 0 — so it was the same tile every match. The three
-        spots are now shuffled once into `CupMode._lineup` and **both**
-        `build_match` and `kickoff` read that, which is the constraint the old
-        comment was protecting: when the two disagreed, fighters spawned on top
-        of each other and the depenetration fired them off the pitch.
-      - **Bots were called "Kovacs 3".** They now draw a username from a pool of
-        56 in `game.json` (`opponents`, read through `MenuData.opponent_names`),
-        dealt without repeats per match. That name was already printed in three
-        places — the versus cards, the elimination feed and the results table —
-        so this shows up everywhere for free, and the nameplate below adds the
-        fourth. `NS3_SIM` deliberately keeps the old kit-based naming, because
-        `[sim] match 12/60: Kovacs 4 wins` is the line that has to stay readable.
-- [x] **Health bars sit above the head instead of across the face.** The stack
-      hung DOWN from an anchor 3.4 m up, so bar + gap + pips + Hammy's heat pips
-      reached back into the model. It now hangs UP from a 2.75 m anchor — the
-      bottom of the ammo pips lands on the anchor and everything else stacks
-      above it, so no amount of extra rows can ever reach the face again. The
-      username rides on top of that stack in the same outlined numerals the HP
-      already uses.
+| | |
+|---|---|
+| **P0** | Stands between this project and a good build in Ryder's hand. Do these first. |
+| **P1** | The game is measurably worse without it and somebody would notice in one session. |
+| **P2** | Real work, wanted, not urgent. |
+| **P3** | Nice to have, an open question, or deliberately deferred. |
 
-### Feel and controls
+**Effort** is calendar-feel, not lines of code.
 
-- [ ] **Everything still moves too fast for the tile size.** The recurring note,
-      and the same decision as **Camera framing** and **Model scale** below —
-      all three are the one ratio between how big a fighter is, how much map is
-      on screen and how far it crosses per second. Do not tune one alone. The
-      numbers to start from are in those two entries.
-- [x] **Haptics.** `scripts/haptics.gd` — a static `Haptics.fire(name)` over a
-      fourteen-entry table of duration + amplitude, gated on
-      `SaveGame.haptics_on` (Settings, beside Music and SFX) and on
-      `OS.has_feature("mobile")`. What the pass turned on:
-      - **Godot routes `vibrate_handheld` through Core Haptics on iOS 13+**, so
-        both the duration and the amplitude are real. Older devices ignore both
-        and fire the same ~0.4s buzz, which is why the table is short and hard
-        throttled — every entry has to survive arriving as a fixed buzz.
-      - **Damage is watched in `_update_status`, not hooked into `deal_damage`.**
-        A wifi client never runs `deal_damage` and takes its health off the
-        snapshot stream, so reading the number frame to frame is the one hook
-        that covers both — and a nine-pellet shotgun arrives as one exchange
-        rather than nine taps.
-      - **`HEAVY_FRACTION` was measured with `NS3_HAPTIC_LOG=1`, not picked.** A
-        bot's shot landing is 29% of max health and a gas tick 17%, so 0.22 is
-        the only threshold that separates them; the first pass at 0.12 made
-        every hit heavy, gas included, which is the same as having one entry.
-      - **`REPEAT_GAP` on top of `MIN_GAP`** for the taps that arrive as a
-        stream. Gas ticks about twice a second for as long as you stand in it,
-        and at the global 0.09s floor it rattles.
-      - **`NS3_HAPTIC_LOG=1` is the whole verification story**, since nothing can
-        be felt on a desktop. Confirmed firing on real runs: `count_go`,
-        `hit_taken`, `hit_heavy`, `super_ready`, `super_fire`, `elimination`,
-        `death`, `goal_for`, `goal_against`, and `ui_tap` off a real menu button
-        press. **Not yet seen fire: `cube`, `ball_get`, `ui_reward`** — each is a
-        one-line hook beside an already-working sound in the same closure, but
-        the situation did not arise in the runs that were made.
-      - Still open: nothing is tuned against an actual phone. The amplitudes are
-        first guesses and want a pass on the device.
-- [ ] **The Super is hard to aim.** Aiming a Super costs the same drag as a shot
-      but the miss is far more expensive, and the button and stick are separate
-      controls (`super_button.gd` + `virtual_joystick.gd`), so the aim starts
-      only once the finger is already on the button. Worth trying the Brawl
-      Stars arrangement: the Super button is itself a stick you drag off.
-- [x] **A tapped Super is scored now, not nearest.** `main.gd:_super_target`
-      ranks every candidate in the same set the old rule used (`range * 1.1`,
-      the same wall and bush checks) as an expected value: what the target is
-      WORTH — would this Super finish them, are you already trading with them,
-      are they wounded, are they close — multiplied by `_connect_odds`, roughly
-      how likely the shot is to arrive given `_aim_lead` assumes the target
-      holds its heading. Weights are a ranking, not a measurement: a kill beats
-      the fight you are in, which beats a wounded bystander, which beats
-      nearest.
-      - **The regular tap is deliberately still nearest**, and the asymmetry is
-        the point. An attack repeats two to five times a second, so a wrong pick
-        costs one shot and the next tap corrects it — while a picker that
-        re-ranks every tap sends consecutive shots at different people, which
-        reads as the game arguing with you. Nearest is also the only rule a
-        player can predict without reading a marker. A Super is the one shot
-        that costs something, so it is the one that can afford the machinery.
-      - **All three deliberate exceptions survived**, which was the thing to
-        watch: Pop Off still leaps the way you are running, Downhill still sets
-        off with nobody in reach, and any other Super with no target still keeps
-        its charge. They live in the new `_tap_plan`, which returns
-        `{kind, dir, target}` and is shared by the firing path AND the aim
-        indicator — that sharing is what makes the Cup tell below possible.
-      - `Fighter.engaged_with` / `engaged_at` record the exchange on **both**
-        sides of every hit, so "the fighter you have been trading with" is true
-        whether you have been shooting them or they have been shooting you.
-- [x] **A Cup tap now says which of the two things it will do.** The rule was
-      not wrong — a tap shoots inside `SHOT_RANGE` and passes otherwise, which
-      is right — the tell was missing, so the tap silently did one of two very
-      different things depending on a distance the player cannot see.
-      `CupMode.kick_plan` now returns `{kind, at, dir}` where kind is
-      `shot` / `pass` / `clear`, and `main.gd` draws a ring on `at` — the goal,
-      or the team-mate — so you can see what a tap is aimed at before you take
-      it. `kick_aim` is kept as the direction-only half for the callers that
-      just kick. The bots read the same plan, so what the ring promises and what
-      a tap does cannot drift.
+| | |
+|---|---|
+| **XS** | One constant, one line, or a decision someone just has to make. |
+| **S** | An afternoon in one or two files. |
+| **M** | Several files, or needs measuring before it can be started. |
+| **L** | A new subsystem. |
+| **XL** | A new pipeline, native code, or other people's time. |
 
-### Fit on a phone
+**[blocked]** means it cannot start until something outside the code happens —
+a device, a decision, or a person. Those are the ones to unblock early even when
+they are not urgent, and `Voicelines` is the extreme case.
 
-- [ ] **The match does not reach the edges of the screen.** `project.godot` is
-      `stretch/mode="canvas_items"`, `aspect="expand"` at 1280x720, which should
-      fill — so this is either the safe-area inset or the HUD's own anchors.
-      Shoot it on the device before changing anything.
-- [ ] **The menu does not reach the edges either**, which is a different bug:
-      `MenuShell._fit_stage` deliberately widens the 1920x1080 stage past 1920 on
-      anything taller than 16:9 so a phone gains stage width rather than bars.
-      Either that path is not running on device or the safe-area honouring is
-      eating the gain.
-- [ ] **Buttons and text are too small.** On the menu this is the type scale
-      being authored against a 1920 stage and read at arm's length on a 6-inch
-      screen; in the match it is the HUD. Measure the real device pixels per
-      point before picking new numbers — the stage scale makes guessing useless.
+## The list at a glance
 
-### Menu and progression
+| # | Item | Area | Pri | Effort | Blocked on |
+|---|---|---|---|---|---|
+| 0.1 | Commit the 1,982 uncommitted lines | Repo | P0 | S | — |
+| 1.1 | Match does not reach the screen edges | Phone fit | P0 | S | — |
+| 1.2 | Menu does not reach the screen edges | Phone fit | P0 | S | — |
+| 1.3 | Buttons and text are too small | Phone fit | P0 | M | — |
+| 1.4 | Developer Mode on the handset | Ship | P0 | XS | Ryder + the phone |
+| 2.1 | Speed / camera / model scale — one decision | Feel | P1 | M | a taste call |
+| 3.1 | A shot cannot be called off after aiming | Controls | P1 | S | — |
+| 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | a device install |
+| 4.1 | Nova and Ayaan are still capsules | Characters | P1 | L | Meshy pass |
+| 8.1 | A client's death is silent and its HUD lies | Multiplayer | P1 | S | — |
+| 10.1 | The app icon is a placeholder | Ship | P1 | S | — |
+| 5.1 | The menu's second look | Menu | P2 | M | — |
+| 5.2 | The roster should be tiles, not rows | Menu | P2 | S | — |
+| 5.3 | Jackson's menu idea | Menu | P2 | ? | the idea, written down |
+| 5.4 | A real progression system | Progression | P2 | L | what a level changes |
+| 5.5 | Four fighters have no named unlock | Progression | P2 | XS | a content call |
+| 6.1 | A third game mode | Modes | P2 | L | which mode |
+| 7.1 | The balance pass | Balance | P2 | M | — |
+| 7.2 | Sanjit's range feels too long | Balance | P2 | S | — |
+| 3.4 | Hammy's heat pips should be one draining bar | Feel | P2 | S | — |
+| 8.2 | Clients do not predict their own attacks | Multiplayer | P2 | M | — |
+| 9.1 | Voicelines | Audio | P2 | XL | nine real people |
+| 9.2 | The gas ring makes no sound | Audio | P2 | S | — |
+| 11.2 | No GDScript language server | Tooling | P2 | M | — |
+| 11.3 | A `.gdlintrc`, now there are two devs | Tooling | P2 | XS | — |
+| 3.3 | An iOS haptics plugin | Feel | P3 | XL | 3.2 answering "texture" |
+| 4.2 | Character cards — drawings or renders | Art | P3 | M | a medium call |
+| 5.6 | JSON the menu carries and nothing reads | Menu | P3 | M | — |
+| 5.7 | Menu art the JSON describes and nothing draws | Art | P3 | M | — |
+| 6.2 | Do the maps get names? | Modes | P3 | XS | Ryder |
+| 8.4 | No interest management | Multiplayer | P3 | M | a bigger roster |
+| 9.3 | Per-kit weapon sounds, positional audio | Audio | P3 | S | — |
+| 9.4 | More music | Audio | P3 | L | — |
+| 11.1 | Nothing forces `Tools/godot.sh` | Tooling | P3 | XS | — |
 
-- [ ] **Redesign the menu around Jackson's idea.** Needs the idea written down
-      here before anything is built. The current programme-page design and the
-      reasoning behind every token in it is in CLAUDE.md's **Menu** section —
-      read that first so the redesign is a decision and not a drift.
-- [ ] **The roster should be tiles, not a grid.** `roster_screen.gd` is a plain
-      picker of rows; Ryder wants character tiles.
-- [x] **Every character has a card now.** The old entry was half stale: **Ayaan
-      has had a `brawlers.json` entry all along** (title, role, description,
-      attack and Super copy) and so do Anders and Hammy — what those three lack
-      is only the loadout names, and that block currently has no reader at all
-      (`BrawlerDetailScreen._build_loadout` went with the roster's detail card
-      in the menu overhaul; `MenuData._merge` still emits `loadout` and nothing
-      consumes it). **Nova** was the one genuinely missing entry, and it showed
-      the most because she is the sole starter and the first fighter anyone
-      sees: `_merge`'s fallbacks titled her "Shotgunner" under a role tag
-      already reading SHOTGUNNER, named her attack "SHOTGUNNER" and her Super
-      "SUPER", and printed her kit description twice. She now has a full entry
-      in the shape of Leon's, and home reads SCATTERSHOT / MEGA BLAST with real
-      copy under the title FIRST DAY.
-      - The JSON is copy, never balance: her numbers were read out of
-        `kits.gd` (5000 HP, 250 x 5 pellets, 22° fan, 4.3 tiles; Super 333 x 9,
-        34°, 5.0 tiles, breaks walls) and the write-ups quote them. `_merge`
-        does not read the JSON `stats` block at all — every figure on screen
-        comes from `kits.gd` — so it is there for shape parity and nothing else.
-      - No `model` or `portrait` key: Nova has neither file on disk, and unlike
-        Ayaan's entry (which names a portrait that does not exist and is never
-        resolved anyway — `MenuData.portrait` derives the path from the id) this
-        one does not pretend otherwise. She still renders as the capsule.
-      - The copy is deliberately descriptive rather than a character concept —
-        Nova is the placeholder reference kit and has none written down
-        anywhere. Replace the title and the four loadout names freely.
-      - **Left alone, worth a look:** Leon's entry is still `"rarity":
-        "starting"` and `"unlocked": true` from the web build, so the roster
-        labels him Starting Brawler alongside Nova, who is the only id in
-        `game.json`'s `startingBrawlers`. Changing it moves him between rarity
-        buckets, which the rarity-weighted `brawler_drop` reads — a content
-        decision, not a typo fix.
-- [ ] **A real progression system.** `SaveGame` already banks trophies, coins,
-      gems, Power Points and pass tokens per match, and Trophy Road and the pass
-      spend them — but power levels, Star Powers and gadgets are displayed and
-      do nothing. Decide what a level actually changes before wiring it.
-- [ ] **Activate a third game mode.** Two are live (Showdown, Nobles Cup); every
-      other card on the modes screen is a locked dummy. `Session.mode` plus the
-      branch at the top of `main.gd:start_match` is the whole hook, and
-      `cup_mode.gd` is the worked example of what a mode file looks like.
-- [ ] **Name the dog park?** Open question from Ryder — the maps have no names in
-      the game at all (`game.json`'s `gameLog` invents "Castle Courtyard" and
-      friends for its fake history, and nothing reads them). If maps get names,
-      the loading screen and the versus screen are where they belong.
+---
 
-### Boot
+# 0. The working tree
 
-- [x] **The app boots on the loading screen.** Not a second design — the splash
-      *is* `loading_screen.gd`'s own first frame, rendered to a PNG by
-      `tools/make_boot_splash.gd` because the engine paints it before any of our
-      code is running and a still image is all it can paint. The screen builds
-      itself through a static `LoadingScreen.compose()` that both the live
-      transition and the renderer call, so the two cannot drift; re-run the tool
-      after changing the screen:
+- [ ] **0.1 — 1,982 uncommitted lines across nine gameplay scripts.** `P0` `S`
+      They sit on top of `a68f3fd`, whose message is
+      `WIP: match feel (stalled agent, unverified)`. **They are verified now** —
+      a headless Showdown sim, a headless Cup match, the wifi room screen, the
+      join-code probe and a two-instance LAN Cup match all run with zero script
+      errors — but until they are committed, a second person cloning the repo
+      gets none of it, and **two finished features exist only on this machine** —
+      Nobles Cup over wifi, and join codes. Both are written up in `done.md`
+      under **Multiplayer**.
+      - Modified: `cup_mode.gd`, `fighter.gd`, `haptics.gd`, `main.gd`,
+        `menu.gd`, `net_play.gd`, `room_screen.gd`, `virtual_joystick.gd`,
+        `tools/aim_probe.gd`. Staged deletion: `super_button.gd`. Untracked:
+        `tools/code_probe.gd`.
+      - **CLAUDE.md already documents both** — the same changeset updated it, so
+        the working tree is self-consistent. It is only the *committed* CLAUDE.md
+        that still describes join-by-IP and an unhostable Cup, which is one more
+        reason to commit.
 
-          /Applications/Godot.app/Contents/MacOS/Godot --path godot \
-              --script res://tools/make_boot_splash.gd     # NOT --headless
+---
 
-      Copy is `BOOT_TITLE` / `BOOT_SUBTITLE` on the screen itself ("Starting up"
-      — "returning to the lobby" is the one line that cannot carry over to a
-      cold start). `bg_color` is the screen's own `BASE_INK` (`#05070f`) by
-      hand, and it is load-bearing: 4.7's `boot_splash/stretch_mode` defaults to
-      **Keep**, which FITS the image, so on anything wider than 16:9 that colour
-      is the columns either side. Fit rather than Cover deliberately — the title
-      and the bar are anchored to the bottom of the frame, and Cover crops 11%
-      off the bottom of a 19.5:9 phone, which is exactly where they live.
-      Three more things it learned: the render is composed at the screen's
-      authored 1280x720 and shot at 1920 via `size_2d_override`, which
-      rasterizes the type at the larger size the way the game's own
-      `canvas_items` stretch does (scaling the Control tree instead upscales the
-      glyph bitmaps); 1920 and not more because that is the keyart's own
-      resolution and the same frame at 2560 is a 4 MB PNG against a 500 KB
-      source; and the PNG is imported `keep` with an `exclude_filter` entry in
-      `export_presets.cfg`, because the exporter adds the boot splash to the
-      pack by path *on top of* the resource sweep and it shipped twice
-      (measured: 40.0 MB → 37.2 MB). `minimum_display_time=750` is `MIN_SHOW`'s
-      rule — a splash that flashes for three frames reads as a glitch.
-      **iOS gets it free on the next export**: the launch storyboard falls back
-      to `boot_splash/image` and `boot_splash/bg_color` when the preset names no
-      `storyboard/custom_image@2x`, which is why the last export's storyboard
-      carries the engine's own `0.14, 0.14, 0.14`. Only the app icon is left in
-      **Ship**.
+# 1. Phone fit — the P0 block
 
-### Balance, from play
+Four items, and together they are the whole reason the game is not yet good in
+the hand. Everything else on this list is worth less than these until a build on
+the phone fills the screen at a readable size. **All device testing is Ryder's** —
+the phone is his and `devicectl` installs from his machine, so anything Jackson
+changes in the menu is a loop through him, not a handoff.
 
-- [ ] **Sanjit's range feels too long.** `kits.gd:305` — the melee reaches
-      1.4 tiles (2.8 m) and the boomerang Super 5.0. Measure which one the
-      complaint is about with `NS3_KIT=sanjit` before touching the tier tables;
-      `CHARACTER_BUILDING.md` derives damage from range, so a range change is a
-      damage change.
-- [x] **Kovacs stripped the carrier with a BASIC ATTACK, and that was the bug.**
-      The entry above assumed the fix was a clamp on distance. Measured over a
-      full match with the new `NS3_BALL_LOG=1`, the real fault was upstream:
-      `_carrier_check` tested a bare speed threshold on `knockback_vel`, and
-      Kovacs' clap shoves at 4.0 — over `KNOCK_DROP_SPEED` (3.0) — so it took
-      the ball off the carrier **every time it landed**, on a normal reload,
-      across a 2.4-tile 78-degree cone. Nothing else in the roster strips with
-      its regular attack and nothing should.
-      - **No threshold can fix it**, which is why the rule changed shape rather
-        than its number: his clap shoves at 4.0 and *Sanjit's Super* shoves at
-        exactly 4.0 too. What separates them is where the shove came from, so
-        `deal_damage` now records the attacker on the target and
-        `_knock_was_super` asks whether the impulse was harder than that
-        attacker's OWN weapon. Every kit gives its Super more knockback than its
-        attack (Kovacs 10 vs 4, Leon 5 vs 1.5, Anders 14 vs 3, and the other six
-        put none on the weapon at all), so "harder than their own attack" IS
-        "their Super" — and it stays true for a kit added later with nothing
-        here retuned.
-      - **The ball keeps some of the shove** (`Ball.knock_loose`) so a strip
-        reads as knocked away rather than put down, capped at `KNOCK_BALL_MAX`
-        — the hardest Super in the roster coasts it about 6 m against a kick's
-        15, so a strip can never be a shot from anywhere a kick could not
-        already have been taken. `last_touch` is deliberately NOT changed:
-        whoever landed the Super never touched the ball, and leaving the carrier
-        on it keeps goal credit and the own-goal test honest.
-      - **A knock outlives the ball's pickup hold**, which cost a pass to find:
-        a 10 m/s shove decays over ~0.58s against `KNOCK_BALL_HOLD` of 0.35s, so
-        the carrier re-collected while still wearing a live knock record and was
-        stripped again on the next frame — three strips off one Kovacs Super,
-        measured. `Fighter.forget_knock()` spends the shove the moment it takes
-        the ball.
-      - Verified after the fix: every `knock` line in a full match is a Super
-        (Kovacs 10.0, Nova 12.0) and the ball runs 1.6–2.0 m, against kicks of
-        3–13 m.
+- [ ] **1.1 — The match does not reach the edges of the screen.** `P0` `S`
+      `project.godot` is `stretch/mode="canvas_items"`, `aspect="expand"` at
+      1280x720, which should fill — so this is either the safe-area inset or the
+      HUD's own anchors. **Shoot it on the device before changing anything**; a
+      desktop window cannot reproduce it.
+
+- [ ] **1.2 — The menu does not reach the edges either**, and it is a different
+      bug from 1.1. `P0` `S`
+      `MenuShell._fit_stage` deliberately *widens* the 1920x1080 stage past 1920
+      on anything taller than 16:9, so a phone is supposed to gain stage width
+      rather than bars. Either that path is not running on device, or honouring
+      the safe area is eating the gain back.
+
+- [ ] **1.3 — Buttons and text are too small.** `P0` `M`
+      On the menu this is a type scale authored against a 1920 stage and read at
+      arm's length on a 6-inch screen; in the match it is the HUD. **Measure the
+      real device pixels per point first** — the stage scale makes guessing
+      useless, and the type scale has a deliberate hole in it (utility at 17-22,
+      display at 44+) that a blind bump would fill in and flatten. See CLAUDE.md's
+      **Menu** section before picking numbers.
+
+- [ ] **1.4 — Developer Mode is off on the handset.** `P0` `XS` `[blocked: Ryder]`
+      The export runs end to end and leaves a signed `.ipa`, but `devicectl`
+      stops with `Developer Mode is disabled` until Settings → Privacy &
+      Security → Developer Mode is switched on and the phone restarted. It
+      cannot be done from here, and it gates every other P0 on this list, since
+      all three need shooting on the device. `devicectl` also needs
+      `DEVELOPER_DIR` set, exactly like the export.
+
+---
+
+# 2. The one scale decision
+
+- [ ] **2.1 — Movement speed, camera framing and model scale are a single
+      decision. Do not tune one alone.** `P1` `M`
+      Three separate complaints that are one ratio: how big a fighter is, how
+      much map is on screen, and how far a fighter crosses per second. The
+      numbers are all measured already, so this is a taste call and a retune, not
+      an investigation.
+      - **The camera is 105.5 m out at 60° behind a 7° vertical FOV** = 22.9 x
+        12.9 m at 16:9, or 55.8 px/m on a 1280 frame. Henry renders about
+        **65 x 85 px, 5% of screen width**, against roughly 8-10% for a Brawl
+        Stars brawler. The complaint is real.
+      - **Zooming in is blocked by the range cap.** The vertical half-span is
+        6.45 m against a weapon range cap of 5.5 tiles = 11 m, so a target at max
+        range up or down the screen is already 4.5 m off-camera. Any zoom makes
+        you shoot at what you cannot see — a balance change wearing a camera
+        change's clothes. **The camera on its own has nothing left to give.**
+      - **The lever is `Kits.MODEL_SCALE` (1.44), or the range cap itself.**
+      - **And the models do not match their capsules.** `tools/size_probe.gd`
+        measures each rig from its *bone* extents (a skinned mesh's own AABB is
+        authored in bind space and comes back at ~0.02 m, i.e. meaningless).
+        Against a capsule 1.30 m wide and 1.60 m tall:
+
+            tony    w 0.82  d 0.41  h 2.34      leon    w 0.52  d 0.32  h 2.39
+            henry   w 0.50  d 0.31  h 2.29      anders  w 0.46  d 0.31  h 2.38
+            sanjit  w 0.64  d 0.41  h 2.38      hammy   w 0.46  d 0.29  h 2.40
+            kovacs  w 0.61  d 0.30  h 2.40
+
+        Every model is roughly **half** the capsule's width and **1.5x** its
+        height. Widening the models puts them over 3 m tall; narrowing the
+        capsules makes everyone half as easy to hit. That is a balance change,
+        which is why it belongs in this decision and not beside it.
+
+---
+
+# 3. Controls and feel
+
+- [ ] **3.1 — One cannot decide *not* to attack after aiming.** `P1` `S`
+      Drag the aim stick out, change your mind, drag it back to the centre — the
+      shot still fires on release. It should not. The stick already knows: `value`
+      is what crosses `TAP_THRESHOLD` for the detent in `main.gd:_update_aim_detent`,
+      so a release below that threshold *after* the stick has been out is
+      distinguishable from a tap that never left home. Careful with the
+      interaction: a release at zero deflection that was never dragged is a
+      **tap**, and a tap must keep firing at the nearest target.
+
+- [ ] **3.2 — Nothing in the haptics layer has been judged on an actual
+      phone.** `P1` `XS` `[blocked: a device install]`
+      The score vocabulary is written, measured and instrumented, and the
+      amplitudes are reasoned from a measured damage curve — but they have not
+      been **felt**, and that is the only test that settles them. This also
+      decides 3.3: if the verdict is "the rhythm is right, the texture is wrong",
+      the native plugin is the answer; if it is still the rhythm, the plugin will
+      not fix it. `NS3_HAPTIC_DEMO=<name>` loops one entry for tuning on the
+      handset itself.
+
+- [ ] **3.3 — An iOS haptics plugin, for transient events and sharpness.**
+      `P3` `XL` `[blocked: 3.2]`
+      The ceiling on how good the haptics can feel, and the one thing the
+      GDScript rewrite could not reach. `AppleEmbedded::vibrate_haptic_engine`
+      (`drivers/apple_embedded/apple_embedded.mm:73-132`, identical on 4.6 and
+      4.7) builds a pattern holding a single `CHHapticEventTypeHapticContinuous`
+      with only `HapticIntensity` set — never `Transient`, never `HapticSharpness`.
+      Every tap the game can currently make is the same soft continuous buzz at a
+      different length and strength.
+      - **What it buys:** a real transient (what a UI press and a landed shot
+        actually want); sharpness, so a body hit is a dull thud and a wall break a
+        sharp crack rather than the two differing only in volume;
+        `CHHapticAdvancedPatternPlayer` curves instead of stepped segments; and
+        sub-millisecond timing instead of the ~16 ms frame quantisation the queue
+        in `haptics.gd` is stuck with.
+      - **Shape:** a `.gdip` plus an arm64 `.a` in `godot/ios/plugins/` — the
+        exporter picks it up with no preset change. Expose transient/continuous,
+        intensity and sharpness, ideally an AHAP loader, then make `Haptics._emit`
+        prefer it and keep `Input.vibrate_handheld` as the fallback. **The score
+        vocabulary gets richer; it is not thrown away.**
+      - **Why it is deferred:** first native code in the project, a build against
+        Godot headers, and something new between `Tools/export_ios.sh` and the
+        stock templates that currently run end to end. It cannot be tested in the
+        simulator (godotengine/godot#118161), so every iteration is a device
+        install.
+
+- [ ] **3.4 — Hammy's three heat pips should merge into one bar that drains,
+      like Ayaan's Downhill clock.** `P2` `S`
+      Ryder's call, and the file already argues for it. Today
+      `fighter_bars.gd:157-165` draws **three discrete pips** below the ammo row,
+      lit when `i < f.heat_hits` — and then, once On Fire, **all three light
+      solid and stay solid** for the whole four seconds. So the row says two
+      different things with the same picture: while building it is a *count* out
+      of three, and while burning it is a *duration* with no indication of how
+      much is left. The second is the half that matters, because On Fire changes
+      how the next shot should be played and you cannot see it running out.
+      - **The precedent is Ayaan's** (`fighter_bars.gd:70-76`, `RIDE_H` /
+        `RIDE_GAP` / `RIDE_COLOR`, driven by `Fighter.ride_fraction()` at
+        `fighter.gd:167`): one continuous bar draining left to right. Everything
+        needed for Hammy's is already on the fighter — `on_fire_until`
+        (`fighter.gd:105`, a flat 4.0 s window set in `fighter.gd:647`) and
+        `heat_hits` — so this is a `fire_fraction()` mirroring `ride_fraction()`
+        plus one draw call replacing a loop.
+      - **It should move ABOVE the health bar too**, and the reason is written in
+        the file already: Ayaan's clock "sits ABOVE the health bar rather than
+        joining the stack below it, because it is a temporary state and not
+        another permanent stat." Hammy's On Fire is exactly a temporary state,
+        and it is currently filed with the permanent ones. Moving it also drops
+        the `below += HEAT_GAP + HEAT_H` correction in the upward stack
+        (`:108-109`), which exists only because the pips sit under the ammo row.
+      - **Keep the build-up legible.** Two thirds of a bar is a weaker "2 of 3"
+        than two lit pips, so the merged bar probably wants segment ticks while
+        charging and a clean drain once lit — one bar, two modes, rather than
+        one bar that quietly means different things.
+      - **Check the wifi case before shipping it.** `ride_fraction()` is
+        deliberately empty on a client, because only the host simulates a ride
+        and the snapshot carries positions rather than ride state. The snapshot
+        does pack two burn clocks — confirm whether `on_fire_until` is one of
+        them, or Hammy's new bar is blank in wifi play for the same reason.
+
+---
+
+# 4. Characters and art
+
+- [ ] **4.1 — Nova and Ayaan still render as capsules.** `P1` `L`
+      `[blocked: a Meshy pass]`
+      No `model` key in `kits.gd`, so they fall back to `_setup_capsule` in the
+      match **and** on the menu stage. **Nova is the sole starter**, so a capsule
+      is the first thing a new player ever sees, on the first screen they see it
+      on. Anders and Hammy are wired now (`kits.gd:481`, `:559`).
+      - The two need a Meshy export through `python3 Tools/fix_meshy_glb.py`,
+        then `Assets/3D/` → `godot/assets/` → `kits.gd` `model`/`clips`.
+      - **This is the same blocker as their portraits.** `tools/render_portraits.gd`
+        re-shot all seven modelled kits so the roster reads as one set for the
+        first time; these two are the whole remaining hole and the tool cannot
+        help, because there is no GLB to shoot.
+      - They are the only items in this file that **cannot** be produced by one
+        of the three pipelines in **Reference**.
+
+- [ ] **4.2 — The character cards are a different medium from the portraits, and
+      the medium has to be chosen.** `P3` `M` `[blocked: a medium call]`
+      The five that exist (`assets/menu/cards/*.webp`) are **stylised 2D
+      illustrations** — cel shading, black outlines — not GLB renders. Rendering
+      Anders and Hammy off their models would drop two 3D renders into a set of
+      five drawings. Worth knowing before spending anything: **`MenuData.card_art`
+      has zero callers**, so no screen shows a card either way. Either cards stay
+      an illustrated set (then they need an illustrator, not the renderer) or they
+      become renders (then re-shoot all seven with `NS3_PORTRAIT_KIND=card` and
+      the set is consistent again).
+
+---
+
+# 5. Menu and progression
+
+- [ ] **5.1 — The menu's second look.** `P2` `M`
+      *Rewritten 6 Sep 2026 — the old entry described the pre-overhaul menu and
+      following it would have undone the overhaul.* It asked for thick bevels,
+      hard drop shadows and a lip on every pressable, against an auditorium
+      backdrop. That backdrop is deleted, the screens animate, and the current
+      design's whole thesis is the opposite: **radius zero everywhere, hairline
+      rules only, no bevel or shadow or gradient**, because adding one means
+      adding it everywhere and then it is the old system again. Read CLAUDE.md's
+      **Menu** section before touching a token.
+      What is actually worth looking at now, on the design's own terms:
+      - **Does the type scale's deliberate hole survive on a phone**, or does
+        1.3's fix quietly fill it in? They are the same pass.
+      - **Gold is the only colour with a job** (earned / active / yours). Audit
+        that it has not leaked onto anything decorative.
+      - **`MenuUI.plate_colors` still hands every surface the same three-stop
+        vertical gradient**, which is a leftover from the flat-plate system the
+        overhaul replaced. Either it earns its place or it goes.
+      - The stage fighter is the only moving thing on Home. Whether the flank
+        columns want any motion at all is a real question, not an obvious yes.
+
+- [ ] **5.2 — The roster should be tiles, not rows.** `P2` `S`
+      `roster_screen.gd` is a plain picker of rows. Ryder wants character tiles.
+      Cheap now that Home is the detail screen and the roster only has to select
+      and return.
+
+- [ ] **5.3 — Redesign the menu around Jackson's idea.** `P2` `?`
+      `[blocked: the idea, written down here]`
+      Nothing can be estimated or built until the idea is in this file. The
+      current programme-page design and the reasoning behind every token in it is
+      in CLAUDE.md's **Menu** section — read that first, so the redesign is a
+      decision and not a drift.
+
+- [ ] **5.4 — A real progression system.** `P2` `L`
+      `[blocked: deciding what a level changes]`
+      `SaveGame` already banks trophies, coins, gems, Power Points and pass
+      tokens per match, and Trophy Road and the pass spend them. Power levels,
+      Star Powers and gadgets are the hole: they are named in `brawlers.json` and
+      **do nothing**. Decide what a level actually changes before wiring
+      anything — a stat bump touches `kits.gd`, which `CHARACTER_BUILDING.md`
+      derives damage from, so it is a balance change too.
+
+- [ ] **5.5 — Leon, Anders, Hammy and Ayaan have no named unlock.** `P2` `XS`
+      `[blocked: a content call]`
+      Trophy Road unlocks Sanjit, Tony, Kovacs and Henry by name, so those four
+      are reachable only through a random Dawg Treat. Decide whether they get
+      road milestones, pass tiers, or stay Treat-only. Related and left alone
+      deliberately: Leon's `brawlers.json` entry is still `"rarity": "starting"`
+      and `"unlocked": true` from the web build, so the roster labels him a
+      Starting Brawler alongside Nova, who is the only id in `startingBrawlers`.
+      Changing it moves him between rarity buckets, which the rarity-weighted
+      `brawler_drop` reads — a content decision, not a typo fix.
+
+- [ ] **5.6 — JSON the menu carries that nothing reads.** `P3` `M`
+      Either wire it or delete it; carrying it costs export bytes and reads as
+      a feature that exists.
+      - **The `loadout` dict has zero readers.** `MenuData._merge` still emits
+        gadget/gear/Star Power/Hypercharge, but `BrawlerDetailScreen._build_loadout`
+        went with the roster's detail card when Home became the detail view. Six
+        kits name a full set in `brawlers.json`; none of it reaches a screen. Tied
+        to 5.4 — a loadout that displays and does nothing is worse than no
+        loadout.
+      - `game.json`'s **`quests`, `leaderboard`, `gameLog` and `upcoming`** are
+        read by nothing.
+      - **`MenuData.card_art` has zero callers** (see 4.2).
+      - `passRewards` was deliberately left at the 15 tiers the pass screen
+        parses rather than the web build's 40. That one is fine.
+
+- [ ] **5.7 — Menu art the JSON describes and nothing draws.** `P3` `M`
+      All of it is pipeline 2 or 3 in **Reference** — no illustrator needed.
+      The two skins that *have* art now draw it (`shop_screen.gd:_skin_card` →
+      `MenuData.skin_art`, resolved from an explicit `art` key on s1/s2). Still
+      undrawn: the three skins with no art; the gadget/gear/Star Power/Hypercharge
+      **badges** (names display, art does not); **pins** (`brawlers.json` carries
+      a count and there is no pin art at all); player avatars for the profile
+      popup; map thumbnails; the club badge.
+
+---
+
+# 6. Modes and systems
+
+- [ ] **6.1 — Activate a third game mode.** `P2` `L` `[blocked: which mode]`
+      Two are live — Showdown and Nobles Cup — and every other card on the modes
+      screen is a locked dummy. `Session.mode` plus the branch at the top of
+      `main.gd:start_match` is the whole hook, and **`cup_mode.gd` is the worked
+      example of what a mode file looks like**: everything mode-specific in one
+      file, called at four points (`build_match`, `tick`, `on_death`, `frozen`),
+      with `cup == null` as the guard on every branch. Copy that shape.
+
+- [ ] **6.2 — Do the maps get names?** `P3` `XS` `[blocked: Ryder]`
+      Open question. The maps have no names in the game at all — `game.json`'s
+      `gameLog` invents "Castle Courtyard" and friends for its fake history and
+      nothing reads them. If they get names, the loading screen and the versus
+      screen are where they belong.
+
+---
+
+# 7. Balance
+
+- [ ] **7.1 — The balance pass.** `P2` `M`
+      Run `NS3_SIM=<n>` headless across the nine kits and tune against
+      `CHARACTER_BUILDING.md`; damage is **derived** from the tier tables, never
+      picked by taste. Nova is a placeholder — do not tune her.
+      - **Run 60+ matches a side, not 20.** This is measured, not a rule of
+        thumb: the same A/B said damage was down 11% at 20 matches a side and
+        flat inside 1% at 60. Twenty spawns per kit is noise.
+      - **The bot terrain work moved the baseline**, so this pass measures
+        against the new one. Win% spread across the roster already tightened from
+        sd 6.1 to 4.6 as a side effect, and win% tracks attack rate now, because
+        the cost of cover and flanking is time spent walking instead of shooting.
+      - Sanity check the `hits/atk` column against each kit's projectile count.
+        Anything near zero is a delivery bug, not a balance finding.
+
+- [ ] **7.2 — Sanjit's range feels too long.** `P2` `S`
+      `kits.gd:305` — the melee reaches 1.4 tiles (2.8 m) and the boomerang Super
+      5.0. **Measure which one the complaint is about** with `NS3_KIT=sanjit`
+      before touching the tier tables: `CHARACTER_BUILDING.md` derives damage from
+      range, so a range change is a damage change.
+
+---
+
+# 8. Multiplayer
+
+- [ ] **8.1 — A client's own death is silent, and its HUD lies about it.**
+      `P1` `S`
+      Found with `NS3_NET_KILL=6` + `NS3_HAPTIC_LOG=1`: the results card comes up
+      correctly (DEFEATED, #10 of 10, the real stat table) while the HUD behind it
+      still reads `HP 5000/5000`, and **not one haptic fires**.
+      - The health line explains both. A client is put down by the
+        `_net_eliminate` **event**, not by its health being walked to zero, so
+        `_update_status`'s frame-to-frame damage watch — the one hook that is
+        supposed to cover both single-player and net — never sees a decrease.
+      - `death`, `elimination`, `cube`, `super_ready`, `super_fire` and
+        `count_go` are all hooked into host-side paths a client never runs, so
+        **the whole haptic layer is effectively off in wifi play.**
+      - Fix: zero the local health on a net elimination, and fire the taps from
+        the client's own event handlers.
+
+- [ ] **8.2 — Clients do not predict their own attacks.** `P2` `M`
+      The next thing anyone will feel after the prediction work. A client's shot
+      goes up as `_net_fire` and appears only when `_net_attack` echoes back, so
+      pressing fire on a 160 ms link is a 160 ms wait for the muzzle flash.
+      Doing it means the client predicting its own ammo and cooldown well enough
+      not to draw a shot the host refuses — the snapshot already carries both,
+      one interpolation delay late.
+
+- [ ] **8.4 — No interest management.** `P3` `M` `[deferred by design]`
+      Every client is sent every fighter every snapshot, including the ones
+      across the map its camera cannot show. At ten fighters that is 150 bytes
+      and not worth the complexity. **This is the next lever if a mode ever wants
+      a bigger roster**, and not before.
+
+---
+
+# 9. Audio
+
+- [ ] **9.1 — Voicelines.** `P2` `XL` `[blocked: nine real people]`
+      Nine fighters x spawn / attack / Super / defeat / victory, recorded by the
+      people the characters are based on. **This cannot be generated and has the
+      longest lead time of anything in this file — start booking it before the
+      code hook exists.** Its priority here is P2 only because nothing else waits
+      on it; its *scheduling* is the most urgent thing on the list.
+
+- [ ] **9.2 — The gas ring makes no sound, and nothing announces a step.**
+      `P2` `S`
+      `MenuAudio` already has `gas_tick` for your own burn. What is missing is
+      the ring itself: a low rolling swell timed to the ease (`SHRINK_EASE`, 3 s)
+      so the wall moving is something you hear before you are standing in it. A
+      haptic for "the ring is moving" belongs with it — `Haptics` is a tier and a
+      score away, and this is exactly the MATCH-tier event the table has room for.
+
+- [ ] **9.3 — Nothing distinguishes one kit's shotgun from another's, and there
+      is no positional stereo.** `P3` `S`
+      Sounds are keyed off `weapon.style` in `_attack_sound`, which is what makes
+      a new character inherit one for free — so per-kit voices are an override
+      layer on top, not a rewrite. Everything is mono, attenuated by distance
+      only (full inside 6 m, gone by 30 m against a camera showing ~23 m).
+      Add a name to `tools/sfx_probe.gd`'s list whenever one is added to the
+      table: **`MenuAudio._render` falls through to "click" for an unknown name**,
+      so a typo plays a menu click mid-firefight instead of failing.
+
+- [ ] **9.4 — More music.** `P3` `L`
+      Two tracks ship (`lobby_vibes`, `clash_carnival`). Wants at least a
+      results/victory sting, and a second battle track so Cup and Showdown do not
+      sound identical.
+
+---
+
+# 10. Ship
+
+- [ ] **10.1 — The app icon is a placeholder.** `P1` `S`
+      `godot/icon.png` is a flat gold star on navy at 1024x1024, and **the
+      generator that draws it already exists** — `godot/tools/make_icon.gd`, run
+      with `Godot --path godot --headless --script res://tools/make_icon.gd`. So
+      this is not "build a pipeline", it is **design a better icon and edit that
+      script**, which makes it the cheapest P1 on the list. Needed before a build
+      on a phone looks like a real game. The launch art beside it is done: the
+      iOS storyboard inherits the boot splash.
+
+---
+
+# 11. Tooling
+
+- [ ] **11.1 — Nothing forces the use of `Tools/godot.sh`.** `P3` `XS`
+      The lock wrapper only helps a caller who reaches for it, and every `NS3_*`
+      line in this file and in CLAUDE.md still shows the bare binary. Either
+      sweep those to the wrapper or add a hook that refuses the raw path.
+      Remember the allowlist limitation: prefix rules match from the start of the
+      command, so `NS3_KIT=nova Tools/godot.sh …` does not match — the env var
+      comes first.
+
+- [ ] **11.2 — No GDScript language server, and Jackson makes that matter.**
+      `P2` `M`
+      `.gd` files get no go-to-definition, no find-references, no diagnostics.
+      Godot ships a language server but only serves it while the editor is open,
+      so this means keeping the editor running alongside — which is the workflow
+      the `NS3_*` hooks exist to avoid.
+      - **Raised from P3.** The old note called it "marginal at 13k lines where
+        grep works", which was true of the person who *wrote* those 13k lines and
+        is not true of a second developer reading them cold. Go-to-definition
+        across `kits.gd` → `fighter.gd` → `main.gd` is most of what onboarding
+        actually is, and Jackson's Phase 0 is the moment it pays.
+      - Pairs with the `.gdlintrc` in **Reference** — same reassessment, same
+        cause.
+
+- [ ] **11.3 — A `.gdlintrc`, now that two people write GDScript.** `P2` `XS`
+      `gdlint` was measured and rejected at 145 findings for 2 real ones, which
+      is the right call for one author with one style. It is the wrong call for
+      two, and the boundary is sharp — Jackson owns `scripts/menu/` outright, so
+      style drift there is invisible to Ryder until a file is unreadable.
+      - The whole job is a `.gdlintrc` disabling exactly the three noisy rules:
+        `class-definitions-order` (81 findings), `mixed-tabs-and-spaces` (26,
+        every one intentional continuation alignment) and `max-line-length` (26,
+        at a default of 100). What is left is the real findings.
+      - **`gdformat` stays rejected** — it rewrites the deliberate paren
+        alignment in `kits.gd`'s tier tables and the shader strings in
+        `arena.gd`, both of which are readable *because* of that alignment.
+      - Still configuration rather than a package, which was the original
+        conclusion and survives. See **Reference** for the full reassessment.
+
+---
+
+# Reference
+
+Not tasks. Kept here because both get re-litigated otherwise.
 
 ## Generating assets ourselves
 
 Most of what is still missing does **not** need Meshy or hand-drawn art. Three
 pipelines already exist in this repo and between them cover nearly everything
-below; the handful of exceptions are called out at the end.
+above.
 
 **1. Synthesized audio — zero files.** `scripts/menu/menu_audio.gd` (`MenuAudio`)
 is a complete runtime synth: sine/triangle/square/saw/noise oscillators,
-envelopes and an 8-voice pool rendered into `AudioStreamWAV` buffers on first
-play. That is why the menu ships with no SFX files at all. `main.gd` does not
-use it. Every combat sound in the Sound section can be a new entry in that same
-table rather than a recording — shot, impact, melee whoosh, reload tick, empty
-click, Super charge, elimination, cube pickup, gas tick, goal horn, whistle.
+envelopes and a 16-voice pool rendered into `AudioStreamWAV` buffers on first
+play. That is why the game ships with no audio files at all — 28 combat sounds
+included. A new sound is a new entry in that table, not a recording. Verify it
+with `Godot --path godot --headless --script res://tools/sfx_probe.gd`, which
+flags any name with no entry of its own plus anything silent or clipping.
 
-**2. Headless render — portraits, cards, map thumbnails. `tools/render_portraits.gd`
-exists now.** It shoots portraits (512, transparent) and full-body cards (768)
-straight off the GLBs on `menu_stage.gd`'s own rig — same 22° lens, same warm
-key / cool fill / gold rim — so a portrait and the live stage fighter are lit
-identically, and the art regenerates for free whenever a model changes. All
-seven modelled portraits were re-rendered through it. Run it **without**
-`--headless` (the dummy driver renders nothing and every PNG comes out empty):
+**2. Headless render — portraits, cards, map thumbnails.**
+`tools/render_portraits.gd` shoots portraits (512, transparent) and full-body
+cards (768) straight off the GLBs on `menu_stage.gd`'s own rig — same 22° lens,
+same warm key / cool fill / gold rim — so a portrait and the live stage fighter
+are lit identically and the art regenerates for free whenever a model changes.
+Run it **without** `--headless`; the dummy driver renders nothing and every PNG
+comes out empty:
 
 ```sh
 /Applications/Godot.app/Contents/MacOS/Godot --path godot \
@@ -301,1007 +560,128 @@ seven modelled portraits were re-rendered through it. Run it **without**
 # NS3_PORTRAIT_OUT=<dir>        (default: the menu art dirs)
 ```
 
-Framing is sized to the **head**, not to a fixed number of metres: our rigs are
+Framing is sized to the **head**, not to a fixed number of metres: the rigs are
 not proportioned alike — Tony's head is 41% of his body height against Henry's
 25% — so the span that framed Henry's head and shoulders cut Tony off at the
-chin. It reads the head off the skeleton (`Head` sits at the chin, `head_end`
-at the crown on every Meshy rig here) and hangs the frame off the crown. The
-same rig still needs pointing at the arena camera for map thumbnails.
+chin. It reads the head off the skeleton (`Head` at the chin, `head_end` at the
+crown on every Meshy rig here) and hangs the frame off the crown. The same rig
+still needs pointing at the arena camera for map thumbnails.
+`tools/render_map.gd` is the arena half — an overview of the whole map, or the
+real match lens pointed anywhere, without playing seven seconds of pre-match to
+reach a screenshot.
 
 **3. Script-drawn 2D — icons and badges.** v1 did exactly this: every 2D sprite
-in the SpriteKit game comes out of `Tools/generate_sprites.swift`. Pins,
+in the SpriteKit game came out of `Tools/generate_sprites.swift`. Pins,
 gadget/gear/Star Power/Hypercharge badges, currency and mode icons, the club
 badge and the app icon are all flat vector shapes, and are better generated
 deterministically than drawn once and lost.
 
 **What genuinely cannot be self-generated:** the Nova and Ayaan character models
-(Meshy, or a modeller), skin variants of existing characters, real music, and
-the voicelines — which need the actual people the characters are based on and
-therefore have the longest lead time of anything in this file. Start booking
-those before anything else on the list.
+(4.1), skin variants of existing characters, real music, and the voicelines
+(9.1) — which need the actual people the characters are based on and therefore
+have the longest lead time of anything in this file.
 
-## Character models & animation
+## Godot plugins: the answer was none, and a second developer partly changes that
 
-- [x] **Feet sinking through the floor.** Meshy's run/attack clips drop the hips
-      6–11 cm below the rest pose, pushing the feet under the floor plane.
-      `fighter.gd` now calibrates the idle foot height at spawn and lifts the
-      model each frame by however far the lowest foot bone has sunk below it
-      (`_calibrate_feet` / `_ground_feet`). Measure any model with
-      `Godot --path godot --headless --script res://tools/foot_probe.gd`.
-- [x] **Run cycle no longer bobs — per-clip constant lift.** The old lift was
-      recomputed every frame, so it tracked the stride and peaked at its trough:
-      the fighter rose exactly where it used to sink. `_calibrate_feet` now
-      samples each clip `kits.gd` actually names at `LIFT_SAMPLES` poses and
-      stores one constant per clip (`max(0, rest − min foot y)`, model space);
-      `_ground_feet` looks that up instead of measuring, easing over
-      `LIFT_EASE_TAU` so a clip change does not pop against the 0.15s animation
-      blend. Shifting the whole cycle by its own worst frame leaves the stride's
-      natural rise and fall intact, which is what actually removes the bob.
-      - Cached in a `static var` keyed by `kit.model` — it is a property of the
-        model and its clips, not of the fighter, so six fighters of three kits
-        pay for the sampling three times and a respawn pays nothing. It also
-        drops a `force_update_all_bone_transforms()` per modelled fighter per
-        frame.
-      - **Swapping the run clip was the wrong fix and this is why it was not
-        taken**: the zero-lift `run_fast_*` variants exist for henry, kovacs,
-        leon and anders only — sanjit's `RunFast` still needs 0.087, and tony
-        and hammy have only `Run_03` at 0.023 / 0.043. The swap fixes four kits
-        and leaves three bobbing.
-      - Measured values match `foot_probe.gd` to three decimals: tony 0.063,
-        henry 0.074, sanjit 0.099, kovacs 0.111, leon 0.094, anders 0.019,
-        hammy 0.108. The failure mode watched for was an **empty** table — the
-        clip-name filter has to skip `kit.clips`' tuning floats
-        (`attack_speed`, `super_seek`) and could have skipped everything, which
-        would zero every lift and sink the feet again with no error.
-- [ ] **Nova and Ayaan still render as capsules.** They have no `model` key in
-      `kits.gd`, so they fall back to `_setup_capsule` in the match *and* on the
-      menu stage. Nova is the sole starter, so a capsule is the first thing a
-      new player ever sees. Anders and Hammy are wired now (`kits.gd:481`,
-      `:559`) — this line used to name them. The two that remain need a Meshy
-      pass through `Tools/fix_meshy_glb.py`; they are the only entries in this
-      file that cannot be produced by one of the three pipelines above.
-- [x] **Death and spawn animate now — in code, because there is no clip to
-      play.** `fighter.gd:die` used to scale the fighter to nothing over 0.35s
-      and `respawn()` snapped `scale` straight back, so a fighter popped out of
-      existence and popped back in with nothing around either.
-      - **Death is a pop**: `_pop_out` swells the body for a beat and bursts it,
-        throwing a ground ring and an all-round spark. A first pass TOPPLED the
-        body onto the floor and it was worse — at a 60 degree camera a body
-        lying down is a shape you have to read, and the whole point of the
-        moment is that it is instant.
-      - **A Nobles Cup death also washes the screen red and counts you back in.**
-        Two things that cost a pass each: a FLAT red pane at an alpha low enough
-        to keep the pitch readable does not read as red at all (over green it
-        composites to olive and the screen just looks dirty), so it is a
-        vignette — saturated at the edges, nearly clear in the middle; and the
-        counter sits in the lower third, because `center_label` owns the centre
-        and a kickoff's "GO!" printed straight through it. Cup only: a Showdown
-        death has nothing to count to and raises the results card instead.
-      - **Spawn is a bubble**: the shell grows, the fighter scales up out of
-        nothing inside it a beat behind, it holds, then bursts. Additive and
-        never writing depth, so it cannot hide what is growing inside it, and
-        its fresnel is far thicker than a real one — at 55 px/m a shell a few
-        degrees wide is a couple of pixels, and the first version was invisible
-        against the pale end zone a Cup respawn happens in.
-      - Still confirmed: **no GLB ships a death or hit clip**, so none of this
-        is a `kits.gd` `clips` entry waiting to be written. Kovacs'
-        `Backflip_and_Rise` and Anders' `Backflip` remain if a per-kit arrival
-        is ever wanted.
-      - Both act on `_model` (or the capsule), **never on the fighter**:
-        `rotation.y` on the fighter is its FACING, and aim, bars and the ball's
-        carry point all read it.
-      - A Cup knock-out hides the body at the **end** of the pop rather than on
-        the frame of the hit. `fighter_bars.gd:77` already skips a dead fighter,
-        so no full health bar hangs over it.
-      - **`NS3_KILL=<sec>` was added to test it**, the sibling of `NS3_END`: a
-        Cup match produces two or three deaths in two and a half minutes and
-        none of them where the camera is, so the pop, the wash and the bubble
-        were all effectively unshootable.
-- [ ] **Model scale and collision don't match — and it is every model, not just
-      Kovacs. Needs a decision, not a fix.** `godot/tools/size_probe.gd`
-      measures each rig from its **bone** extents (a skinned mesh's own AABB is
-      authored in bind space and comes back at ~0.02 m, i.e. meaningless). At
-      `MODEL_SCALE` 1.44, against a capsule 1.30 m wide and 1.60 m tall:
+Recorded so it is not re-litigated from scratch — but **the measurement behind
+"none" was taken on a one-person project, and Jackson joining expires part of
+it.** What changed and what did not:
 
-          tony    w 0.82  d 0.41  h 2.34      leon    w 0.52  d 0.32  h 2.39
-          henry   w 0.50  d 0.31  h 2.29      anders  w 0.46  d 0.31  h 2.38
-          sanjit  w 0.64  d 0.41  h 2.38      hammy   w 0.46  d 0.29  h 2.40
-          kovacs  w 0.61  d 0.30  h 2.40
+**The original finding, unchanged.** `gdtoolkit` (`gdlint` / `gdformat`) was
+measured against all 44 files: 145 findings, of which **two** were real
+(`ball.gd:135` and `menu_popups.gd:54`, both unused arguments, both now fixed).
+The rest were 81 `class-definitions-order`, 26 `mixed-tabs-and-spaces` that are
+every one of them intentional continuation alignment, and 26 `max-line-length`
+at its default 100.
 
-      Every model is roughly **half** the capsule's width and **1.5x** its
-      height. Widening the models to match puts them over 3 m tall; narrowing
-      the capsule to match makes everyone about half as easy to hit. So this is
-      a look-and-balance call — and the same one as **Camera framing** below,
-      which should be decided with it.
-- [x] **Hit flash and bush fade work on modelled fighters.** Both were the same
-      missing mechanism: the two effects keyed off `_material`, which only the
-      capsule fallback has. `_setup_model` now **duplicates** each surface
-      material per fighter and installs it as a surface override — the GLB's own
-      materials live on a Mesh *resource* that every fighter wearing that model
-      shares, so tinting one there would have flashed all of them at once. On
-      top of that: the flash is **emission**, because `albedo_color` multiplies
-      the texture and setting it white is a no-op on a textured character; and
-      **concealment is a tint rather than a fade** — see below.
-      `set_concealed` runs every physics frame for every fighter, so
-      `_conceal_applied` gates it to actual transitions.
-- [x] **A concealed fighter no longer renders as a smear.** Reported from play:
-      Sanjit "still kinda goes weirdly" in a bush. He does, and so does everyone
-      else — reproduced by forcing concealment on and shooting Sanjit and Henry
-      side by side, and Henry was every bit as broken.
-      - A character is a closed solid, so any per-fragment transparency mode
-        shows you its own far side: the inside of a skull through a face,
-        Sanjit's staff through his chest, shoes through shins.
-      - `TRANSPARENCY_ALPHA_DEPTH_PRE_PASS` is the textbook fix and is what this
-        used. **The prepass does nothing under the Forward Mobile renderer this
-        project runs on.** It shipped that way because a fighter was never
-        actually shot standing in a bush — the reveal shader was, the fighter
-        inside it was not.
-      - `TRANSPARENCY_ALPHA_HASH` genuinely fixes the sort (opaque pass,
-        stochastic discard, real depth) and was tried and rejected: at 0.55 the
-        dither sparkles, and any alpha low enough to read as hidden is noisier
-        than the bug it replaces.
-      - Shipped: stay **opaque** and multiply the albedo by `CONCEAL_TINT`. No
-        sorting, no dithering, and the tell still reads, because the foliage
-        around you opens up at the same time. `_model_albedo` remembers each
-        material's own colour so the tint multiplies it and reveal puts it back
-        — both had been assuming white.
+**`gdformat` is still a no.** It would rewrite the deliberate paren alignment in
+`kits.gd`'s tier tables and the shader strings in `arena.gd` — both of which are
+readable *because* of that alignment. A formatter that has to be fought is worse
+than no formatter.
 
-## Menu
+**`gdlint` is now worth a second look**, and it is the one thing on this page
+whose answer moved. A 143-to-2 noise ratio is a reason to skip a linter when one
+person writes everything in one style; with two developers it becomes the thing
+that stops two styles diverging silently across a boundary — and the boundary is
+sharp here, since Jackson owns `scripts/menu/` outright. The move is a
+`.gdlintrc` disabling exactly the three noisy rules
+(`class-definitions-order`, `mixed-tabs-and-spaces`, `max-line-length`), which
+leaves the real findings and nothing else. That is still **configuration rather
+than a package**, which was the original conclusion and survives intact.
 
-- [x] **The menu is native Godot** (`godot/scripts/menu/`). The HTML build it was
-      rebuilt from is gone — it could not ship inside the iOS app — and all of its
-      art moved to `godot/assets/menu/` (cards, treats, decor, pass hero, skins,
-      mode/currency icons, logo, key art). Copy and config live in
-      `godot/data/{brawlers,game}.json`; stats come from `kits.gd`.
-- [ ] **v0.5 content: what is still unwired is now a short list.**
-      Gadget/gear/Star Power/Hypercharge are **no longer displayed anywhere**,
-      and this entry used to claim otherwise. `MenuData._merge` still carries
-      them as a `loadout` dict, but `BrawlerDetailScreen._build_loadout` — the
-      two-column block that drew them — went with the roster's detail card when
-      home became the detail view, so the dict has zero readers. Five kits name
-      a full set in `brawlers.json` (Nova, Leon, Sanjit, Tony, Kovacs, Henry;
-      Anders, Hammy and Ayaan name none) and none of it reaches a screen.
-      `trophyRoad` is wired — the screen reads the nested
-      `{trophies, reward}` shape and renders all six reward kinds.
-      **Still unwired:** the whole `loadout` dict, and game.json's `quests`,
-      `leaderboard`, `gameLog` and `upcoming` are read by nothing, and
-      `MenuData.card_art` still has zero callers. `passRewards` was deliberately
-      left at the 15 tiers the pass screen parses rather than the web build's 40.
-- [ ] **Leon, Anders, Hammy and Ayaan have no named unlock.** The v0.5 trophy
-      road unlocks Sanjit, Tony, Kovacs and Henry only, so those four are
-      reachable only through a shop Star Drop. Decide whether they get road
-      milestones, pass tiers, or stay Star-Drop-only.
-- [x] **Dead asset bytes are gone.** Deleted the 13 duplicate `icons/*.webp`
-      (coin, gem, trophy, gear, lock, …), which were unreachable because
-      `MenuUI.icon_texture` tries `svg/<name>.svg` first and only falls through
-      to WebP when no SVG exists; and `assets/Fox.glb` + its texture, referenced
-      by nothing at all. 456 KB off every export.
-- [ ] **Two portrait holes left, and the cards are a different medium.**
-      Portraits now come out of `tools/render_portraits.gd` (pipeline 2) and all
-      seven modelled kits were re-rendered through it — the roster grid reads as
-      one set for the first time. **Nova and Ayaan are still missing** and the
-      tool cannot help: they have no GLB to shoot. That is the whole remaining
-      hole, and it is the same Meshy dependency as the capsule item above.
+**A language server matters much more than it did** — see `11.2`. Its "marginal
+at 13k lines where grep works" was true of someone who wrote all 13k. It is not
+true of a second developer reading them for the first time, and go-to-definition
+across `kits.gd` → `fighter.gd` → `main.gd` is most of what onboarding is.
 
-      The cards are a separate problem from what this entry used to claim. The
-      five that exist (`assets/menu/cards/*.webp`) are **stylised 2D
-      illustrations** — cel shading, black outlines — not GLB renders, so
-      rendering Anders and Hammy off their models would drop two 3D renders into
-      a set of five drawings. Worth knowing before spending anything on it:
-      `MenuData.card_art` currently has **zero callers**, so no screen shows a
-      card either way. Decide whether cards stay an illustrated set (then they
-      need an illustrator, not the renderer) or become renders (then re-shoot
-      all seven with `NS3_PORTRAIT_KIND=card` and the set is consistent again).
-- [ ] **The menu does not look good enough yet.** It is structurally right — the
-      screens, the stack, the stage fighter, the layout offsets all match the
-      reference — but it reads flat and unfinished next to what it is imitating.
-      Worth being specific about what "ugly" is before touching anything, since
-      the layout is not the problem:
-      - **Everything is the same flat plate.** `MenuUI.plate_colors` gives every
-        surface the same three-stop vertical gradient, so cards, buttons, top
-        bar and rows all sit on one visual plane. Brawl Stars separates them
-        with depth — thick bottom bevels, hard drop shadows under anything
-        pressable, and a lip that makes a button look struck rather than
-        painted.
-      - **Nothing animates.** Screens appear rather than sliding, cards do not
-        stagger in, buttons do not squash on press, and currency counters snap
-        to their new value. The menu's whole sense of quality lives here.
-      - **Dead space.** The roster grid, Trophy Road and the pass all sit in the
-        top half against an empty auditorium; the stage backdrop is doing no
-        work behind them.
-      - **Type is uniform.** One display font at a handful of sizes, no weight
-        or colour hierarchy inside a card, so nothing draws the eye first.
-      All of it is `menu_ui.gd` plus per-screen tweening — no new art.
-- [ ] **Menu art that the JSON already describes but nothing draws.** The two
-      skins that **have** art now draw it: `shop_screen.gd:_skin_card` calls
-      `MenuData.skin_art(skin)`, resolved from an explicit `art` key on s1/s2 in
-      game.json (`skin_leon_homecoming`, `skin_tony_fieldday`); the other three
-      fall back to the portrait as before. Explicit key rather than deriving a
-      filename from the skin's name, so the next drawing only needs the key.
-      **Still undrawn:** the three skins with no art; the gadget/gear/Star
-      Power/Hypercharge **badges** (the names display now, the art does not);
-      pins (`brawlers.json` carries a `pins` count and there is no pin art at
-      all); player avatars for the profile popup and friends rows; map
-      thumbnails for the events screen; and the club badge. All pipeline 2 or 3.
+**Editor addons are still a no, for a structural reason that has not changed:**
+the `.tscn` files are empty shells and everything is built in code, so an addon
+has nothing to attach to. The Godot MCP servers bridge a *live editor*, which is
+the workflow the `NS3_*` env hooks exist to avoid.
 
-## Arena & visuals
+**The one plugin actually on the roadmap is native, not an addon** — the iOS
+haptics plugin (`3.3`), a `.gdip` plus an arm64 `.a`. Different question, already
+tracked, still deferred behind `3.2`.
 
-- [x] **Arena visual pass.** Floor, walls, water and the world past the map
-      edge are three fragment shaders over flat colour plus a slab and a
-      surround plane — no art files, the same reasoning as the synthesized
-      sounds. `tools/render_map.gd` was written to do it and is the thing to
-      reach for next time: an overview of the whole map, or the real match lens
-      pointed anywhere, both on `Arena.make_sun()`, without playing seven
-      seconds of pre-match to reach a screenshot.
-      - **Shadows had never rendered.** `sun.shadow_enabled` was true and had
-        been for the life of the project, but the camera sits 105.5 m back
-        behind a 7 degree lens and a directional light's default
-        `directional_shadow_max_distance` is **100 m** — the entire arena was
-        outside the volume shadows get drawn in. One constant (145 m, one
-        orthogonal split) is most of what this pass actually looks like.
-      - Walls and water borrowed the bushes' merge-aware outline. The per-tile
-        edge mask rides an **`instance uniform`**, so ~400 walls share one
-        material and still each get their own rim, and `open_at` re-masks the
-        four neighbours of a hole — a wall shot out re-outlines what is left.
-      - **Water is opaque now.** Translucent slabs blended against the floor
-        *and* against each other, so a pond showed a grid of seams where its
-        tiles overlapped. Foam is the constant to watch: a one-tile pond is 2 m
-        across, and 24% of a tile per side left almost no water in the middle.
-      - **A tile-scale checker cannot carry the floor.** At a 10% step it read
-        as a chessboard and pulled the eye off the fighters; at 2% under two
-        octaves of value noise (18 m and 6 m) it reads as ground.
-      - Nobles Cup got real pitch markings — touchlines, halfway line, centre
-        circle and spot, a box at each end — painted by the floor shader from
-        `_playable_rect()` rather than laid down as geometry, so a line costs
-        nothing and cannot z-fight the grass. That is the *lines* half of the
-        pitch dressing below; goal frames and a better ball are still open.
-      - **`Arena.WALL_HEIGHT` is a free knob and was left alone.** Verified
-        purely visual: `Lob` is a `Node3D` with no collision, `begin_leap`
-        sweeps terrain itself, and the LOS ray and every projectile both sit at
-        y = 1 inside a box that starts at 0. 2.05 m was shot and looks
-        chunkier and more like the reference; 1.5 m keeps more floor out of
-        shadow. Taste, one constant, no balance consequence either way.
-- [x] **The gas ring eases, and it looks like gas.** It used to move `inset` by
-      `TILES_PER_SHRINK` in one assignment every `SHRINK_INTERVAL`, so the wall
-      teleported two tiles with no motion at all, reseeded the whole cloud bank
-      off `rng.seed = 7 + inset` in the same frame, and painted the danger zone
-      as four flat translucent `BoxMesh`es rebuilt from scratch. The cadence is
-      untouched — `FIRST_SHRINK_DELAY`, `SHRINK_INTERVAL`, `TILES_PER_SHRINK`
-      and `TICKS_TO_KILL` are all exactly what they were, verified by stepping
-      the ring in a probe: it starts at t=18, settles two tiles at t=21, steps
-      again at t=30 and t=42, and stops at inset 20 on a 39-tile map.
-      - **`inset` is a float everywhere, rules included** — the choice the old
-        entry said to make. Easing only the visuals is a lie the player cannot
-        see through: for the whole three seconds you would burn while standing
-        on ground that plainly reads as safe. Every caller outside the file goes
-        through `contains()` / `depth_inside()` / `safe_min()` / `safe_max()` /
-        `safe_center()`, all of which were floats already, so the bots'
-        `gas_depth` steering gets a continuously moving edge for free and
-        `main.gd:gas_closing()`'s `inset > 0` still flips on the same frame.
-      - **The rate is the number to check, not the duration.** A smoothstep
-        peaks at 1.5x its average: two tiles (4 m) over `SHRINK_EASE` = 3 s tops
-        out at **2.00 m/s**, against `Kits.SPEED_VERY_SLOW` = 4.48 m/s. The wall
-        has to stay walkable-out-of or the ease becomes an execution.
-      - **One net line changed**: `main.gd:_net_snapshot`'s `inset` parameter is
-        `float`. The send site is untouched (`gas.inset`). Left as int the
-        client's wall would land back on whole tiles and keep the jump the host
-        no longer has. `GasRing` also gained a `_running` flag set only by
-        `start()`, so a client — which never calls it — no longer runs the
-        shrink schedule and the gas damage loop locally underneath the snapshot
-        it is being sent.
-      - **The bank is parametric now.** Each cloud stores its edge, its position
-        along it, and its own jitter/scale/yaw, generated ONCE at a constant
-        seed; world transforms are recomputed every frame from the eased edge.
-        The count per edge is fixed at what the map's full width needs and the
-        clouds bunch as the ring closes rather than being culled — culling
-        reintroduces the pop, and dropping instances from a fixed buffer breaks
-        the only thing that sorts a MultiMesh of transparent instances, which is
-        the order they were written in. Buffer order is far edge, flanks, near
-        edge, which is back-to-front under a camera at +Z.
-      - **The fill is a shader over two quads**, a mat at ankle height and a
-        haze at 2.6 m drifting faster, so the pair separates under the camera's
-        pitch instead of reading as one decal. The front is the safe rectangle's
-        box SDF pushed about by a noise octave, which is what stops it reading
-        as a rectangle; a bright lip sits on the front and the interior billows.
-      - **Two passes went into picking the colour in sRGB and wondering where
-        the purple went.** Godot blends in LINEAR space, where grass's green
-        channel is 0.45 against a dark violet's 0.003 — so a plausible violet at
-        60% composites to a dead grey-green and the fill looks *dirty* rather
-        than dangerous, which is exactly what the old flat slab did. The fix is
-        a nearly-opaque, nearly-zero-green purple: at 0.93 alpha ALBEDO is more
-        or less the answer, and the mat can afford it because it sits under a
-        fighter's feet and never occludes anyone. Only the thin haze is ever
-        between the camera and a body.
-      - Two smaller things each cost a look: a quad's own straight edge is
-        visible wherever the map's isn't (the haze is 2.6 m up, so its rectangle
-        projects clear of the slab lip), hence the `rim_fade` that takes both
-        quads out before their geometry ends; and scaling a whole 78 m edge of
-        clouds up from zero on the first shrink puts a line of ten-pixel specks
-        along the border that reads as confetti, hence the 0.55 floor under the
-        bank's appear ramp.
-      - `gas_cloud.glb` is now in `Loading.to_match`'s preload list (Showdown
-        only). The bank is built on the match's first frame rather than on the
-        first shrink, so without it a 6.6 MB GLB would come off disk during the
-        pre-match beat — the same trap as `power_cube.glb`.
-      - Fixed in passing: the MultiMesh was driving instance transforms from
-        `_process` with physics interpolation on, which logged a warning every
-        frame. `PHYSICS_INTERPOLATION_MODE_OFF` — the bank drifts on render
-        time by design.
-      - **Still open:** the gas makes no sound of its own and nothing announces
-        a step. `MenuAudio` already has `gas_tick` for your own burn; a low
-        rolling swell timed to the ease is the obvious next thing, and a haptic
-        for "the ring is moving" would suit the table in **Haptics**.
-- [ ] **Camera framing — measured, and the lens is the wrong lever.** The
-      numbers, so this is not re-derived: the camera is 105.5 m out at a 60
-      degree pitch behind a 7 degree vertical FOV, which is **22.9 x 12.9 m** at
-      16:9, or 55.8 px/m on a 1280-wide frame. Henry renders about **65 x 85 px
-      there — 5% of the screen width**, against roughly 8-10% for a Brawl Stars
-      brawler. So the complaint is real.
-      - But **zooming in is blocked by the range cap.** The vertical half-span
-        is 6.45 m and the weapon range cap is 5.5 tiles = **11 m**: a target at
-        max range straight up or down the screen is already 4.5 m off-camera,
-        and the horizontal half-span (11.5 m) only just covers it. Any zoom
-        makes you shoot at what you cannot see, which is a balance change
-        wearing a camera change's clothes.
-      - The lever is therefore **`Kits.MODEL_SCALE` (1.44)**, i.e. the item
-        below — or the range cap itself. Decide the two together as that entry
-        already says; the camera on its own has nothing left to give.
-- [x] **Power cubes are the Meshy token again.** Re-landed from `72d806f`:
-      `_spawn_cube` instances the token model, spinning about Y on a 2.6s loop
-      with a soft sine bob (looped tweens) and the runtime metallic clamp the
-      character models get, instead of a purple emissive box. The net-aware
-      pickup path is untouched.
-- [x] **Loot boxes are aimable and wear health bars.** Tap-to-fire falls back to
-      the nearest visible box when no enemy is in range (Supers never do), and
-      `fighter_bars.gd` draws each box a half-scale health bar; box damage
-      replicates so the bars stay honest in wifi play.
-- [x] **Impact VFX.** `scripts/hit_spark.gd` (`HitSpark`) — a burst where a hit
-      lands and a flash at the barrel when one is fired. Built the way
-      `shockwave.gd` is (an ImmediateMesh rebuilt per frame, unshaded from
-      vertex colours, freeing itself), not with GPUParticles3D: the camera is a
-      fixed steep top-down, so a spray drawn flat in XZ reads correctly from the
-      only angle anyone sees, costs one draw call and ships no art file. One
-      class covers both jobs — a hit is a wide spray, a muzzle flash is narrow,
-      short and coreless (`main.gd:_hit_spark` / `:_muzzle_flash`).
-      - **Sparks share the impact sound's `IMPACT_GAP` throttle**, so a
-        nine-pellet shotgun spawns one burst rather than nine stacked on a
-        frame.
-      - Only projectile styles get a muzzle flash (`MUZZLE_STYLES`) — a melee
-        lunge already has its `MeleeSwipe`, and a flash on one reads as a gun.
-      - Two things cost a debugging pass each, both worth remembering: the
-        material needs **`no_depth_test`** (a burst sits at chest height *on*
-        the fighter it belongs to, so at a 60° camera pitch the body hides its
-        own hit), and the first pass was **far too small to see** — the camera
-        shows ~23 m across 1280 px, about 55 px/m, so sub-metre geometry is a
-        handful of pixels. It rendered perfectly and was invisible.
-- [x] **Bushes read as tiles, not scattered clumps.** Brawl Stars bushes
-      fill their tile and merge into one dark contiguous mass with a crisp
-      outline, and the darkness *is* the affordance that says "you can hide
-      here". Ours currently does the opposite on purpose: `_build_bushes`
-      jitters every `tall_grass.glb` instance by a random yaw and a 0.92–1.12
-      scale specifically so a field of them does not read as a tiled texture.
-      Shipped as two instanced layers per bush tile:
-      - A flat **skirt** quad sized exactly to `Kits.TILE`, so a patch of them
-        meets edge to edge with no seam and becomes one contiguous dark shape.
-        This is what actually makes a bush read as a tile; the clump on top is
-        only volume.
-      - The skirt's outline is **merge-aware**: `_open_edges` packs "this side
-        has no bush neighbour" into the MultiMesh's `INSTANCE_CUSTOM`, and
-        `SKIRT_SHADER` draws the rim only on those sides, so a 3x3 patch is one
-        shape rather than nine squares in a grid.
-      - The **canopy** lost its yaw and scale jitter (which existed precisely to
-        stop a field reading as tiled) and is scaled to overhang its tile by 8%
-        so neighbouring clumps interlock. `CANOPY_TINT` and `SKIRT_FILL` put it
-        well below the floor green, which is what makes a patch read as cover.
-- [x] **The bush reveal radius is visible.** The *logic* was already exactly
-      Brawl Stars': `main.gd:can_see` hides anyone standing on a `b` tile beyond
-      `Kits.TILE * 2.0`, and `_update_concealment` fades the player while
-      hiding distant enemies outright. Nothing shows the player where that
-      radius ends, though — in Brawl Stars the foliage around you goes
-      translucent and cuts a visible window in the bush field, which is what
-      makes "a certain number of tiles around you" legible. Both bush layers now
-      run a shader that fades any instance within `reveal_center`, which
-      `_update_concealment` points at the player every physics frame — so what
-      you can see through is exactly what you can be seen through. The 2-tile
-      constant that used to be duplicated at `main.gd:1301` and `main.gd:2069`
-      is now `Kits.BUSH_REVEAL`, and the shader reads the same one.
-- [x] **A modelled fighter in a bush now fades.** Done with the hit flash — see
-      the Character models section; the two shared one missing mechanism. Both
-      halves of the concealment tell are in place: the bush around you opens up
-      *and* you go translucent inside it. (Water is still a flat translucent
-      slab, and that is the only piece of the old entry left.)
+---
 
-## Game systems
+# Struck this pass (6 Sep 2026)
 
-- [ ] **Two modes exist.** Showdown, and Nobles Cup (`cup_mode.gd` + `ball.gd`).
-      `Session.mode` and the mode branch at the top of `main.gd:start_match` are
-      where the next one goes; every other event card is still a locked dummy.
-      **Cup's pitch dressing is done**: markings came with the arena pass and
-      the goal is now a net on the mouth floor plus posts and a crossbar on the
-      goal line (`Arena._build_goal`). The third of this entry about the ball
-      was stale — `ball.gd` has loaded `assets/soccer_ball.glb` since it
-      shipped, and the sphere at `:53` is only the fallback for a build without
-      the asset.
-- [x] **The blue screen is gone; both scene changes run behind a loading
-      screen.** `menu.gd`'s PLAY and every way back to the lobby now call
-      `Loading.to_match` / `Loading.to_menu` (`scripts/loading_screen.gd`,
-      autoload `Loading`) instead of `change_scene_to_file`. It is an autoload
-      because a loading screen owned by the scene being replaced dies halfway
-      through the job it is covering.
-      - It threaded-loads the target scene **and all seven character GLBs**, and
-        holds a reference to each for the session — which is what turns
-        `fighter.gd`'s `load(kit.model)` into a cache hit rather than a disk
-        read on the frame a fighter spawns.
-      - The screen is `assets/menu/background/loading_keyart.jpg`, which was
-        imported and referenced by nothing, under a `GradientTexture2D` scrim:
-        mode name, map, the fighter you picked, and a real progress bar.
-      - It lifts on `Loading.done()`, called at the **end of `start_match()`**
-        rather than in `_ready` — `start_match` awaits a frame partway through,
-        so `_ready` returns before the arena exists. `SAFETY_SECONDS` lifts it
-        anyway if some path forgets to call it, and `MIN_SHOW` stops it flashing.
-      - Gotcha worth keeping: `ResourceLoader.load_threaded_get` **consumes** the
-        request, so re-polling a path after collecting it reports
-        `THREAD_LOAD_INVALID_RESOURCE` and every finished load looks failed.
-      - Shoot it with `NS3_MENU_SCREEN=loading NS3_MENU_SHOT=<abs.png>`.
-      - The `NS3_*` menu-skipping hooks still change scene directly on purpose,
-        so the sim and screenshot harnesses are unchanged.
-- [x] **The match introduction already animates** — this entry was stale. The
-      cards slide and stagger in, the VS punches in on `TRANS_BACK`, the
-      countdown digits scale on every tick, and the mode title scales up as the
-      rows fade at `PREMATCH_INTRO_AT`. It landed with the pre-match rework in
-      `d4e6678`; `versus_screen.gd:_slide_in`, `:95-98` and `:_show_intro` are
-      the tweens. Nothing to do.
-- [x] **The end-of-battle screen is a real results card.** `_show_results` is
-      now the single entry point for all three endings (Showdown placement, a
-      Cup scoreline, and a net client whose fighter went down while the host's
-      match ran on), so they cannot drift apart. It builds a `MenuUI` card —
-      your fighter's portrait on a tinted backdrop, the headline, a stat table,
-      reward chips that count up from zero with a chime, and styled buttons —
-      fresh into `results_body` each time.
-      - **Per-match stats are real now**: `Fighter.stats` (damage, kills, cubes,
-        goals, saves, survived) is always on and per fighter, distinct from
-        `sim_stats`, which stays a per-KIT aggregate behind `sim_active`.
-        Showdown shows damage / eliminations / cubes / survived, Nobles Cup
-        goals / saves / damage / eliminations.
-      - `survived` measures from `match_start`, set when the phase turns
-        PLAYING — `now` runs for the life of the scene, so after PLAY AGAIN it
-        would otherwise report the sum of both matches.
-      - **Nobles Cup shows a full scoreboard, not your own stats.** Both teams,
-        all six players, portrait chip on the team colour, G / K / DMG, sorted
-        goals-then-damage so whoever decided the match is top of their column,
-        your own row on a brighter plate. `_show_results` grew an optional
-        `board` argument for it; Showdown and the net client pass nothing and
-        are unchanged. This works in Cup and could not in Showdown: `fighters`
-        never shrinks there, because a death parks a fighter rather than freeing
-        it, so everyone is still present at the whistle with their stats intact.
-      - **The SAVES row was dropped**, measured rather than guessed: with
-        `NS3_SAVE_LOG=1` over a full match the ball changes hands about seven
-        times and nearly all of those are a team collecting its own forward
-        pass, so the row read 0 nearly always. `CupMode._is_save` and
-        `Fighter.stats.saves` are still maintained for whenever there is
-        somewhere worth showing them.
-      - Two things keep the card on top, and both are load-bearing:
-        `hud.move_child(results, -1)` for the fighter health bars, which are
-        added to the HUD after the overlay is built in `_ready`; and **hiding
-        `CupMode.HUD_GROUP`**, because Cup's scoreboard sits on its own layer
-        *above* the card where `move_child` cannot reach it — without it the
-        scoreline printed twice. Hidden rather than freed; `_build_hud` sweeps
-        it on PLAY AGAIN.
-      - Shoot it with `NS3_END=<sec>` alongside `NS3_SHOTS`.
-- [x] **PLAY AGAIN exists for everyone now.** Both buttons are `MenuUI` plates
-      and LOBBY goes through the loading screen; the multiplayer half is done
-      too — a wifi client gets REMATCH in place of PLAY AGAIN, which asks the
-      host, and a line saying what it is waiting on. See the Multiplayer
-      section for the flow and for the `VBoxContainer` bug the four-row client
-      card turned up in this card's own stagger.
-- [x] **A Nobles Cup goal resets the pitch properly.** `kickoff()` now calls
-      `Fighter.kickoff_restore` on everyone still standing — health, ammo and
-      every debuff timer, but deliberately **not** `super_charge`, since losing
-      a charged Super would punish the team that just scored and a fighter who
-      died for one already loses it in `respawn()`. It also clears anything in
-      flight through the new `main.gd:clear_in_flight()`, shared with
-      `start_match` so the two lists cannot drift; that sweep picked up
-      `MeleeSwipe`, `Shockwave` and `DisconnectZone`, which `start_match` was
-      not freeing either. The Ball is excluded on purpose — kickoff re-places
-      it. As a bonus this stops a burn lit before the whistle ticking through a
-      freeze that holds its victim still.
-- [x] **The camera pans to the goal when someone scores.** `main.gd` grew a
-      `focus_camera(at, seconds)` that sends the view somewhere other than the
-      player for a beat, on a slower `CAM_PAN` lerp than the `CAM_FOLLOW` it
-      chases the player with, so it reads as a move rather than a cut.
-      `CupMode._goal_check` calls it with the conceded goal for
-      `GOAL_CAMERA_HOLD` (1.35s) — deliberately shorter than the 2.0s
-      `KICKOFF_FREEZE`, so the view is home again before input is handed back.
-      The focus point is pulled `GOAL_CAMERA_INSET` back toward the centre spot:
-      a goal is at the very edge of the map, and framing it dead centre fills
-      the top half of the screen with sky past the end of the arena.
-- [ ] **Shop and Trophy Road are placeholder screens** — dummy cards, nothing
-      purchasable. **Settings are not** — that half of this entry was stale and
-      has been struck: Music, SFX and Hints all write through `SaveGame` and are
-      honoured (`menu_audio.gd:41` and `:59` gate every sound, match SFX
-      included, since `main.gd`'s `sfx_at`/`sfx_ui` both go through
-      `MenuAudio.play_at`; `menu.gd:113` and `main.gd:_start_battle_music` check
-      `music_on`; `home_screen.gd:308` reads `hints_on`). Player name and the
-      developer-mode unlock persist too.
-- [ ] **Balance pass.** Run `NS3_SIM=<n>` (headless) across the seven kits and
-      tune against `CHARACTER_BUILDING.md`; damage is derived from the tier
-      tables, never picked by taste. Nova is a placeholder — don't tune her.
-- [x] **Bots use walls as cover and bushes to ambush.** Both are expressed the
-      way every other decision in `bot_brain.gd` is — a point to walk toward —
-      so they drop into the `_pick_move` ladder without disturbing the
-      priorities around them. Verify either one with `NS3_BOT_LOG=1`.
-      - **Cover** triggers on the two moments a bot has nothing to trade: below
-        30% health (which already fled, and now flees *somewhere*), or holding
-        an empty magazine within 1.2x weapon range of someone who can actually
-        see it. `_find_cover` scores every tile in a 4-tile window that has a
-        wall on the line to the enemy, preferring the shortest trip — the walk
-        is the part that gets you shot — with a smaller term that stops a bot
-        backing so far out that returning means re-crossing the same ground.
-        Arriving, it stands still and reloads rather than jittering on the tile.
-      - **Ambush** is the bush half. Idle bots (ranked below loot — a cube in
-        hand beats a hiding place) walk to the nearest reachable bush and wait
-        there, and a bot already in one holds still instead of breaking cover to
-        meet a target it can see. That asymmetry is real and was previously
-        never sought: `main.gd:can_see` tests the *target's* tile, so a bot in a
-        bush sees out while staying unseen past `Kits.BUSH_REVEAL`.
-      - **Both are time-boxed, and that is load-bearing.** Lurking runs
-        `AMBUSH_HOLD` then rests for 4-8s of wandering before another bush is
-        considered; without the rest a bot that spawns beside one never leaves
-        it and the match stops converging. A hidden bot also gives a target
-        `AMBUSH_PATIENCE` to walk into range before closing itself, or an
-        ambusher whose target never approaches simply stops playing.
-      - **Every terrain query is sampled against the ASCII map**
-        (`Arena.tile_at`), not raycast: it costs no physics, agrees exactly with
-        `blocks_movement` and with a wall `Arena.open_at` has shot out, and is
-        cheap enough to score a whole window on one think tick. Only `#` blocks
-        sight — water and bushes do not.
-      - Two costs found by measuring rather than reasoning, both now guarded:
-        a bot at point-blank rescanned the window every `COVER_HOLD` and could
-        never find anything (there is no line to break with someone on top of
-        you — `COVER_MIN_ENEMY`), and caching only *successful* searches left a
-        bot with nothing to hide behind rescanning every think tick for as long
-        as it stayed in trouble. Failed searches are cached too.
-      - A/B'd at 20 headless matches a side. Damage per spawn is up slightly
-        across the board — cover makes fights last longer — average placement is
-        flat, and no kit's `hits/atk` collapsed toward zero, which was the
-        failure mode being watched for. Win% moved by up to 10pp in both
-        directions, which at ~20 spawns per kit is noise, not a balance finding;
-        the balance pass above is still open and unaffected.
-- [x] **Bots use terrain offensively too.** The three things this entry named
-      all landed, in the same idiom as the defensive half: a scored window of
-      candidate tiles sampled against the ASCII map, held for a beat so it
-      cannot oscillate, and cached on FAILURE as well as success.
-      - **Flank.** A bot losing the health race by `FLANK_DEFICIT` (20% of max,
-        about one exchange) breaks the target's sight and comes back on a
-        different bearing. `_find_flank` is `_find_cover` with the sign
-        reversed: cover wants the NEAREST wall, which is often the one you are
-        already behind, so this scores the TURN around the target
-        (`FLANK_MIN_TURN`, 55 degrees) and stays inside weapon range, because a
-        flank that ends out of range is a retreat with extra steps.
-      - **Covered approach.** Beyond ideal range a bot now looks for a step that
-        is hidden from the target and at least a tile nearer, instead of walking
-        the straight line. The straight run is still the fallback — most of an
-        open map has no covered step and should not pay to look for one.
-      - **Gas pressure.** At fighting distance near a closing ring, stand on the
-        safe side of the target at ideal range, so every step they give up is a
-        step nearer the gas. The only one of the three that needs no search: the
-        inside line is a bearing, not a tile. Gated on `main.gd:gas_closing()`
-        rather than `gas_depth` alone — before the first shrink `depth_inside`
-        measures to the MAP edge, so without it bots would spend the opening of
-        every match pressing opponents against an arena wall.
-      - **The interaction that had to be found: a reposition that makes a bot
-        forget its target is a reposition that fails.** `_update_target` drops
-        an unseen target after 1.5s, and both new behaviours deliberately break
-        that sight for longer than the walk takes. `_target_memory` raises the
-        grace to 4s while a flank or approach is committed, bounded by the holds
-        themselves so a stale point can never extend it.
-      - **Showdown only**, and structurally so: all three sit below the
-        `game.cup` branch in `_pick_move`, because in Nobles Cup the ball owns a
-        bot's movement and a bot that peels off to flank has stopped playing the
-        mode. Verified at runtime, not just by reading — a Cup match logs 21
-        cover takes and exactly **zero** flanks, covered approaches or inside
-        lines.
-      - **A/B at 60 headless matches a side (~65 spawns per kit).** Damage per
-        spawn 9626 → 9583, attacks per spawn 10.29 → 10.21, hits per attack
-        1.151 → 1.147 — flat inside 1% on all three, and nothing collapsed
-        toward zero `hits/atk`, which is the delivery bug being watched for.
-      - **The same A/B at 20 matches a side said damage was down 11%.** It was
-        noise. That is worth keeping: this file already warned that ~20 spawns
-        per kit is too few, and this is the measurement that proves it. Run the
-        sim at 60+ before believing anything.
-      - **Win% moved up to ~10pp per kit, and the direction is not random.** It
-        tracks attack rate, because the cost of all this is time spent walking
-        instead of shooting: Leon (16.4 attacks/spawn, the highest) went
-        19.2% → 9.0% with attacks per spawn down 18%, Nova (12.6) 20.3% → 11.1%
-        on the same 18% drop, while Anders (the lowest rate) went 1.4% → 4.8%
-        with damage per spawn UP 32%. Net effect is a mild flattening — win%
-        spread across the roster tightened from sd 6.1 to 4.6.
-      - **This moves the baseline the balance pass measures against**, so do the
-        balance pass after this, not before. Verify any of it with
-        `NS3_BOT_LOG=1`, which now prints flanks, covered approaches and inside
-        lines alongside cover and bushes.
+Four entries were removed rather than carried forward, because acting on them
+would have been wrong. Recorded here so they are not re-added from memory.
 
-## Multiplayer
+- **"The Super is hard to aim."** Its own proposed fix shipped — the Super *is*
+  a stick you drag off now, `super_button.gd` is deleted and folded into
+  `TouchStick`. Written up in `done.md`.
+- **"Shop and Trophy Road are placeholder screens."** Both are real:
+  `shop_screen.gd` has `_affordable_deals` and the Dawg Treat loop over
+  `TREAT_TIERS`, and `season_screen.gd` claims through `SaveGame.is_claimed`
+  across all six reward kinds. The settings half of that entry had already been
+  struck for the same reason.
+- **"The menu does not look good enough yet."** Rewritten as 5.1 — it described
+  the pre-overhaul menu, and three of its four bullets asked for exactly what
+  the overhaul deliberately removed.
+- **"Drop Brawl Stars SFX in as placeholders first."** Its premise was "the match
+  is silent *today*". It is not — 28 sounds are synthesized through `MenuAudio`,
+  which was the ship path this was a shortcut to. Standing in Supercell's audio
+  now would be a step backwards and cannot ship.
 
-- [x] **Clients interpolate, and predict their own fighter.** They used to be
-      pure puppets chasing the newest 30 Hz snapshot on an exponential lerp,
-      which is invisible on a LAN and both laggy and steppy on anything worse.
-      - **Everyone else is drawn at a fixed delay behind the host**
-        (`NET_INTERP_DELAY`, 85 ms — two and a half snapshots), by
-        interpolating between the two buffered snapshots that bracket that
-        instant. The host stamps its own `now` into every snapshot and the
-        client keeps a **min-filtered** `local now − host now` in
-        `_host_offset`, so the delay is measured against the host's clock
-        rather than against arrival times and jitter stops moving bodies. A
-        starved buffer extrapolates from the last two samples for at most
-        `NET_EXTRAP_MAX` (120 ms) and then holds — past that, extrapolation
-        reads as a fighter skating through a wall, which is worse than a
-        fighter standing still.
-      - **The discrete half of a snapshot** (health, ammo, Super, the gas ring,
-        the fighters-left count) **is applied at that same delayed instant**,
-        not off the newest packet, so a hit flash lands on the frame the body
-        is drawn where it was hit. Your OWN fighter is the deliberate
-        exception: it is drawn at `now`, so its numbers are applied the moment
-        they arrive.
-      - **Your own fighter moves on your own stick** (`_net_predict`), through
-        the same `Fighter.apply_movement` the host runs, so walls, water and
-        the kit's speed all resolve identically. The host acknowledges the last
-        input seq it applied in each snapshot; `_reconcile` compares that
-        against the position the client's own copy of that input produced and,
-        past `NET_PRED_TOLERANCE` (5 cm), puts the body where the host says it
-        was and **replays** every unacknowledged input from there — so a
-        correction resolves against walls instead of teleporting through them.
-        Past `NET_PRED_HARD_SNAP` (2.5 m) it snaps: a knockback or a dash is
-        not something to swim to.
-      - **`_pred_pos` and `_pred_error` are kept apart, and that is
-        load-bearing.** The correction goes into the SIMULATION at once and
-        into the PICTURE over the next fraction of a second. Feed the visual
-        offset back into the simulation and the next frame's prediction
-        measures its own correction, double-counts it, and the client twitches
-        on every packet. Ask for a `git log -p` on the first draft before
-        rewriting this: the bookkeeping needed to make the naive version
-        correct is longer than the replay.
-      - **The host buffers inputs and consumes one per physics tick**
-        (`_consume_input`) instead of applying whatever arrived last. Two
-        inputs landing inside one frame used to mean one was thrown away and
-        the client had predicted a step the host never took.
-      - **Measured** with `NS3_NET_STATS=1` under `NS3_NET_LAG=80
-        NS3_NET_JITTER=20 NS3_NET_LOSS=0.03` (a 160 ms round trip with 3%
-        loss): reconcile error **avg 0 cm, max 15 cm** across the settling
-        frames and **0 cm** for the rest of the match, buffer 3-4 snapshots
-        deep, 0 extrapolated frames. Untouched, the same link leaves the local
-        body about 0.9 m behind the stick.
-      - Gotcha the pass turned up, and it is worth knowing before tuning the
-        buffer: **`unreliable_ordered` DISCARDS a packet that has been
-        overtaken**, so a client whose frame rate drops below the snapshot rate
-        gets one snapshot per FRAME and the ordered channel collapses the rest.
-        Measured at 12-18 received against 30 sent through the first seconds of
-        a match while the models are still landing — which is exactly what the
-        buffer and the extrapolation window are covering.
-      - Gotcha 2: **`Kits.Style.JUMP_SMASH` was starting a leap on clients**,
-        where `_update_leaps` never runs, so `is_leaping()` stayed true for the
-        rest of the match — and `apply_movement` returns early while it is.
-        Free while the local fighter was a puppet the snapshot stream moved; it
-        freezes a predicting one solid. Now gated on `authoritative` like the
-        DASH and DOWNHILL cases beside it.
-      - Still open, and the next thing anyone will feel: **attacks are not
-        predicted.** A client's shot goes up as `_net_fire` and only appears
-        when `_net_attack` echoes back, so pressing fire on a 160 ms link is a
-        160 ms wait for the muzzle flash. Doing it means the client predicting
-        its own ammo and cooldown well enough not to draw a shot the host
-        refuses; the snapshot already carries both, one interpolation delay
-        late.
-- [x] **The snapshot is packed and quantised — 6.2x smaller, measured.** It was
-      a Variant `Array` of `Array`s, which costs about twelve bytes a field
-      once Godot has tagged every number as a double: **29-30 KB/s** at 30 Hz
-      for ten fighters, which a LAN swallows and a phone on a busy access point
-      does not. It is now a ten-byte header plus fifteen bytes per LIVING
-      fighter — **4.7-4.8 KB/s**, and down to 3.1 KB/s late in a match as the
-      roster thins, because dead fighters are left out of the alive mask
-      instead of costing an empty array each.
-      - Quantisation, and why each is enough: position to a centimetre (the
-        capsule is 0.65 m across and the map is 78 m, so u16 covers it),
-        facing to 1/256 of a turn (1.4°, on a body 70 px wide on screen), ammo
-        to 1/32 of a pip, Super to 1/255 of the bar, the two burn clocks to a
-        sixteenth of a second. The reconcile tolerance is 5 cm, five times the
-        position quantum, so packing cannot itself provoke a correction.
-      - **Nothing is delta-encoded, on purpose.** The stream is unreliable: a
-        field only sent when it changes is a field lost for good when that one
-        packet drops, and the ack scheme that fixes it costs more — in state on
-        both sides, and in bugs — than the bytes it saves at this size.
-      - `NS3_NET_STATS=1` prints both figures every two seconds (the host
-        builds the old form alongside the new one and `var_to_bytes` it), so
-        the ratio stays checkable rather than remembered.
-- [x] **A client's results card has its real stat table.** `deal_damage`
-      returns early when `not authoritative`, so a client's own `Fighter.stats`
-      are all zeros and the card fell back to the one row it could fill in
-      honestly. The host now sends the fighter's damage / eliminations / cubes
-      / survival with `_net_push_stats` immediately before the `_net_eliminate`
-      that raises the card, and again to the last survivor before
-      `_net_match_over`; `_net_rows` prints them. The single-row fallback is
-      kept for the case where they somehow have not arrived — one true row
-      still beats four invented ones.
-      - `multiplayer.get_peers().has(peer)` guards the send. The commonest
-        reason a player's fighter is eliminated is that the player LEFT, and
-        `_on_net_peer_left` eliminates it from inside the disconnect handler,
-        by which point `rpc_id` to them is an engine error. That error was
-        printing on every clean exit of the wifi harness.
-      - **It also turned up a real rendering bug in the results card**, which
-        had been invisible because Showdown's four rows had never been built on
-        the losing side of the race: `MenuUI.stagger` goes through `pop_in`,
-        which tweens `position:y` — and the rows live in a `VBoxContainer`,
-        which OWNS its children's positions. `pop_in` reads `home` off a child
-        the container has not laid out yet, records 0 for every row, and walks
-        all four back to the top of the table stacked, where only the last one
-        drawn is visible. The card looked like it had one row and the log said
-        it had four. `main.gd:_fade_in_rows` replaces it and fades only —
-        alpha is the half of that effect a container cannot fight.
-- [x] **A client can ask for a rematch, and is told what it is waiting on.**
-      Only the host can deal a roster, so the flow is: the client's card gets a
-      REMATCH button in place of PLAY AGAIN, which sends `_net_rematch_request`
-      and turns into "WAITING FOR THE HOST…"; the host's card carries "N of M
-      ready for a rematch"; the host's PLAY AGAIN pulls the whole room into the
-      next match through the `_net_start` it already broadcast, and
-      `_start_from_roster` hides the results card at the far end. LOBBY works
-      on both, and a host that leaves gets its clients "THE HOST LEFT — BACK TO
-      THE LOBBY" written onto the same line, because the results card covers
-      the `center_label` the old "HOST LEFT" was printed on.
-      - Verified end to end in the two-instance harness with the two hooks
-        added for it (`NS3_NET_KILL`, `NS3_NET_REMATCH`): client dies, card
-        with four real rows and a REMATCH button, request goes up, host's card
-        counts it, host deals, both instances come up in a new match's versus
-        screen.
-- [x] **iOS leads with join-by-IP.** An iPhone cannot receive the broadcast
-      half of discovery without Apple's multicast entitlement — neither the
-      replies a browsing phone needs nor the probes a HOSTING phone needs — so
-      the games list there is permanently empty, and an empty list where the
-      answer should be reads as a broken feature rather than an unavailable
-      one. `Net.discovery_works()` is false on iOS and `room_screen.gd` swaps
-      the two halves on it: JOIN BY IP first, in gold, with a green button,
-      prefilled with the last address used and on a numeric keypad
-      (`KEYBOARD_TYPE_NUMBER_DECIMAL` — the default layout hides the dot behind
-      a shift); the list below it, carrying the one line that says why. Desktop
-      keeps discovery first, because there it works.
-      - The last address joined by hand is remembered across launches in its
-        own `user://lan.cfg` (`Net.last_ip` / `remember_ip`). Typing an IPv4
-        address on a phone keyboard is the entire cost of this flow and it is
-        the same address every time in one house. Its own file rather than the
-        save: the save is the player's progress and has no business carrying a
-        LAN address.
-      - The host's room screen now prints its own IP at 34 pt in gold under
-        "Friends join by typing this address:", instead of as a clause in a
-        muted hint line. On iOS that number is the only way anyone joins.
-      - Shoot the iOS layout from a desktop with `NS3_FAKE_IOS=1
-        NS3_MENU_SCREEN=wifi NS3_MENU_SHOT=<abs.png>`. Without it the one
-        screen that only exists on a phone is the one screen this project
-        cannot photograph.
-- [ ] **A client's own death is silent, and its HUD lies about it.** Found while
-      verifying the merge, with `NS3_NET_KILL=6` + `NS3_HAPTIC_LOG=1`: the
-      results card comes up correctly (DEFEATED, #10 of 10, the real stat table)
-      while the HUD behind it still reads `HP 5000/5000`, and **not one haptic
-      fires** — no `death`, no `hit_taken`. The health line is what explains
-      both: a client is put down by the `_net_eliminate` EVENT, not by its health
-      being walked to zero, so `_update_status`'s frame-to-frame damage watch —
-      which CLAUDE.md calls "the one hook that covers both" — never sees a
-      decrease to react to. `death`, `elimination`, `cube`, `super_ready`,
-      `super_fire` and `count_go` are all hooked into host-side paths a client
-      never runs, so the whole haptic layer is effectively off in wifi play.
-      Largely pre-existing rather than caused by the net rework, but the fix
-      belongs here: zero the local health on a net elimination and fire the taps
-      from the client's own event handlers.
-- [ ] **Nobles Cup still cannot be hosted.** `net_play.gd` and the whole net
-      section of main.gd are Showdown-only; the ball, the score, the clock and
-      respawns would all have to go into the snapshot. `_rpc_start_game` hard-
-      codes `Session.mode = "showdown"`.
-- [ ] **No interest management.** Every client is sent every fighter every
-      snapshot, even the ones across the map that its camera cannot show. At
-      ten fighters that is 150 bytes and not worth the complexity; it is the
-      next lever if a mode ever wants a bigger roster.
+One half-typed line (`- []  **The`) was dropped from **Arena & visuals**. It was
+uncommitted, carried no text, and git has no earlier version of it.
 
-## Ship
+## Automatic joining: Bonjour, MultipeerConnectivity, GameKit
 
-- [ ] **The app icon is a placeholder.** `godot/icon.png` is a flat gold star on
-      navy at 1024x1024. Script-drawable (pipeline 3), and needed before a build
-      on a phone looks like a real game. The launch art beside it is done — the
-      iOS storyboard inherits the boot splash, see **Boot** above.
-- [x] **Character and prop textures are capped; the bundle is less than half
-      what it was.** The seven `assets/*_texture_0.png.import` files carried
-      `process/size_limit=0` against 4096x4096 sources. Characters are now
-      capped at **1024** and props (loot crate, gas cloud, tall grass) at
-      **512**, the cap `power_cube` already proved. `.godot/imported` — which is
-      what actually ships — went **120 MB → 48 MB**: the characters 62.5 MB →
-      9.6 MB (leon 16.2 → 1.65, kovacs 13.8 → 1.47, henry 13.4 → 1.43) and the
-      props 24 MB → 1.6 MB. 1024 rather than 512 on the characters because they
-      are the menu's hero art, rendered ~540 px tall on the detail screen; a
-      before/after of Leon at that size is pixel-for-pixel indistinguishable,
-      shirt lettering included, and 1024 still leaves ~2.5x the on-screen texel
-      density. Re-cap any new character import the same way.
-- [x] **The export runs end to end, and the blocker was never the account.**
-      `Tools/export_ios.sh` stopped for months on:
+The join code plus the unicast sweep is as far as pure GDScript reaches. All
+three of the "it just finds your friends" options need a **native iOS plugin**,
+because Godot binds none of them — a static lib plus a `.gdip`, built in Xcode
+and dropped in `ios/plugins/`. Ranked by what they cost against what they buy:
 
-          error: No Account for Team "KJDG3J6ZYY"
-          error: No profiles for 'com.ryder.noblestars3d' were found
+- **Bonjour / mDNS — the one worth doing.** It replaces only the DISCOVERY step,
+  so ENet stays and every line of snapshot, prediction and RPC code is
+  untouched; it fills the same `Net.games` dictionary `room_screen.gd` already
+  reads. Apple **exempts Bonjour from the multicast entitlement** as long as you
+  go through the system API (`NWBrowser`/`NWListener`, or `NSNetService`) and
+  declare `NSBonjourServices` beside the `NSLocalNetworkUsageDescription` the
+  preset already has. It also crosses subnets that the /24 sweep cannot, which
+  is the school-network case. **Do not try this in GDScript over
+  `PacketPeerUDP.join_multicast_group`**: the exemption is granted to the API,
+  not to port 5353, so a hand-rolled mDNS on a raw socket needs the entitlement
+  after all and will simply find nothing on a phone.
+- **MultipeerConnectivity — the most magical, and the only one that beats client
+  isolation.** `MCNearbyServiceBrowser`/`Advertiser` discover and connect over
+  wifi, Bluetooth and peer-to-peer AWDL, so two phones find each other with no
+  router involved at all — which is the one thing that would work on school wifi
+  that blocks device-to-device traffic. But it is a TRANSPORT, not a directory:
+  taking it would mean a `MultiplayerPeerExtension` so the existing RPCs keep
+  working, and it is iOS-only, so the desktop build (where all the testing
+  happens) would need ENet kept alongside it.
+- **GameKit / `GKMatch` — probably not.** Real matchmaking with no addresses at
+  all, and over the internet rather than the LAN. But it wants a Game Center
+  capability and an App Store Connect record with a matching bundle id, and this
+  game is side-loaded and deliberately never shipped to the App Store. It is
+  also a transport like Multipeer, so it needs the same `MultiplayerPeer` work,
+  and it is iOS/macOS-only.
 
-      Both of those point at the Apple ID, and the Apple ID was fine the whole
-      time. **The preset named the wrong team.** `KJDG3J6ZYY` is the free
-      personal team of the signing account; it develops under the paid team
-      `S7AT3UP8R4` ("ANDREW DWIGHT CARLSON"), so Godot wrote an id into
-      `DEVELOPMENT_TEAM` that genuinely had no account behind it. One line in
-      `application/app_store_team_id` and the script now prints
-      `** EXPORT SUCCEEDED **` with no errors and leaves a 66 MB `.ipa` beside
-      the `.xcodeproj`.
-      - **What hid it was the previous fix.** The note in CLAUDE.md said this
-        error "usually means a signing-identity CONFLICT, not a missing
-        account… the account is fine", which was true of the earlier
-        `Apple Distribution` vs `Automatic` conflict and sent every later look
-        away from the team id. Read the team off the artefact instead of
-        trusting the error or the preset:
-        `security cms -D -i <app>/embedded.mobileprovision` prints
-        `TeamIdentifier` and `TeamName`.
-      - **It is a paid account**, so the profile is good for a year
-        (`TimeToLive 365`) — the 7-day expiry that forces weekly reinstalls is
-        a free personal team and does not apply.
-      - `xcodebuild -allowProvisioningUpdates` builds and signs the written
-        project with no GUI step: BUILD SUCCEEDED, `Apple Development`.
-      - Simulator builds stay blocked upstream (godotengine/godot#118161 —
-        simulator `libgodot.a` is x86_64-only), so the arm64 device slice is
-        the only path regardless.
-      - **Still open, and only Ryder can do it:** installing needs Developer
-        Mode on the handset (Settings → Privacy & Security → Developer Mode,
-        then a restart), or `devicectl` stops with
-        `Developer Mode is disabled`. `devicectl` also needs `DEVELOPER_DIR`
-        set, exactly like the export.
-- [x] **The pbxproj placeholder lines are gone, and the export is scripted.**
-      Re-measured against the 4.7.2.stable templates: the generated
-      `project.pbxproj` contains **no** `$additional_pbx_*` /
-      `$pbx_embeded_frameworks` lines — no `$` placeholders at all — and
-      `plutil -lint` parses it. `Tools/export_ios.sh` keeps the strip as a
-      regression guard and says so when there is nothing to strip. Two things
-      the script encodes: `xcode-select` points at CommandLineTools so the
-      export needs `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`,
-      and the CLI exporter **ignores `export_project_only=true`** — it writes
-      the Xcode project and then tries to archive anyway, so a nonzero exit does
-      **not** mean the project is missing.
-- [x] **The match has sound.** 28 combat sounds synthesized through `MenuAudio`
-      (pipeline 1), so the game still ships zero audio files. Covered: a shot
-      per weapon class, projectile impact and a separate melee connect, melee
-      whoosh, reload tick, empty-mag click, Super charged and Super fired,
-      elimination, loot-box break, wall break, power-cube pickup, gas tick,
-      low-health pulse, countdown and go, victory and defeat stings, and Nobles
-      Cup's kick, goal horn and whistle.
-      - `main.gd:sfx_at` attenuates by distance from the listener (full level
-        inside 6 m, gone by 30 m — the camera shows ~23 m) and jitters the pitch
-        ±6%, without which a burst of identical samples reads as one looping
-        tone rather than as gunfire. `sfx_ui` is the unattenuated path for the
-        countdown, the stings and the whistle.
-      - Sounds are keyed off `weapon.style` in `_attack_sound`, not off the kit,
-        so a new character inherits one from the style it picks.
-      - `MenuAudio.VOICES` went 8 → 16: a nine-pellet shotgun, its impacts and a
-        bot firing across the map can all land in one frame, and the round-robin
-        was cutting sounds off part-way through.
-      - **`_render` falls through to "click" for a name it does not know**, so a
-        typo plays a menu click mid-firefight instead of failing. `Godot --path
-        godot --headless --script res://tools/sfx_probe.gd` renders the whole
-        table and flags any name with no entry of its own, plus anything silent
-        or clipping. Add a name to its list whenever you add one to the table.
-      - `NS3_SFX_LOG=1` prints every sound as it fires, which is how you tell
-        "the hook never ran" from "it is too quiet to notice".
-      - The results screen chimes per reward now (`_count_up` fires "reward" as
-        each of the three chips starts counting). Still open: nothing
-        distinguishes one kit's shotgun from another's, and there is no
-        positional stereo (everything is mono, attenuated only by distance).
-- [ ] **Drop Brawl Stars SFX in as placeholders first.** Synthesising the table
-      above is the ship path, but it is slow to tune blind, and the match is
-      silent *today*. Standing in ripped Brawl Stars clips for shot / hit /
-      elimination / Super / goal gets the timing and the mix roughed in
-      immediately, and makes it obvious which sounds actually matter before
-      anything is synthesised for them. Strictly internal — they are Supercell's
-      audio and cannot ship — so keep them out of the export from the start:
-      a `godot/assets/sfx_placeholder/` in `.gitignore`, loaded only when
-      present, so a build with the directory missing simply runs silent rather
-      than failing. Every one of them is a placeholder for a `MenuAudio` entry
-      or a voiceline, not a substitute for one.
-- [ ] **Voicelines.** Nine fighters x spawn / attack / Super / defeat / victory,
-      recorded by the people the characters are based on. Cannot be generated —
-      it needs real people in a room, so it is the longest lead time in this
-      file and should be booked before the code hook exists.
-- [ ] **More music.** Two tracks ship (`lobby_vibes`, `clash_carnival`). Wants at
-      least a results/victory sting, and a second battle track so Cup and
-      Showdown do not sound identical.
-
-## Tooling & workflow
-
-The answer to "which Godot plugins should we install" turned out to be **none**,
-and that is worth recording so it is not re-litigated. `gdtoolkit` (`gdlint` /
-`gdformat`) was measured against all 44 files: 145 findings, of which two were
-real (`ball.gd:135` and `menu_popups.gd:54`, both unused arguments). The rest
-were 81 `class-definitions-order`, 26 `mixed-tabs-and-spaces` that are every one
-of them intentional continuation alignment, and 26 `max-line-length` at its
-default 100. `gdformat` would additionally rewrite the deliberate paren
-alignment in `kits.gd`'s tier tables and the shader strings in `arena.gd`.
-**Both real findings are now fixed**: `ball.gd:135`'s unused `now` is renamed
-`_now` (renamed rather than deleted — every caller is in `cup_mode.gd`, and
-`_`-prefixing is the GDScript idiom that satisfies the lint with no signature
-change), and `menu_popups.gd:54`'s unused `shell` argument is dropped from that
-private static helper.
-Editor addons have nothing to attach to when the `.tscn` files are empty shells
-and everything is built in code, and the Godot MCP servers bridge a *live
-editor* — the workflow the `NS3_*` env hooks exist to avoid. What the project
-wanted was configuration, not packages.
-
-- [x] **The reimport footgun is handled automatically — but the hook is not a
-      compile check.** A `PostToolUse` hook in `.claude/settings.json` runs
-      `Godot --headless --import` after any edit to a `godot/**/*.gd`. Skipping
-      that import makes class members silently vanish at runtime, which is the
-      single nastiest failure mode in this project because it produces no error
-      at edit time. The hook derives the project directory from the edited file
-      rather than hardcoding a path, and costs 1.2s. **A new `.claude/` is not
-      picked up until `/hooks` is opened once or the session restarts** — the
-      settings watcher only watches directories that had a settings file at
-      session start.
-      - **`--import` does NOT report GDScript parse errors.** A `main.gd` that
-        could not load at all imported clean and silent; the
-        `SCRIPT ERROR: Parse Error` only appeared on running the game. Hit
-        independently in two sessions. The hook makes the import *feel* like a
-        compile step, which is exactly what makes this sharp — to know a script
-        parses, run the game.
-- [x] **Concurrent Godot runs have a real guard now: `Tools/godot.sh`.** It
-      takes a lockfile keyed on the RESOLVED project directory and **refuses**
-      (exit 75) rather than clearing, and it never kills anything. `mkdir` is the
-      atomic primitive — a lockfile written with `>` has a window between the
-      test and the write. A stale lock whose owner is provably dead is the one
-      case where clearing is correct, and it is reclaimed silently.
-      - **Per project, not per machine**, which is the whole point: three agents
-        working in `.claude/worktrees/*` each have their own `.godot` cache and
-        their own real lock, so they no longer block each other or the main
-        checkout. Verified live against an agent's running Godot while the main
-        project correctly reported free — the exact case CLAUDE.md warns costs
-        "several minutes of dead waiting" with a naive `pgrep` wait-loop.
-      - **A running Godot has already `chdir`'d into its own project
-        directory**, and that is the fact the detection turns on. The first
-        version resolved `--path godot` against the process cwd and got
-        `<project>/godot/godot`, which does not exist — so every foreign Godot
-        came back unresolvable and the wrapper cheerfully started a second one
-        beside it. The cwd IS the answer; only an absolute `--path` is trusted
-        ahead of it, for the moment before the chdir lands.
-      - **The "is a person playing?" tell cannot be matched against the whole
-        command line.** CLAUDE.md names a `-zsh` parent as the signal, but the
-        Claude bash wrapper's own `shell-snapshots/snapshot-zsh-….sh` argument
-        contains that literal string, so every agent job was being reported as a
-        human. It reads the parent's `argv[0]` instead: a leading dash is a login
-        shell (a person — do not kill), a ` -c ` is a script/agent job (kill the
-        JOB, not the binary), anything else is unidentified.
-      - `--wait <seconds>` blocks instead of refusing; `--status` reports the
-        holder; `--no-lock` is the deliberate escape hatch for the **wifi
-        harness**, which is two instances of the same project on purpose. Import
-        once normally, then start both halves with `--no-lock`.
-      - Allowlisted in `.claude/settings.json` beside the raw binary. Same
-        prefix-matching limitation as that entry: `NS3_KIT=nova Tools/godot.sh …`
-        does not match, because the env var comes first.
-      - Still open: nothing forces its use. The wrapper only helps a caller who
-        reaches for it, and every `NS3_*` line in this file still shows the bare
-        binary.
-- [x] **Permission allowlist for the Godot binary** and read-only git, also in
-      `.claude/settings.json`. One limitation worth knowing: prefix rules match
-      from the start of the command, so the `NS3_KIT=nova … Godot …` form does
-      not match — the env var comes first. Only the bare `Godot …` form is
-      covered.
-- [x] **Debug screenshots no longer write into the project.** `NS3_SHOTS` and
-      `NS3_MENU_SHOT` handed an environment-supplied path straight to
-      `save_png`, and a relative path resolves against `res://` — so
-      `NS3_SHOTS=shot:1` wrote `shot_1.png` into the project, where the next
-      `--import` swept it up as a game asset that then had to be found and
-      removed before committing. `Session.shot_path` now sends anything not
-      absolute to `user://`, and both hooks print where they actually wrote.
-- [x] **`godot/.godot/` is gitignored** and its 422 files untracked. It was 52 MB
-      of import and shader cache that churns on every reimport, and it made up
-      most of the volume of recent commits — `aee0066` was 101 files, nearly all
-      of it cache. Verified regenerable rather than assumed: a copy of the
-      project with no `.godot` cold-imports in 5.3s with no errors and runs a
-      full `NS3_SIM` match. **A fresh clone must import once** before the project
-      will open or run.
-- [ ] **No GDScript language server is wired into Claude Code.** `.gd` files get
-      no go-to-definition, no find-references, no diagnostics. Godot ships a
-      language server but only serves it while the editor is open, so this would
-      mean keeping the editor running alongside. Marginal at 13k lines where
-      grep works, but it is the one piece of real tooling still missing.
+Verify first, before writing any plugin: whether the unicast sweep actually
+returns hosts on a real iPhone. If it does, discovery is already solved for home
+wifi and Bonjour is only buying the cross-subnet case.
