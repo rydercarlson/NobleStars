@@ -591,6 +591,43 @@ Newest work is roughly at the top of each section.
 
 ## Menu
 
+- [x] **The five-zone layout, a nav that stays, and no lines** (6 Sep 2026,
+      Jackson's redesign — ROADMAP **D1**, `todo 5.3`). Same material as the
+      programme page (Anton and Barlow, ink and gold, square corners); what
+      changed is what goes where. Top-left is who you are (avatar, name, record
+      on home; the back arrow in a square on every pushed screen, the room
+      screen included). Top-right is coins and gems as icon-and-figure and the
+      menu as three bars in a square. Bottom-left is ROSTER / SEASON / SHOP /
+      WIFI as picture-over-word tabs owned by `MenuShell`, on every screen, the
+      current one lit gold. Bottom-right is the mode plate and PLAY one gap
+      apart on one baseline. One hint under the fighter's feet, nothing else
+      around him. The icon pack does the pictures; its painted backdrop stays
+      unused because the live 3D ground is the game's own look.
+      - **Every hairline rule is gone.** Section heads, stat rows, the home
+        screen's top and bottom caps, the roster's row separators, the rails'
+        column rules. On a phone they read as stray lines, not structure;
+        spacing does the job. Kept: the Season thresholds' underline (it turns
+        gold as you reach them — that is content) and the mode cards' flag.
+      - **The utility type moved up a tier, 17–22 → 26–30** (`todo 1.3`): on
+        the phone the stage converts at x0.364 px→pt, so 19 px was 6.9 pt. Moved
+        as a tier, with the display sizes it met moved with it, so the deliberate
+        hole in the scale is intact one step up. Not verified on the handset yet.
+      - **What overflowed and how it was settled.** The home screen's right flank
+        ran under PLAY once its copy was 28 px: ability body went to 26 with
+        tighter line spacing, the record became one row of three figures
+        instead of three stat lines, and both flanks widened to 460. Season's
+        two rails ran into the nav: header, gaps and rail heights came down
+        (rails 176 and 276) rather than the nav moving, and the rail's
+        scroll-to-progress stopped adding the 1 px per column that the deleted
+        column rule used to take, which had been clipping the current tier.
+      - **Rejected:** the pack's stage backdrop behind the fighter (fights the
+        3D ground and the depth fog that takes it to ink); keeping a CLOSE link
+        beside the back square (two exits doing one thing); a nav inside the
+        home screen (then no pushed screen can show which tab it is).
+      - **The earlier `wifi_screen.gd` re-skin was retired** in favour of
+        Ryder's phone-tested `room_screen.gd` (the two-column join-code pad):
+        function over chrome until the party surface replaces it.
+
 - [x] **The menu is native Godot** (`godot/scripts/menu/`). The HTML build it was
       rebuilt from is gone — it could not ship inside the iOS app — and all of its
       art moved to `godot/assets/menu/` (cards, treats, decor, pass hero, skins,

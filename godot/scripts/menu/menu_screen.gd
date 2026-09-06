@@ -1,13 +1,15 @@
 class_name MenuScreen
 extends Control
-## Base for every pushed screen, mirroring ui.js openScreen()/topbar():
-## dimmed backdrop, a top bar (back, title, subtitle, currency pills, close)
-## and a content area that either scrolls or fills.
+## Base for every pushed screen: an ink backdrop, a top bar (a square back
+## button, title, subtitle, the currency readout) and a content area that
+## either scrolls or fills, stopping short of the shell's bottom nav.
 ##
 ## Subclasses override _build(); `menu` is assigned before the screen enters
 ## the tree, so it is safe to use from there.
 
-const PAD := 44
+## The same left edge as home's identity block, so the back square, a title
+## and a screen's content all hang off one line.
+const PAD := 68
 
 var menu: MenuShell
 var screen_name: String = ""
@@ -60,26 +62,29 @@ func _animate_in() -> void:
 func topbar(title: String, sub: String = "", currencies: bool = true,
 		close: bool = true) -> HBoxContainer:
 	var bar := MenuUI.hbox(22)
-	bar.custom_minimum_size = Vector2(0, 122)
+	bar.custom_minimum_size = Vector2(0, 108)
 	bar.alignment = BoxContainer.ALIGNMENT_BEGIN
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 34)
-	margin.add_theme_constant_override("margin_right", 34)
+	margin.add_theme_constant_override("margin_left", PAD)
+	margin.add_theme_constant_override("margin_right", PAD)
 	margin.add_child(bar)
 	body.add_child(margin)
 
-	var back: Button = MenuUI.link("← BACK", 24)
+	# The back arrow in a square, in the top-left slot home keeps its avatar in.
+	# It is the only way off the screen up here: the old CLOSE link on the
+	# right did the same thing from the far side, so one of them was noise.
+	var back: Button = MenuUI.square_button("back")
 	back.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	back.pressed.connect(func() -> void:
 		menu.sfx("back")
 		close_screen())
 	bar.add_child(back)
-	bar.add_child(MenuUI.gap(18))
+	bar.add_child(MenuUI.gap(10))
 	var title_label: Label = MenuUI.display(title.to_upper(), 58)
 	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	bar.add_child(title_label)
 	if sub != "":
-		var sub_label: Label = MenuUI.label(sub, 20, MenuUI.TEXT_DIM)
+		var sub_label: Label = MenuUI.label(sub, 24, MenuUI.TEXT_DIM)
 		sub_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		sub_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		bar.add_child(sub_label)
@@ -88,21 +93,6 @@ func topbar(title: String, sub: String = "", currencies: bool = true,
 		var money: HBoxContainer = menu.currency_pills()
 		money.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		bar.add_child(money)
-	if close:
-		var x: Button = MenuUI.link("CLOSE", 24)
-		x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		x.pressed.connect(func() -> void:
-			menu.sfx("back")
-			close_screen())
-		bar.add_child(MenuUI.gap(10))
-		bar.add_child(x)
-	# The rule the whole screen hangs off, the same one home uses under its
-	# identity block, so a pushed screen and the home screen share a horizon.
-	var line: MarginContainer = MarginContainer.new()
-	line.add_theme_constant_override("margin_left", 34)
-	line.add_theme_constant_override("margin_right", 34)
-	line.add_child(MenuUI.rule())
-	body.add_child(line)
 	return bar
 
 ## Scrolling content area (CSS ".content.scroll") — returns the column to fill.
@@ -116,7 +106,7 @@ func scroll_content(separation: int = 22) -> VBoxContainer:
 	margin.add_theme_constant_override("margin_left", PAD)
 	margin.add_theme_constant_override("margin_right", PAD)
 	margin.add_theme_constant_override("margin_top", 6)
-	margin.add_theme_constant_override("margin_bottom", 40)
+	margin.add_theme_constant_override("margin_bottom", int(MenuUI.NAV_H))
 	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	margin.add_child(scroll)
 	body.add_child(margin)
@@ -132,7 +122,7 @@ func fill_content(separation: int = 22) -> VBoxContainer:
 	margin.add_theme_constant_override("margin_left", PAD)
 	margin.add_theme_constant_override("margin_right", PAD)
 	margin.add_theme_constant_override("margin_top", 6)
-	margin.add_theme_constant_override("margin_bottom", 40)
+	margin.add_theme_constant_override("margin_bottom", int(MenuUI.NAV_H))
 	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(margin)
 	var column := MenuUI.vbox(separation)

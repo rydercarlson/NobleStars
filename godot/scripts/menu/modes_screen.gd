@@ -34,7 +34,6 @@ func _build() -> void:
 		column.add_child(MenuUI.gap(10, true))
 		for mode: Dictionary in planned:
 			column.add_child(_planned_row(mode))
-			column.add_child(MenuUI.rule())
 	column.add_child(MenuUI.gap(24, true))
 
 func _mode_card(mode: Dictionary) -> Control:

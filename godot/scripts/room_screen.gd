@@ -60,7 +60,9 @@ func _ready() -> void:
 	if _host_mode != "cup":
 		_host_mode = "showdown"
 
-	var back := UIKit.back_button()
+	# The menu's square back arrow, in the corner every pushed screen keeps it.
+	var back: Button = MenuUI.square_button("back")
+	back.position = Vector2(HomeScreen.MARGIN_X, HomeScreen.TOP_Y)
 	back.pressed.connect(func() -> void:
 		Net.leave()
 		Net.browse_stop()

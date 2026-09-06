@@ -1,12 +1,12 @@
 class_name HomeScreen
 extends Control
-## The home screen: a game programme's roster page.
+## The home screen: a game programme's roster page, laid out in five zones.
 ##
-## Three columns over the live fighter. The left flank is who he is and what he
-## is worth in numbers; the right flank is what he does and what you have done
-## with him; the middle is him, standing on the centre spot. A top rule carries
-## identity and currency, a bottom rule carries the destinations, the mode and
-## PLAY.
+##   top-left      who you are — avatar, name, trophies and matches
+##   top-right     coins and gems as a readout, then the menu's three bars
+##   flanks        the selected fighter's numbers (left) and abilities (right)
+##   bottom-left   the four destinations — a nav bar owned by MenuShell
+##   bottom-right  the mode plate and PLAY, one gap apart, on one baseline
 ##
 ## Two decisions worth not undoing:
 ##
@@ -22,14 +22,27 @@ extends Control
 ## fighter's own data instead means the width carries content rather than
 ## navigation — and it gets better, not worse, as the stage widens on a phone,
 ## because MenuShell._fit_stage hands the extra width to the flanks.
+##
+## Nothing is drawn around the fighter but the one hint under his feet, and
+## there are no rules: the zones are separated by where they sit.
 
 var menu: MenuShell
 
 const MARGIN_X := 68.0
-const TOP_BAR_H := 118.0
-const BOTTOM_BAR_H := 150.0
-const FLANK_W := 400.0
-const FLANK_TOP := 186.0
+const TOP_Y := 34.0
+const FLANK_W := 460.0
+const FLANK_TOP := 176.0
+const FLANK_H := 700.0
+## The bottom row: PLAY and the mode plate share this baseline with the nav.
+const BOTTOM_INSET := 44.0
+const PLAY_SIZE := Vector2(380, 110)
+const MODE_SIZE := Vector2(340, 110)
+const PLAY_GAP := 14.0
+## PLAY sits a touch further from the right edge than the flank does, so the
+## corner is not crowded on a phone with rounded glass.
+const PLAY_RIGHT_INSET := MARGIN_X + 16.0
+## Where the fighter's feet meet the ground on the stage, for the hint.
+const FEET_Y := 866.0
 
 var _name_label: Label
 var _record_label: Label
@@ -45,7 +58,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_top_bar()
 	_build_flanks()
-	_build_bottom_bar()
+	_build_bottom_right()
 	_build_hint()
 	refresh()
 	menu.brawler_view.tapped.connect(_on_brawler_tapped)
@@ -54,43 +67,51 @@ func _ready() -> void:
 # MARK: top bar
 
 func _build_top_bar() -> void:
-	var identity := MenuUI.vbox(2)
+	# Who you are: the avatar badge in the slot a pushed screen keeps its back
+	# square in, so the top-left corner means the same thing on every screen.
+	var identity := MenuUI.hbox(18)
 	identity.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_place(identity, MARGIN_X, 34, 700, 76)
-	_name_label = MenuUI.display("GUEST", 46)
-	identity.add_child(_name_label)
-	_record_label = MenuUI.label("0 TROPHIES", 19, MenuUI.TEXT_DIM)
-	identity.add_child(_record_label)
+	_place(identity, MARGIN_X, TOP_Y, 760, MenuUI.SQUARE)
+	var badge: TextureRect = MenuUI.pack_icon("avatar", MenuUI.SQUARE)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	identity.add_child(badge)
+	var words := MenuUI.vbox(0)
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	identity.add_child(words)
+	_name_label = MenuUI.display("GUEST", 44)
+	words.add_child(_name_label)
+	_record_label = MenuUI.label("0 TROPHIES", 24, MenuUI.TEXT_DIM)
+	words.add_child(_record_label)
 
+	# Coins, gems, then the menu — the readout is information and the square
+	# is the only thing up here that presses.
 	var right := MenuUI.hbox(30)
 	right.alignment = BoxContainer.ALIGNMENT_END
 	right.anchor_left = 1.0
 	right.anchor_right = 1.0
-	right.offset_left = -640
+	right.offset_left = -760
 	right.offset_right = -MARGIN_X
-	right.offset_top = 34
-	right.offset_bottom = 34 + 68
+	right.offset_top = TOP_Y
+	right.offset_bottom = TOP_Y + MenuUI.SQUARE
 	add_child(right)
 	right.add_child(MenuUI.spacer())
-	right.add_child(menu.currency_readout())
-	var settings: Button = MenuUI.link("MENU", 22)
-	settings.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var money: HBoxContainer = menu.currency_readout()
+	money.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	right.add_child(money)
+	right.add_child(MenuUI.gap(6))
+	var settings: Button = MenuUI.square_button("menu")
 	settings.pressed.connect(func() -> void:
 		menu.sfx("click")
 		MenuPopups.settings(menu))
 	right.add_child(settings)
-
-	var line: ColorRect = MenuUI.rule()
-	_place(line, MARGIN_X, TOP_BAR_H, 0, 1)
-	line.anchor_right = 1.0
-	line.offset_right = -MARGIN_X
 
 # MARK: flanks
 
 func _build_flanks() -> void:
 	_left_flank = MenuUI.vbox(0)
 	_left_flank.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_place(_left_flank, MARGIN_X, FLANK_TOP, FLANK_W, 700)
+	_place(_left_flank, MARGIN_X, FLANK_TOP, FLANK_W, FLANK_H)
 
 	_right_flank = MenuUI.vbox(0)
 	_right_flank.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -99,7 +120,7 @@ func _build_flanks() -> void:
 	_right_flank.offset_left = -MARGIN_X - FLANK_W
 	_right_flank.offset_right = -MARGIN_X
 	_right_flank.offset_top = FLANK_TOP
-	_right_flank.offset_bottom = FLANK_TOP + 700
+	_right_flank.offset_bottom = FLANK_TOP + FLANK_H
 	add_child(_right_flank)
 
 ## Who he is, and the five numbers that decide every fight. These come from
@@ -120,24 +141,26 @@ func _fill_left(b: Dictionary, index: int) -> void:
 	_left_flank.add_child(head)
 	_left_flank.add_child(MenuUI.gap(4, true))
 
-	var name_label: Label = MenuUI.display(str(b.get("name", "")).to_upper(), 88)
+	var name_label: Label = MenuUI.display(str(b.get("name", "")).to_upper(), 84)
 	_left_flank.add_child(name_label)
-	var title: Label = MenuUI.label(str(b.get("title", "")), 21, MenuUI.TEXT_DIM)
+	var title: Label = MenuUI.label(str(b.get("title", "")), 26, MenuUI.TEXT_DIM)
 	_left_flank.add_child(title)
 
-	_left_flank.add_child(MenuUI.gap(44, true))
+	_left_flank.add_child(MenuUI.gap(34, true))
 	_left_flank.add_child(MenuUI.section("ATTRIBUTES"))
-	_left_flank.add_child(MenuUI.gap(10, true))
+	_left_flank.add_child(MenuUI.gap(8, true))
 	for row: Array in [["HEALTH", MenuUI.fmt(int(stats.get("health", 0))), ""],
 			["DAMAGE", MenuUI.fmt(int(stats.get("damage", 0))), ""],
 			["SPEED", "%.1f" % float(stats.get("speed_value", 0.0)), "M/S"],
 			["RANGE", "%.1f" % float(stats.get("range_value", 0.0)), "TILES"],
 			["RELOAD", "%.2f" % float(stats.get("reload_value", 0.0)), "SEC"]]:
 		_left_flank.add_child(MenuUI.stat_line(str(row[0]), str(row[1]), MenuUI.TEXT,
-				40, str(row[2])))
-		_left_flank.add_child(MenuUI.gap(8, true))
+				46, str(row[2])))
+		_left_flank.add_child(MenuUI.gap(6, true))
 
-## What he does, and what you have done with him.
+## What he does, and what you have done with him. The write-ups are cards in
+## all but the box: a head, a name, a paragraph, and room under each for the
+## ability preview that is coming.
 func _fill_right(b: Dictionary) -> void:
 	for child in _right_flank.get_children():
 		child.queue_free()
@@ -151,67 +174,49 @@ func _fill_right(b: Dictionary) -> void:
 		if data.is_empty():
 			continue
 		_right_flank.add_child(MenuUI.section(str(ability[0])))
-		_right_flank.add_child(MenuUI.gap(8, true))
-		_right_flank.add_child(MenuUI.display(str(data.get("name", "")).to_upper(), 34))
-		var text: Label = MenuUI.wrap(MenuUI.body(str(data.get("text", "")), 23,
+		_right_flank.add_child(MenuUI.display(str(data.get("name", "")).to_upper(), 36))
+		_right_flank.add_child(MenuUI.gap(2, true))
+		var text: Label = MenuUI.wrap(MenuUI.body(str(data.get("text", "")), 26,
 				MenuUI.TEXT_DIM))
+		text.add_theme_constant_override("line_spacing", 2)
 		_right_flank.add_child(text)
-		_right_flank.add_child(MenuUI.gap(38, true))
+		_right_flank.add_child(MenuUI.gap(22, true))
 
+	# The record as one row of three figures rather than three stat lines, so
+	# the two write-ups above get the height.
 	_right_flank.add_child(MenuUI.section("RECORD"))
-	_right_flank.add_child(MenuUI.gap(10, true))
-	_right_flank.add_child(MenuUI.stat_line("TROPHIES", MenuUI.fmt(trophies), MenuUI.GOLD))
-	_right_flank.add_child(MenuUI.gap(8, true))
-	_right_flank.add_child(MenuUI.stat_line("RANK", str(rank)))
-	_right_flank.add_child(MenuUI.gap(8, true))
-	_right_flank.add_child(MenuUI.stat_line("POWER", str(SaveGame.brawler_power(id))))
+	_right_flank.add_child(MenuUI.gap(4, true))
+	var record := MenuUI.hbox(0)
+	record.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_right_flank.add_child(record)
+	for figure: Array in [["TROPHIES", MenuUI.fmt(trophies), MenuUI.GOLD],
+			["RANK", str(rank), MenuUI.TEXT],
+			["POWER", str(SaveGame.brawler_power(id)), MenuUI.TEXT]]:
+		var column := MenuUI.vbox(0)
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		column.add_child(MenuUI.display(str(figure[1]), 40, figure[2]))
+		column.add_child(MenuUI.label(str(figure[0]), 22, MenuUI.TEXT_FAINT))
+		record.add_child(column)
 
-# MARK: bottom bar
+# MARK: bottom right
 
-func _build_bottom_bar() -> void:
-	var line: ColorRect = MenuUI.rule()
-	line.anchor_top = 1.0
-	line.anchor_bottom = 1.0
-	line.anchor_right = 1.0
-	line.offset_left = MARGIN_X
-	line.offset_right = -MARGIN_X
-	line.offset_top = -BOTTOM_BAR_H
-	line.offset_bottom = -BOTTOM_BAR_H + 1
-	add_child(line)
-
-	var links := MenuUI.hbox(10)
-	links.alignment = BoxContainer.ALIGNMENT_BEGIN
-	links.anchor_top = 1.0
-	links.anchor_bottom = 1.0
-	links.offset_left = MARGIN_X - 10
-	links.offset_right = MARGIN_X + 760
-	links.offset_top = -BOTTOM_BAR_H + 34
-	links.offset_bottom = -BOTTOM_BAR_H + 90
-	add_child(links)
-	for entry: Array in [["ROSTER", "roster"], ["SEASON", "season"],
-			["SHOP", "shop"], ["WIFI", "wifi"]]:
-		var link: Button = MenuUI.link(str(entry[0]), 24)
-		var target: String = str(entry[1])
-		link.pressed.connect(func() -> void:
-			menu.sfx("click")
-			menu.show_screen(target))
-		links.add_child(link)
-
-	var right := MenuUI.hbox(26)
+## The mode plate and PLAY: one gap apart, the same height, on the baseline the
+## nav bar shares. PLAY is the biggest thing on the screen on purpose.
+func _build_bottom_right() -> void:
+	var right := MenuUI.hbox(int(PLAY_GAP))
 	right.alignment = BoxContainer.ALIGNMENT_END
 	right.anchor_left = 1.0
 	right.anchor_right = 1.0
 	right.anchor_top = 1.0
 	right.anchor_bottom = 1.0
-	right.offset_left = -820
-	right.offset_right = -MARGIN_X
-	right.offset_top = -BOTTOM_BAR_H + 22
-	right.offset_bottom = -30
+	right.offset_left = -PLAY_RIGHT_INSET - PLAY_SIZE.x - PLAY_GAP - MODE_SIZE.x
+	right.offset_right = -PLAY_RIGHT_INSET
+	right.offset_top = -BOTTOM_INSET - PLAY_SIZE.y
+	right.offset_bottom = -BOTTOM_INSET
 	add_child(right)
-	right.add_child(MenuUI.spacer())
 	right.add_child(_build_mode_button())
-	var play: Button = MenuUI.button("PLAY", "gold", 62, Vector2(340, 98))
-	play.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var play: Button = MenuUI.button("PLAY", "gold", 66, PLAY_SIZE)
 	play.pressed.connect(func() -> void:
 		menu.sfx("play")
 		menu.start_match())
@@ -222,10 +227,9 @@ func _build_bottom_bar() -> void:
 ## tropical island for Nobles Cup, which is a school field.
 func _build_mode_button() -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(330, 98)
-	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.custom_minimum_size = MODE_SIZE
 	for state in ["normal", "focus", "disabled"]:
-		b.add_theme_stylebox_override(state, MenuUI.flat_box(MenuUI.PANEL, MenuUI.RULE, 0))
+		b.add_theme_stylebox_override(state, MenuUI.flat_box(MenuUI.PANEL, MenuUI.RULE_HI, 0))
 	b.add_theme_stylebox_override("hover",
 			MenuUI.flat_box(MenuUI.PANEL_HI, MenuUI.RULE_HI, 0))
 	b.add_theme_stylebox_override("pressed",
@@ -242,35 +246,34 @@ func _build_mode_button() -> Button:
 	b.add_child(row)
 	_mode_flag = ColorRect.new()
 	_mode_flag.color = MenuUI.GREEN
-	_mode_flag.custom_minimum_size = Vector2(7, 0)
+	_mode_flag.custom_minimum_size = Vector2(8, 0)
 	_mode_flag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(_mode_flag)
 	var text := MenuUI.vbox(0)
 	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(text)
-	_mode_sub = MenuUI.label("EVENT", 17, MenuUI.TEXT_FAINT)
-	_mode_name = MenuUI.display("SHOWDOWN", 34)
+	_mode_sub = MenuUI.label("EVENT", 22, MenuUI.TEXT_FAINT)
+	_mode_name = MenuUI.display("SHOWDOWN", 36)
 	text.add_child(_mode_sub)
 	text.add_child(_mode_name)
 	row.add_child(MenuUI.spacer())
-	var chevron: Label = MenuUI.display("›", 44, MenuUI.TEXT_DIM)
+	var chevron: Label = MenuUI.display("›", 46, MenuUI.TEXT_DIM)
 	chevron.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(chevron)
-	row.add_child(MenuUI.gap(14))
+	row.add_child(MenuUI.gap(16))
 	return b
 
+## The one thing near the fighter: what touching him does, right under his feet.
 func _build_hint() -> void:
-	_hint = MenuUI.label("TAP TO ATTACK   ·   DRAG TO SPIN", 19, MenuUI.TEXT_FAINT)
+	_hint = MenuUI.label("TAP TO ATTACK   ·   DRAG TO SPIN", 24, MenuUI.TEXT_FAINT)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.anchor_left = 0.5
 	_hint.anchor_right = 0.5
-	_hint.anchor_top = 1.0
-	_hint.anchor_bottom = 1.0
-	_hint.offset_left = -300
-	_hint.offset_right = 300
-	_hint.offset_top = -BOTTOM_BAR_H - 46
-	_hint.offset_bottom = -BOTTOM_BAR_H - 16
+	_hint.offset_left = -320
+	_hint.offset_right = 320
+	_hint.offset_top = FEET_Y
+	_hint.offset_bottom = FEET_Y + 34
 	_hint.modulate.a = 0.0
 	add_child(_hint)
 

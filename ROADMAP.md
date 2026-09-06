@@ -195,8 +195,8 @@ should not block each other.*
 
 | Owner | Item | Size | |
 |---|---|---|---|
-| **Jackson** | Write the redesign idea down | XS | **D1** — blocks the rest |
-| **Jackson** | Build it | L | `todo 5.1`, `todo 5.3` |
+| ~~**Jackson**~~ | ~~Write the redesign idea down~~ — done 6 Sep | — | **D1** answered |
+| **Jackson** | Build it — the five-zone layout is in; the rest of `todo 5.1` remains | M | `todo 5.1`, `todo 5.3` |
 | **Jackson** | The party surface — the menu half | L | **D10** |
 | **Jackson** | Roster as tiles, not rows | S | `todo 5.2` |
 | **Jackson** | Map select and map thumbnails | M | pipeline 2 |
@@ -423,7 +423,7 @@ Each one blocks something. Owner is who decides, not who implements.
 
 | | Decision | Owner | Blocks |
 |---|---|---|---|
-| **D1** | What is the menu redesign idea? | Jackson | All of Phase 2 |
+| ~~**D1**~~ | ~~What is the menu redesign idea?~~ **Answered 6 Sep — see below.** | Jackson | nothing |
 | **D2** | Who are the three new fighters and what are their kits? | Ryder | Phase 1, and the balance pass |
 | **D3** | What does a power level actually change? | Ryder | Progression wiring, `todo 5.4` |
 | ~~**D4**~~ | ~~Cup hostable for beta?~~ **Answered — it is already built and verified.** | — | nothing |
@@ -434,6 +434,29 @@ Each one blocks something. Owner is who decides, not who implements.
 | **D9** | Who owns character animation — Ryder or Jackson? | Both | 24 clips in Phase 1 |
 | **D10** | Is the party LAN-only, or online with accounts and invites? | Ryder | The size of two Phase-3 items |
 | **D11** | Three maps per mode — new layouts, or variants of the two that exist? | Ryder | Nine maps in Phase 3 |
+
+**D1 is answered, and the answer is a layout, not a restyle.** Jackson's idea,
+written down the day it was built: keep the programme page's material (Anton
+and Barlow, ink and gold, square corners) and change what goes where.
+**Five zones.** Top-left is who you are — on home the avatar badge, name and
+trophies; on every pushed screen the back arrow in a small square, so the
+corner always means "up". Top-right is coins and gems as a compact readout
+(icon and figure, nothing else) and then the menu as three bars in a square,
+never the word MENU. The flanks stay the fighter's numbers and abilities, with
+room under each ability for the preview button that is coming. Bottom-left is
+the nav — ROSTER, SEASON, SHOP, WIFI as picture-over-word tabs owned by the
+shell, on every screen, the current one lit gold. Bottom-right is the mode
+plate and PLAY, one gap apart, on the nav's baseline, PLAY the biggest thing on
+the screen. Under the fighter's feet, one hint; nothing else near him.
+**No rules.** Every hairline that underlined a section head or a stat row, or
+capped the top and bottom of home, is gone — on the phone they read as stray
+lines, not structure. Spacing does that job. **And the utility type went up to
+26–30 stage px**, which is `todo 1.3`: the tier moved as a tier, and the
+display tier moved with it where the two met. **The icon pack**
+(`assets/menu/profile/`) is used where a picture is faster than a word — the
+currencies, the nav, the identity badge — and nowhere decorative. What is
+deliberately NOT used: its painted stage backdrop, because the live 3D ground
+is the game's own look, and any face it invents.
 
 **D7 is the one that is easy to answer wrongly by not answering.** Voicelines
 need nine real people to physically show up, and that is a scheduling problem

@@ -24,9 +24,15 @@ class_name MenuUI
 ## - DEPTH IS HAIRLINE RULES, and only hairline rules. No shadow, no bevel, no
 ##   inset highlight. Adding one shadow means adding it everywhere or the one
 ##   element that has it looks broken, and then this is the old system again.
-## - THE TYPE SCALE HAS A HOLE IN IT ON PURPOSE. Utility labels sit at 18-22 and
+## - THE TYPE SCALE HAS A HOLE IN IT ON PURPOSE. Utility labels sit at 26-30 and
 ##   display sits at 44+, with almost nothing between. Filling the middle is
-##   what makes an interface read as evenly loud.
+##   what makes an interface read as evenly loud. The utility tier used to be
+##   18-22, which on a phone is 6-8 pt against Apple's 11 pt floor (todo 1.3);
+##   it moved up as a tier, and display moved with it where the two met.
+## - DEPTH IS SPACING, NOT LINES. The hairline rules that used to underline
+##   every section head and stat row, and cap the home screen top and bottom,
+##   are gone — on a phone they read as stray lines, not structure. `rule()`
+##   survives for the few places a line IS the content (a progress track).
 ## - Display type is Anton, labels and body are Barlow Condensed. One condensed
 ##   width family throughout; the old Lilita One is the rounded mobile-game face
 ##   this replaces, and Nunito is the soft body face that went with it.
@@ -143,7 +149,7 @@ static func display(text: String, size: int, color: Color = TEXT,
 
 ## The tiny letterspaced all-caps label: stat names, section heads, unit
 ## suffixes. Deliberately small — this tier and `display` are the whole scale.
-static func label(text: String, size: int = 19, color: Color = TEXT_DIM) -> Label:
+static func label(text: String, size: int = 26, color: Color = TEXT_DIM) -> Label:
 	var l := Label.new()
 	l.text = text.to_upper()
 	l.add_theme_font_override("font", _spaced(label_font(), maxi(1, size / 6)))
@@ -154,7 +160,7 @@ static func label(text: String, size: int = 19, color: Color = TEXT_DIM) -> Labe
 
 ## Running copy — ability write-ups, unlock hints. Condensed, so a two-sentence
 ## blurb fits a narrow column without wrapping into a paragraph.
-static func body(text: String, size: int = 24, color: Color = TEXT_SOFT,
+static func body(text: String, size: int = 30, color: Color = TEXT_SOFT,
 		_weight_700: bool = false) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -268,9 +274,9 @@ static func dark_panel(radius: int = 0, alpha: float = 0.0,
 ## `unit` is set small and dim beside the figure rather than folded into it, so
 ## the figures stay a clean column of tabular numerals you can compare down.
 static func stat_row(key: String, value: String, accent: Color = TEXT,
-		size: int = 40, unit: String = "") -> HBoxContainer:
+		size: int = 44, unit: String = "") -> HBoxContainer:
 	var row := hbox(8)
-	var k: Label = label(key, 19, TEXT_DIM)
+	var k: Label = label(key, 26, TEXT_DIM)
 	k.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	row.add_child(k)
 	row.add_child(spacer())
@@ -278,24 +284,24 @@ static func stat_row(key: String, value: String, accent: Color = TEXT,
 	v.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	row.add_child(v)
 	if unit != "":
-		var u: Label = label(unit, 17, TEXT_FAINT)
+		var u: Label = label(unit, 22, TEXT_FAINT)
 		u.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 		row.add_child(u)
 	return row
 
-## A stat line plus the hairline under it, as one block.
+## A stat row as its own block. It used to carry a hairline under the figure;
+## the spacing between rows does that job now.
 static func stat_line(key: String, value: String, accent: Color = TEXT,
-		size: int = 40, unit: String = "") -> VBoxContainer:
-	var column := vbox(6)
+		size: int = 44, unit: String = "") -> VBoxContainer:
+	var column := vbox(0)
 	column.add_child(stat_row(key, value, accent, size, unit))
-	column.add_child(rule())
 	return column
 
-## A section head: letterspaced caps over a hairline, used to open a block.
+## A section head: letterspaced caps that open a block. No rule under it —
+## the gap above it is what separates blocks.
 static func section(text: String, color: Color = TEXT_DIM) -> VBoxContainer:
-	var column := vbox(8)
-	column.add_child(label(text, 19, color))
-	column.add_child(rule())
+	var column := vbox(0)
+	column.add_child(label(text, 26, color))
 	return column
 
 # MARK: buttons
@@ -335,7 +341,7 @@ static func disabled_button(text: String) -> Button:
 
 ## A flat text link — the bottom bar's destinations. No box at all: the label is
 ## the whole control, and the gold rule under it is the hover state.
-static func link(text: String, size: int = 24) -> Button:
+static func link(text: String, size: int = 28) -> Button:
 	var b := Button.new()
 	b.text = text.to_upper()
 	b.flat = true
@@ -446,7 +452,7 @@ static func tag(text: String, fill: Color, ink: Color = TEXT) -> PanelContainer:
 	inner.add_theme_constant_override("margin_right", 10)
 	inner.add_theme_constant_override("margin_top", 3)
 	inner.add_theme_constant_override("margin_bottom", 3)
-	inner.add_child(label(text, 18, ink))
+	inner.add_child(label(text, 22, ink))
 	p.add_child(inner)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return p
@@ -463,6 +469,99 @@ static func icon_texture(icon_name: String) -> Texture2D:
 	var tex: Texture2D = load(path) if ResourceLoader.exists(path) else null
 	_icons[icon_name] = tex
 	return tex
+
+## The profile icon pack (`assets/menu/profile/`): coin, gem, trophy, avatar,
+## shop, pass, shield, bulldog, dagger — 256 px PNGs with clean alpha, used
+## where a word would be slower to read than a picture: the currency readout,
+## the nav tabs, the identity block. Falls back to the svg glyph of the same
+## name, so callers need not know which folder a name lives in.
+const PACK_DIR := "res://assets/menu/profile/"
+
+static func pack_texture(icon_name: String) -> Texture2D:
+	var key: String = "pack:" + icon_name
+	if _icons.has(key):
+		return _icons[key]
+	var path: String = PACK_DIR + icon_name + ".png"
+	var tex: Texture2D = load(path) if ResourceLoader.exists(path) else icon_texture(icon_name)
+	_icons[key] = tex
+	return tex
+
+static func pack_icon(icon_name: String, size: float) -> TextureRect:
+	var t := TextureRect.new()
+	t.texture = pack_texture(icon_name)
+	t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	t.custom_minimum_size = Vector2(size, size)
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return t
+
+## A small square with one glyph in it — the back arrow, the menu's three bars.
+## Flat panel, hairline edge, square corners, like everything else here.
+const SQUARE := 68.0
+
+static func square_button(icon_name: String, size: float = SQUARE) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(size, size)
+	for state in ["normal", "focus", "disabled"]:
+		b.add_theme_stylebox_override(state, flat_box(PANEL, RULE_HI, 0))
+	b.add_theme_stylebox_override("hover", flat_box(PANEL_HI, RULE_HI, 0))
+	b.add_theme_stylebox_override("pressed", flat_box(INK, RULE_HI, 0))
+	var glyph: TextureRect = icon(icon_name, size * 0.46)
+	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	b.add_child(glyph)
+	press_feedback(b)
+	return b
+
+## A destination tab for the bottom nav: picture over a word, and a gold bar
+## under the active one. The bar is the whole "you are here" — no fill, no
+## box, so the four tabs read as one row rather than four buttons.
+const NAV_H := 150.0
+const NAV_TAB_W := 190.0
+const NAV_TAB_H := 100.0
+
+static func nav_tab(text: String, icon_name: String) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(NAV_TAB_W, NAV_TAB_H)
+	var clear: StyleBoxFlat = flat_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0)
+	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(state, clear)
+	var column := vbox(2)
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(column)
+	var picture: TextureRect = pack_icon(icon_name, 48)
+	picture.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(picture)
+	var word: Label = label(text, 26, TEXT_DIM)
+	word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(word)
+	var bar := ColorRect.new()
+	bar.color = GOLD
+	bar.custom_minimum_size = Vector2(0, 5)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.anchor_top = 1.0
+	bar.anchor_bottom = 1.0
+	bar.anchor_right = 1.0
+	bar.offset_left = 22
+	bar.offset_right = -22
+	bar.offset_top = -5
+	bar.offset_bottom = 0
+	bar.visible = false
+	b.add_child(bar)
+	b.set_meta("nav_word", word)
+	b.set_meta("nav_picture", picture)
+	b.set_meta("nav_bar", bar)
+	press_feedback(b)
+	return b
+
+static func set_nav_active(b: Button, active: bool) -> void:
+	var word: Label = b.get_meta("nav_word")
+	var picture: TextureRect = b.get_meta("nav_picture")
+	var bar: ColorRect = b.get_meta("nav_bar")
+	word.add_theme_color_override("font_color", GOLD if active else TEXT_DIM)
+	picture.modulate = Color.WHITE if active else Color(0.72, 0.74, 0.8)
+	bar.visible = active
 
 static func icon(icon_name: String, size: float) -> TextureRect:
 	var t := TextureRect.new()

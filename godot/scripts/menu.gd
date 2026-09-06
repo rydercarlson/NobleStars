@@ -35,6 +35,14 @@ var audio: MenuAudio
 var _stack: Array[MenuScreen] = []
 var _currency_labels: Array = []   # [{label, kind}]
 
+## The bottom nav: four destinations, always on screen, the current one lit.
+## It lives here rather than on the home screen so a pushed screen keeps it —
+## the tab you are on stays gold, and switching is one tap, not back-then-tap.
+const NAV_TABS := [["ROSTER", "roster", "shield"], ["SEASON", "season", "pass"],
+		["SHOP", "shop", "shop"], ["WIFI", "wifi", "online"]]
+var nav_bar: HBoxContainer
+var _nav_buttons: Dictionary = {}   # target -> Button
+
 func _ready() -> void:
 	SaveGame.ensure_loaded()
 	MenuData.ensure_loaded()
@@ -115,6 +123,8 @@ func _build_stage() -> void:
 	screens_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chrome.add_child(screens_root)
 
+	_build_nav()
+
 	toast_column = MenuUI.vbox(12)
 	toast_column.alignment = BoxContainer.ALIGNMENT_BEGIN
 	toast_column.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
@@ -140,6 +150,45 @@ func _build_stage() -> void:
 	get_viewport().size_changed.connect(_fit_stage)
 	_fit_stage()
 	select_brawler(SaveGame.selected_kit.to_lower(), false)
+
+func _build_nav() -> void:
+	nav_bar = MenuUI.hbox(8)
+	nav_bar.alignment = BoxContainer.ALIGNMENT_BEGIN
+	nav_bar.anchor_top = 1.0
+	nav_bar.anchor_bottom = 1.0
+	nav_bar.offset_left = HomeScreen.MARGIN_X - 16
+	nav_bar.offset_right = HomeScreen.MARGIN_X - 16 + NAV_TABS.size() * (MenuUI.NAV_TAB_W + 8)
+	nav_bar.offset_top = -HomeScreen.BOTTOM_INSET - MenuUI.NAV_TAB_H
+	nav_bar.offset_bottom = -HomeScreen.BOTTOM_INSET
+	chrome.add_child(nav_bar)
+	for entry: Array in NAV_TABS:
+		var target: String = str(entry[1])
+		var tab: Button = MenuUI.nav_tab(str(entry[0]), str(entry[2]))
+		tab.pressed.connect(func() -> void:
+			if _active_tab() == target:
+				return
+			sfx("click")
+			pop_all()
+			show_screen(target))
+		nav_bar.add_child(tab)
+		_nav_buttons[target] = tab
+	_refresh_nav()
+
+## The topmost real screen's name — popups do not count as a place.
+func _active_tab() -> String:
+	for i in range(_stack.size() - 1, -1, -1):
+		if not _stack[i].is_popup:
+			return _stack[i].screen_name
+	return ""
+
+func _refresh_nav() -> void:
+	if nav_bar == null:
+		return
+	var active: String = _active_tab()
+	for target in _nav_buttons:
+		MenuUI.set_nav_active(_nav_buttons[target], str(target) == active)
+	# Under a popup the nav is neither reachable nor the point; hide it.
+	nav_bar.visible = _stack.is_empty() or not _stack[-1].is_popup
 
 # MARK: stage scaling
 
@@ -191,6 +240,7 @@ func push_screen(screen: MenuScreen) -> MenuScreen:
 	screens_root.add_child(screen)
 	_stack.append(screen)
 	_update_stage_dim()
+	_refresh_nav()
 	if not screen.is_popup:
 		sfx("open")
 	return screen
@@ -212,6 +262,7 @@ func pop_screen(screen: MenuScreen) -> void:
 	if not _stack.is_empty():
 		_stack[-1].visible = true
 	_update_stage_dim()
+	_refresh_nav()
 
 func pop_all() -> void:
 	for screen in _stack.duplicate():
@@ -242,7 +293,17 @@ func show_screen(name: String) -> void:
 		"profile":
 			MenuPopups.profile(self)
 		"wifi", "friends":
-			push_screen(WifiScreen.new())
+			var room := RoomScreen.new()
+			room.menu = self
+			room.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			# Leave the bottom nav its strip; the room draws its own header.
+			room.offset_bottom = -MenuUI.NAV_H
+			var host := MenuScreen.new()
+			host.menu = self
+			host.screen_name = "wifi"
+			push_screen(host)
+			host.add_child(room)
+			room.refresh()   # the old shell refreshed a screen when it showed it
 
 func _update_stage_dim() -> void:
 	# A pushed screen covers the stage completely, so the 3D view is not merely
@@ -272,12 +333,13 @@ func sfx(sound: String) -> void:
 	if sound in HAPTIC_SOUNDS:
 		Haptics.fire("ui_reward")
 
-## The coins / gems readout used by the home bar and every screen top bar: a
-## figure with its name under it, right-aligned so the two columns line up. It
-## is not a button — the old pills were, and a currency counter that opens the
+## The coins / gems readout used by the home bar and every screen top bar: the
+## coin or gem from the icon pack and the figure beside it, nothing else. It is
+## not a button — the old pills were, and a currency counter that opens the
 ## shop when you glance at it is a store fixture, not a readout.
 func currency_readout() -> HBoxContainer:
-	var row := MenuUI.hbox(34)
+	var row := MenuUI.hbox(28)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(_currency_figure("coins"))
 	row.add_child(_currency_figure("gems"))
 	return row
@@ -287,16 +349,16 @@ func currency_pills() -> HBoxContainer:
 	return currency_readout()
 
 func _currency_figure(kind: String) -> Control:
-	var column := MenuUI.vbox(0)
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var value: Label = MenuUI.display(MenuUI.fmt(currency(kind)), 34)
-	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	column.add_child(value)
-	var name_label: Label = MenuUI.label(kind, 17, MenuUI.TEXT_FAINT)
-	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	column.add_child(name_label)
+	var pair := MenuUI.hbox(8)
+	pair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var picture: TextureRect = MenuUI.pack_icon("gem" if kind == "gems" else "coin", 42)
+	picture.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pair.add_child(picture)
+	var value: Label = MenuUI.display(MenuUI.fmt(currency(kind)), 36)
+	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	pair.add_child(value)
 	_currency_labels.append({"label": value, "kind": kind})
-	return column
+	return pair
 
 func currency(kind: String) -> int:
 	match kind:

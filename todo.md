@@ -48,7 +48,7 @@ they are not urgent, and `Voicelines` is the extreme case.
 | 10.1 | The app icon is a placeholder | Ship | P1 | S | — |
 | 5.1 | The menu's second look | Menu | P2 | M | — |
 | 5.2 | The roster should be tiles, not rows | Menu | P2 | S | — |
-| 5.3 | Jackson's menu idea | Menu | P2 | ? | the idea, written down |
+| 5.3 | Jackson's menu idea — layout built, previews and a phone look left | Menu | P2 | M | — |
 | 5.4 | A real progression system | Progression | P2 | L | what a level changes |
 | 5.5 | Four fighters have no named unlock | Progression | P2 | XS | a content call |
 | 6.1 | A third game mode | Modes | P2 | L | which mode |
@@ -99,7 +99,13 @@ What is left is the half that is a design decision rather than a bug.
       - **The match HUD is fine now.** Its four labels were bumped with the 1.1
         layout fix (status 20→22, feed 18→24, players 26→30) and all three clear
         11 pt. Nothing further is wanted here.
-      - **The menu's utility tier is the whole remaining problem**, at roughly
+      - **The menu's utility tier moved to 26–30 stage px on 6 Sep** with the
+        layout pass (done.md, Menu) — 9.5–10.9 pt, at the floor rather than
+        half of it. Still to do: shoot it on the handset and judge whether the
+        display tier (which moved with it where the two met) still reads as a
+        separate tier there.
+      - *Kept for the record — the analysis this was done against:* the menu's
+        utility tier was the whole remaining problem, at roughly
         *half* the readable floor. Clearing 11 pt means about 30 stage px, which
         lands on the bottom of the display tier — so this cannot be done as a
         blind multiply. **It is the deliberate hole in the type scale that has to
@@ -313,12 +319,19 @@ What is left is the half that is a design decision rather than a bug.
       Cheap now that Home is the detail screen and the roster only has to select
       and return.
 
-- [ ] **5.3 — Redesign the menu around Jackson's idea.** `P2` `?`
-      `[blocked: the idea, written down here]`
-      Nothing can be estimated or built until the idea is in this file. The
-      current programme-page design and the reasoning behind every token in it is
-      in CLAUDE.md's **Menu** section — read that first, so the redesign is a
-      decision and not a drift.
+- [ ] **5.3 — Redesign the menu around Jackson's idea.** `P2` `M`
+      *The idea is written down (ROADMAP **D1**, 6 Sep 2026) and the layout is
+      built: five zones, a shell-owned bottom nav with the active tab lit, the
+      square back and menu buttons, compact currencies, the icon pack, no
+      rules, utility type at 26–30 px.* What is still open:
+      - The ability-preview buttons under the two write-ups on home (the space
+        is reserved; the previews themselves are content).
+      - The pushed screens got the new chrome and type but not a second look at
+        their own layouts — Season's two rails and Shop's lists in particular
+        are still the overhaul's, only bigger.
+      - Shoot it on the phone (`Tools/device_shot.sh`) — everything above was
+        judged on the desktop stage at 1920x1080 and 2017 px of chrome width
+        was not seen.
 
 - [ ] **5.4 — A real progression system.** `P2` `L`
       `[blocked: deciding what a level changes]`

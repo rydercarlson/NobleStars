@@ -24,7 +24,6 @@ func _build() -> void:
 	for b in MenuData.brawlers:
 		if SaveGame.is_unlocked(str(b.id)):
 			column.add_child(_power_row(b))
-			column.add_child(MenuUI.rule())
 	column.add_child(MenuUI.gap(46, true))
 
 	column.add_child(MenuUI.section("DAWG TREATS"))
@@ -38,7 +37,6 @@ func _build() -> void:
 		column.add_child(MenuUI.gap(10, true))
 		for item: Dictionary in deals:
 			column.add_child(_deal_row(item))
-			column.add_child(MenuUI.rule())
 	column.add_child(MenuUI.gap(40, true))
 
 # MARK: power levels

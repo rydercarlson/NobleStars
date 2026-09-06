@@ -18,8 +18,8 @@ const TIER_W := 152.0
 ## Both rails plus the header have to clear 1080 stage pixels between the top
 ## bar and the bottom of the screen, and the Pass rail carries two lanes to the
 ## Road's one. Raise either and the Pass's premium lane goes off the bottom.
-const RAIL_ROAD_H := 208.0
-const RAIL_PASS_H := 296.0
+const RAIL_ROAD_H := 176.0
+const RAIL_PASS_H := 276.0
 const PASS_CELL_H := 104.0
 
 var _road_track: ScrollContainer
@@ -32,20 +32,20 @@ func _build() -> void:
 			str(season.get("name", ""))])
 	var column: VBoxContainer = fill_content(0)
 	column.add_child(_header(season))
-	column.add_child(MenuUI.gap(40, true))
+	column.add_child(MenuUI.gap(12, true))
 
 	var total: int = SaveGame.total_trophies()
 	column.add_child(MenuUI.section("TROPHY ROAD   ·   PERMANENT, NEVER RESETS"))
-	column.add_child(MenuUI.gap(14, true))
+	column.add_child(MenuUI.gap(8, true))
 	_road_track = _rail(column, RAIL_ROAD_H)
 	var road_row := MenuUI.hbox(0)
 	_road_track.add_child(road_row)
 	for entry in MenuData.trophy_road():
 		road_row.add_child(_milestone(entry, total))
-	column.add_child(MenuUI.gap(46, true))
+	column.add_child(MenuUI.gap(16, true))
 
 	column.add_child(MenuUI.section("NOBLES PASS   ·   ENDS WITH THE SEASON"))
-	column.add_child(MenuUI.gap(14, true))
+	column.add_child(MenuUI.gap(8, true))
 	_pass_track = _rail(column, RAIL_PASS_H)
 	var pass_row := MenuUI.hbox(0)
 	_pass_track.add_child(pass_row)
@@ -71,7 +71,7 @@ func _header(season: Dictionary) -> HBoxContainer:
 	left.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(left)
 	left.add_child(MenuUI.label("SEASON %d" % int(season.get("number", 1)), 20, MenuUI.GOLD))
-	left.add_child(MenuUI.display(str(season.get("name", "")).to_upper(), 56))
+	left.add_child(MenuUI.display(str(season.get("name", "")).to_upper(), 46))
 	left.add_child(MenuUI.label("%d DAYS LEFT" % int(season.get("endsInDays", 0)), 19,
 			MenuUI.TEXT_DIM))
 	row.add_child(MenuUI.spacer())
@@ -140,11 +140,10 @@ func _milestone(entry: Dictionary, total: int) -> Control:
 	cell.add_child(_state_control(claimed, reached, func(b: Control) -> void:
 		_claim(claim_id, reward, b)))
 	cell.add_child(MenuUI.gap(10, true))
-	# The rail's own separator: a column rule between milestones, not a box
-	# around each one.
+	# Milestones are separated by their own width; the rail used to draw a
+	# column rule between them and the threshold's own underline does enough.
 	var wrapper := MenuUI.hbox(0)
 	wrapper.add_child(cell)
-	wrapper.add_child(MenuUI.rule(MenuUI.RULE, true))
 	return wrapper
 
 ## The number that gates a reward, over the hairline it hangs from. Lit gold
@@ -187,7 +186,6 @@ func _tier_column(tier: Dictionary) -> Control:
 	cell.add_child(MenuUI.spacer())
 	var wrapper := MenuUI.hbox(0)
 	wrapper.add_child(cell)
-	wrapper.add_child(MenuUI.rule(MenuUI.RULE, true))
 	return wrapper
 
 ## One lane of one tier. The premium lane is gated on the pass being bought, and
@@ -343,6 +341,8 @@ func _scroll_to_progress(total: int) -> void:
 	# Snapped to a column boundary, not offset back by a margin. Offsetting put
 	# the rail's left edge partway through a milestone, so the first thing on
 	# both rails was a sliced column showing "PTS" and half a CLAIM button.
+	# A column is exactly its width now — the 1 px rule that used to follow
+	# each one is gone, and keeping it in the sum clipped the current tier.
 	if is_instance_valid(_road_track):
 		var index: int = 0
 		var road: Array = MenuData.trophy_road()
@@ -351,10 +351,10 @@ func _scroll_to_progress(total: int) -> void:
 				index = i
 			else:
 				break
-		_road_track.scroll_horizontal = int(maxf(0.0, index * (MILESTONE_W + 1.0)))
+		_road_track.scroll_horizontal = int(maxf(0.0, index * MILESTONE_W))
 	if is_instance_valid(_pass_track):
 		_pass_track.scroll_horizontal = int(maxf(0.0,
-				(SaveGame.pass_tier - 1) * (TIER_W + 1.0)))
+				(SaveGame.pass_tier - 1) * TIER_W))
 
 func _reopen() -> void:
 	menu.push_screen(SeasonScreen.new())

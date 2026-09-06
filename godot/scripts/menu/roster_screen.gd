@@ -33,7 +33,6 @@ func _build() -> void:
 	column.add_child(rows)
 	for i in MenuData.brawlers.size():
 		rows.add_child(_row(MenuData.brawlers[i], i + 1))
-		rows.add_child(MenuUI.rule())
 	column.add_child(MenuUI.spacer())
 	stagger_children(rows, 0.025)
 
