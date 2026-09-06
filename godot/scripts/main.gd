@@ -171,6 +171,12 @@ const NET_INPUT_QUEUE_MAX := 3
 ## Snapshot wire format: positions in centimetres. The Showdown map is 78 m
 ## across and world coordinates start at zero, so u16 covers it with room over.
 const NET_POS_SCALE := 100.0
+## Fixed-point divisor for the gas inset in a snapshot. The inset is in TILES and
+## eases fractionally between steps, so it cannot ride as the plain integer it
+## once was. 1/256th of a tile is far finer than the ~2 cm a pixel covers at the
+## match camera, and the widest ring this game builds (half of a 39-tile map)
+## comes to 2560 — an order of magnitude inside the s16 it is packed into.
+const NET_INSET_SCALE := 256.0
 
 var net_active := false
 var net_host := false
@@ -3273,15 +3279,23 @@ func _apply_snapshot_state(s: Dictionary) -> void:
 		get_tree().create_timer(0.8).timeout.connect(func() -> void:
 			if phase == Phase.PLAYING:
 				center_label.text = "")
-	var inset := int(s.inset)
-	if inset >= 0:
+	# The ring's inset is a FLOAT that eases between steps, so it rides the wire
+	# as fixed point rather than as the whole tiles it used to be. Rounding it to
+	# an int here would hand the client back exactly the two-tile teleport the
+	# ease exists to remove, while the host glided — the wall would jump on one
+	# screen and creep on the other.
+	var inset: float = float(s.inset)
+	if inset >= 0.0:
 		if gas == null:
 			gas = GasRing.new()
 			add_child(gas)
 			gas.map_tiles = arena.columns
-		if gas.inset != inset:
-			gas.inset = inset
-			gas._rebuild_overlay()
+		# Assigned every snapshot, with no equality check and no rebuild: the
+		# overlay is built once and `GasRing._process` syncs it to whatever
+		# `inset` says each frame, so a client eases for free. `start()` is
+		# deliberately NOT called — that would run the shrink schedule and the
+		# gas damage loop locally underneath the host's authoritative stream.
+		gas.inset = inset
 	for i: int in s.f:
 		if i == _my_idx or i >= net_fighters.size():
 			continue
@@ -3341,7 +3355,7 @@ func _snapshot_bytes() -> PackedByteArray:
 	buf.resize(10 + live.size() * 15 + 1 + acks.size() * 3)
 	buf.encode_float(0, now)
 	buf.encode_u8(4, int(phase))
-	buf.encode_s16(5, gas.inset if gas else -1)
+	buf.encode_s16(5, int(round(gas.inset * NET_INSET_SCALE)) if gas else -NET_INSET_SCALE)
 	buf.encode_u8(7, mini(255, fighters.size()))
 	buf.encode_u16(8, mask)
 	var o := 10
@@ -3371,7 +3385,7 @@ func _decode_snapshot(buf: PackedByteArray) -> Dictionary:
 	if buf.size() < 10:
 		return {}
 	var snap := {"t": buf.decode_float(0), "phase": buf.decode_u8(4),
-			"inset": buf.decode_s16(5), "left": buf.decode_u8(7),
+			"inset": float(buf.decode_s16(5)) / NET_INSET_SCALE, "left": buf.decode_u8(7),
 			"f": {}, "acks": {}}
 	var mask := buf.decode_u16(8)
 	var o := 10
@@ -3783,6 +3797,9 @@ func _net_start(seq: int, roster: Array) -> void:
 	_net_seen_seq = seq
 	_start_from_roster(roster)
 
+## `inset` is a float because `GasRing.inset` is: the ring eases between its
+## steps rather than teleporting, so an int here would land the client's wall
+## back on whole tiles and give it the jump the host no longer has.
 @rpc("authority", "call_remote", "unreliable_ordered")
 func _net_snapshot(buf: PackedByteArray) -> void:
 	if not _match_ready:

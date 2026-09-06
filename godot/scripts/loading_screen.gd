@@ -83,6 +83,13 @@ func to_match(tree: SceneTree) -> void:
 		var model: String = str(kit.get("model", ""))
 		if model != "" and not wanted.has(model):
 			wanted.append(model)
+	# The gas bank is built on the match's first frame now (it used to be built
+	# on the first shrink), so its model wants to be in the cache by then for the
+	# same reason `power_cube.glb` is preloaded: a multi-megabyte GLB coming off
+	# disk during play is a visible freeze. Showdown only — the Cup pitch has no
+	# ring closing in on it.
+	if mode != "cup":
+		wanted.append(GasRing.CLOUD_MODEL)
 	_begin(tree, MATCH_SCENE, wanted)
 
 ## Match -> lobby. Lighter, but it is the same blocking call and the same stall.

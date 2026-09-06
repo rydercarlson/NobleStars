@@ -2,6 +2,42 @@
  "_comment": "One entry per brawler. model = GLB with baked clips (Meshy export). stance = idle posture built by src/idle.js ('ready' holds a weapon in front, 'relaxed' hangs the arms). attackClips = names of clips to play when the brawler is tapped. Add a new brawler by dropping a GLB + portrait and adding an entry here.",
  "brawlers": [
   {
+   "id": "nova",
+   "name": "NOVA",
+   "title": "First Day",
+   "rarity": "starting",
+   "role": "Shotgunner",
+   "description": "The fighter every other fighter is measured against: Normal health, Normal speed, Normal reload and a Medium-range burst that only lands whole up close.",
+   "stance": "ready",
+   "idle": {
+    "duration": 4.5,
+    "seed": 0.4
+   },
+   "stats": {
+    "health": 5000,
+    "damage": 250,
+    "speed": "Normal",
+    "range": "Medium"
+   },
+   "attack": {
+    "name": "Scattershot",
+    "text": "Five pellets in a 22° fan out to 4.3 tiles — 250 damage each. All five only arrive together inside about a tile and a half, so the full 1250 is what closing the distance buys."
+   },
+   "super": {
+    "name": "Mega Blast",
+    "text": "Nine pellets in a wider 34° fan, 333 damage each. It breaks walls and knocks anyone it catches flying — and, being a shotgun, it is worth the most at point-blank range."
+   },
+   "unlocked": true,
+   "trophies": 0,
+   "rank": 1,
+   "power": 1,
+   "pins": 2,
+   "gadget": "Spare Shells",
+   "gear": "Running Shoes",
+   "hypercharge": "Point Blank",
+   "starPower": "Close Quarters"
+  },
+  {
    "id": "leon",
    "name": "LEON",
    "title": "The Blaster Kid",

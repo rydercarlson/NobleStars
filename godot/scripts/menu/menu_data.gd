@@ -6,8 +6,10 @@ class_name MenuData
 ##
 ## The one thing the JSON is NOT trusted for is balance: every brawler entry is
 ## merged with its live Kits dictionary, so health/damage/speed/range on the
-## detail screen are whatever kits.gd says today. A kit with no JSON entry
-## (currently Nova) still shows up — its card is synthesised from kits.gd.
+## detail screen are whatever kits.gd says today — including the `stats` block
+## the JSON still carries, which nothing reads. A kit with no JSON entry still
+## shows up, its card synthesised from kits.gd, but there is no longer one:
+## every kit in `Kits.all()` has an entry as of Nova's.
 
 const BRAWLERS_PATH := "res://data/brawlers.json"
 const GAME_PATH := "res://data/game.json"
@@ -82,8 +84,10 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 	}
 	# v0.5 loadout copy, straight from the JSON — there is no Kits counterpart
 	# because the game does not simulate gadgets, gears, Star Powers or
-	# Hypercharges yet. A kit with no JSON entry (Nova, Ayaan) gets four empty
-	# strings, and the detail screen draws only the rows that are filled.
+	# Hypercharges yet. Anders, Hammy and Ayaan name none and get four empty
+	# strings. NOTHING READS THIS at the moment: the screen that drew it was the
+	# roster's detail card, which the menu overhaul deleted when home became the
+	# detail view. Kept because the copy is written and the block is wanted back.
 	out["loadout"] = {
 		"gadget": str(entry.get("gadget", "")),
 		"star_power": str(entry.get("starPower", "")),
