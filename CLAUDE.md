@@ -80,7 +80,7 @@ Run it: **`Tools/godot.sh --path godot`** (add `--headless --import` after addin
 - **Stats print as figures, not tiers.** `MenuData._merge` emits both: `speed`/`range`/`reload` are the tiered labels ("Very Fast"), and `speed_value`/`range_value`/`reload_value` are the raw numbers the flank column prints. A word in a table of numerals breaks the column and says less. Range is in **tiles**, the unit the balance work is done in.
 - **There is no background image.** `MenuStage` fills the stage with one 3D view: the arena's own `GROUND_SHADER` on a plane, `Arena.make_sun()`, and depth fog that takes the ground out to `MenuUI.INK` a few metres past the fighter. Two constants are load-bearing and coupled — **`FOG_BEGIN` must stay outside the camera distance** `_frame_camera` computes (~8.6 m), because depth fog does not care that its subject is the point of the picture and will fog the fighter; and **`GROUND_DIM`** exists because the match floor is lit for reading a fight on, and at that exposure it filled the frame and drowned every dim label on the flanks. Pitch markings are off: `pitch_mark` draws the halfway line through the centre spot by definition, so asking it for the centre circle also puts a bright band across the fighter's shins. Deleting the JPEG also deleted the framing chain that existed only to line the 3D fighter's feet up with a painted floor line (`FLOOR_FRAC`, `BRAWLER_VIEW`, `foot_fraction`, `_place_brawler`).
 - **`MenuUI.hex()` takes a Color as well as a string.** game.json carries colours as `"#57c81e"`; `kits.gd` carries them as real `Color`s that `MenuData` passes straight through. Round-tripping one through `str()` yields `"(0.2, 0.88, 0.78, 1)"`, which is not a colour name — Godot logged an error per fighter and returned black, which is why the roster's team blocks came out unpainted.
-- **Layout is in "stage pixels".** Screens are authored against a 1920×1080 stage; `MenuShell._fit_stage` scales it to the device and *widens* it past 1920 on anything taller than 16:9 (a phone gains stage width instead of black bars), honouring the iOS safe area.
+- **Layout is in "stage pixels".** Screens are authored against a 1920×1080 stage; `MenuShell._fit_stage` scales it to the device and *widens* it past 1920 on anything taller than 16:9 (a phone gains stage width instead of black bars — 2017 px of it on an iPhone 15). The iOS safe area is honoured by insetting the `chrome` node, **not** by shrinking the stage: see **Phone fit** below, where doing it the other way is written up as one of the two P0s.
 - **Files.** `scripts/menu/`: `menu_data.gd` (JSON + `Kits` merge — copy from the JSON, live balance from `kits.gd`; a kit with no JSON entry is synthesised, though as of Nova's entry there is no longer one. The JSON's own `stats` block is read by nothing; the `loadout` dict `_merge` emits has no reader either, since the screen that drew it was the roster detail card the overhaul deleted), `menu_ui.gd` (the design system), `menu_screen.gd`/`menu_popup.gd` (screen + popup bases), `menu_audio.gd` (every SFX synthesized at runtime — no SFX files ship), `home_screen.gd`, `roster_screen.gd`, `season_screen.gd`, `shop_screen.gd`, `modes_screen.gd`, `menu_popups.gd` (settings + profile). Every route in is `MenuShell.show_screen(name)`, which keeps the old thirteen-screen names as aliases so a stale hook lands somewhere sensible.
 - **Godot layout gotchas this menu hit.** `PanelContainer` stretches *every* child to fill it, so a card with overlays must be `MenuUI.card()` — a plain `Panel` — with `MenuUI.card_body()`. `set_anchors_and_offsets_preset(..., PRESET_MODE_MINSIZE)` reads a minimum size a node does not have until it is in the tree; use `MenuUI.pin()`. A `ScrollContainer` has no minimum height, so a popup built around one collapses to its title bar.
 - **Unlocks are real.** `SaveGame.ensure_loaded` seeds only `MenuData.starting_brawlers()` (Nova); everyone else is locked, shows their `unlockHint` in place of their numbers on the roster row, and arrives through a named Trophy Road milestone or a Dawg Treat. **Leon, Anders, Hammy and Ayaan have no named unlock**: the road covers Sanjit, Tony, Kovacs and Henry, so those four are reachable only through a Treat. Settings → Developer mode unlocks everyone on the current save.
@@ -167,7 +167,16 @@ Run it: **`Tools/godot.sh --path godot`** (add `--headless --import` after addin
 - **`MenuUI.stagger` must not be used on rows in a container.** It goes through `pop_in`, which tweens `position:y`, and a `VBoxContainer` OWNS its children's positions: `pop_in` reads `home` off a child the container has not laid out yet, records 0 for every row, and animates the whole table into one stack where only the last row drawn is visible. The card then looks like it has one row while the code says four. `main.gd:_fade_in_rows` is the results table's own stagger and fades alpha only.
 - **The versus screen already animates** (cards slide and stagger, VS punches in with `TRANS_BACK`, the countdown digits scale, the mode title takes over at `PREMATCH_INTRO_AT`). It landed in `d4e6678`; do not "add" it again.
 
-**Touch controls** (`virtual_joystick.gd` = `TouchStick`, laid out by `main.gd:_layout_sticks`, driven by `main.gd:_unhandled_input`) — three sticks, and every one of them both parked and floating.
+**Phone fit** (`Session.safe_rect`, `main.gd:_layout_hud`, `menu.gd:_fit_stage`) — how the game meets the shape of an actual handset. Measured on the iPhone 15 this develops against: 2556x1179 landscape at 3x, which the `canvas_items`/`expand` stretch at a 1280x720 base turns into a **1561x720 viewport** — never the 1280x720 the project is authored in.
+
+- **THE PICTURE FILLS THE DISPLAY; ONLY CHROME IS INSET.** The arena and the menu stage run edge to edge and under the notch and the home indicator, which is right — it is only a label that cannot be read there and a stick that cannot be reached. Insetting the whole picture is what both phone-fit P0s turned out to be: `MenuShell._fit_stage` fitted the entire stage into the safe rect and threw away **177 device px on each side and 63 at the bottom, 13.9% of the screen width**. It was invisible in development because the bars and `MenuUI.INK` are the same colour — it does not read as letterboxing, it reads as a small menu — and because a desktop window has no safe area to reproduce it with.
+- **`Session.safe_rect(viewport)` is the ONE copy of that rectangle**, deliberately, because the menu and the match both need exactly these numbers and this is the `Arena.make_sun` situation again. Desktop gets the whole viewport; mobile gets the display safe area, scaled from window pixels into viewport pixels. It keeps a guard worth keeping: some platforms report the whole display rather than the window's safe area, so anything implausibly small is ignored rather than obeyed.
+- **The menu's `chrome` node is what makes the split cost nothing.** `bg` and `brawler_view` sit on the stage and fill it; `home`, `screens_root` and `toast_column` hang off `chrome`, which `_fit_stage` insets. Every screen anchors FULL_RECT to its parent, so **no screen file knows the safe area exists**. `fx` is deliberately NOT in `chrome` — bursts should cross the whole picture, and `MenuScreen.center_of` / `MenuShell.fly_to` both compute destinations in STAGE space off `stage.global_position`, so reparenting it would silently offset every burst by the inset.
+- **Nothing in the match HUD may be placed at a literal coordinate.** `main.gd:_layout_hud` runs on every viewport change and places all four labels and all three sticks off the safe rect. The four labels used to sit at 1280-authored coordinates, and `players_label` at x=1130 in a 430-wide box put its right edge at 1560 — so **the "N LEFT" counter was off screen in every desktop run the project ever did**. Two rules fell out: a label spans the full safe width and *aligns* inside it rather than sitting in a fixed-width box at a computed x, **because a Label grows RIGHTWARD past its minimum size to fit its text** and a right-aligned one in a narrow box walks off the edge on a long elimination line; and `center_label` needs a real width, since with a zero minimum size CENTER alignment centres text inside nothing and `position` is only its left edge.
+- **Touch input still uses the whole glass.** `_unhandled_input`'s left-half/right-half split is on the raw viewport, not the safe rect — a thumb landing in the notch strip should still walk.
+- **Type sizes convert differently in the two scenes, which is why "the text is small" is two problems.** Menu stage px x**0.364** = points; match viewport px x**0.546**. So the menu's utility tier (17-22) lands at 6.2-8.0 pt against Apple's 11 pt floor — about half — while the match HUD's labels sit at 12-39 pt and are fine. See `todo.md` 1.3: the menu half is a redesign of the type scale's deliberate hole, not a multiply.
+
+**Touch controls** (`virtual_joystick.gd` = `TouchStick`, laid out by `main.gd:_layout_hud`, driven by `main.gd:_unhandled_input`) — three sticks, and every one of them both parked and floating.
 
 - **They are on screen when nobody is touching them,** translucent, colour-coded: **blue** walks (left half), **red** shoots (right half), **gold** is the Super. They used to be invisible until touched, which is readable only once you already know they exist — nothing said the left half walks and the right half shoots, and the Super button was the only control you could see. Colour is the only thing telling them apart at a glance, so it has to be three that never read as each other.
 - **They still float to the finger.** A touch anywhere in the stick's own region re-anchors the base under the thumb and the base slides home on release (`RETURN_TIME`). That is also what keeps a TAP unambiguous: `value` is zero at the instant of the press however far from home it landed, so a press-and-release is always a tap and never a full-deflection drag. The old Super button anchored its stick at the button and then fed it the touch position, so a thumb landing on the button's edge released a manually aimed Super it never asked for.
@@ -245,10 +254,56 @@ With that, `xcodebuild -allowProvisioningUpdates` signs and builds with no GUI s
 
 **⚠ Beta changes this, and the change walks back toward the trap above.** `ROADMAP.md` commits to a **TestFlight closed beta**, which cannot be fed a development-signed build: it needs `export_method_release=0` and `Apple Distribution` on Release — which is exactly the identity whose conflict with `CODE_SIGN_STYLE = Automatic` cost the evening described two paragraphs up. So the sentence "Development signing is right for both configurations" is true of side-loading and **false of TestFlight**, and whoever makes that switch should expect the `No Account for Team` symptom to reappear pointing, once again, at the wrong thing. Do it in this order: change Release only, leave Debug on `Apple Development` so device installs keep working, then open the generated project and read the **Signing & Capabilities** pane before believing any command-line error. The side-load path must keep working throughout — it is how the phone-fit P0s get tested. Note that `~/Library/MobileDevice/Provisioning Profiles/` can be EMPTY and `defaults read com.apple.dt.Xcode IDEProvisioningTeams` absent even on a build that then succeeds — they look like the signing health check and are not one.
 
-**Install and launch from the command line**, no Xcode needed:
+**Use `Tools/device_install.sh` and `Tools/device_shot.sh`.** Between them the
+whole handset loop — export, build, install, run with debug hooks, screenshot,
+pull the PNG back — is two commands and needs no Xcode and **nobody looking at
+the phone**:
 
 ```sh
-APP=$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 6 -name 'noblestars3d.app' -path '*Debug-iphoneos*' -print -quit)
+Tools/device_install.sh                                     # export + xcodebuild + install
+Tools/device_shot.sh --out shots NS3_KIT=nova NS3_SHOTS=run:3,9
+Tools/device_shot.sh --out shots NS3_MENU_SHOT=m.png NS3_MENU_SCREEN=roster
+```
+
+**This is the single most useful thing to know about testing here**, because
+ROADMAP.md is written around the assumption that a device screenshot is a round
+trip through Ryder and is therefore the slowest loop in the project. It is not,
+and it works because three facts compose: `devicectl device process launch -e
+'{"K":"V"}'` passes environment variables in, so **every `NS3_*` hook works on
+the phone**; `NS3_SHOTS`/`NS3_MENU_SHOT` resolve a relative path against
+`user://`, which on iOS is the app's `Documents/`; and `devicectl device copy
+from --domain-type appDataContainer --domain-identifier com.ryder.noblestars3d`
+reads that directory for a development-signed app. Four sharp edges, all
+handled inside the scripts:
+
+- **`--console` hangs.** It attaches and never returns even after the app has
+  exited and written its file. Poll for the file instead — which is also the
+  real completion signal, since `NS3_SHOTS` quits the game once it has written
+  the last frame.
+- **`copy from --destination` must be a FILE path.** A directory fails with
+  `Cannot open destination file …: Is a directory`.
+- **Pick the device out of `--json-output`, never the printed table.** The State
+  column is prose that changes under you — `connected` one minute,
+  `available (paired)` the next — and per the warning above, `unavailable`
+  contains `available`. The test is `connectionProperties.transportType` being
+  present and `tunnelState != "unavailable"`; a `disconnected` tunnel reconnects
+  on demand and is fine.
+- **There is no delete in `devicectl`**, so shots pile up in the container. Use
+  a fresh name per run rather than assuming one is free.
+
+**Xcode keeps TWO `Debug-iphoneos` trees and installing the wrong one looks like
+a signing failure.** `<derived>/Index.noindex/Build/Products/Debug-iphoneos/`
+holds the indexer's stub `.app`, whose `Info.plist` has no `CFBundleIdentifier`;
+`devicectl` refuses it with `Failed to get the identifier for the app to be
+installed`. It is one level deeper than the real bundle, so the `-maxdepth 6`
+form below matches either, whichever `find` reaches first. Use `-maxdepth 5
+-not -path '*Index.noindex*'`, as the script does.
+
+By hand, if a script is not to hand:
+
+```sh
+APP=$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 5 -name 'noblestars3d.app' \
+    -path '*Debug-iphoneos*' -not -path '*Index.noindex*' -print -quit)
 xcrun devicectl device install app --device <udid> "$APP"
 xcrun devicectl device process launch --device <udid> com.ryder.noblestars3d
 xcrun devicectl device info processes --device <udid> | grep noblestars3d   # still alive?

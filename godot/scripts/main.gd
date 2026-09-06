@@ -426,13 +426,55 @@ const SUPER_GRAB_RADIUS := 118.0
 const STICK_INSET := 168.0
 const SUPER_STICK_OFFSET := Vector2(-186.0, -132.0)
 
-## Re-park the sticks for the current viewport. They are drawn in viewport
-## pixels rather than laid out as Controls, so this runs on every resize.
-func _layout_sticks(size: Vector2) -> void:
-	move_stick.park(Vector2(STICK_INSET, size.y - STICK_INSET))
-	var aim_home := Vector2(size.x - STICK_INSET, size.y - STICK_INSET)
+## Margin from the safe rect's own edge, the gap between the two right-hand
+## labels, and how far down the screen the centre label sits.
+const HUD_MARGIN := 20.0
+const HUD_FEED_DROP := 40.0
+const CENTER_LABEL_FRAC := 1.0 / 3.0
+
+## Where the HUD's chrome may go: the display's safe area on a phone, the whole
+## viewport everywhere else. The match PICTURE deliberately keeps the lot and
+## runs under the notch and the home indicator — but a label there cannot be
+## read and a stick there cannot be reached.
+func _hud_rect() -> Rect2:
+	return Session.safe_rect(get_viewport())
+
+## Re-park the sticks and the labels for the current viewport. Both are placed
+## in viewport pixels rather than laid out as Controls, so this runs on every
+## resize — and it has to, which is todo 1.1.
+##
+## These four labels used to be placed at coordinates authored for a 1280-wide
+## viewport, which is a size no shipping device has: `stretch/aspect="expand"`
+## hands a 19.5:9 phone 1561x720 instead. So `players_label`, pinned at x=1130
+## inside a 430-wide box, put its right edge at 1560 — entirely OFF SCREEN at
+## the project's own 1280x720 base resolution, which is why the "N LEFT"
+## counter has never once been visible in a desktop run, and flush against the
+## display edge on the phone, where the final glyph fell under the rounded
+## corner. `status_label` at x=20 sat under the Dynamic Island, 33 device px
+## into a 177 px inset. And `center_label` was never centred at any width: with
+## a zero minimum size, CENTER alignment centres the text inside nothing and
+## `position` is only its left edge.
+func _layout_hud() -> void:
+	var r: Rect2 = _hud_rect()
+	move_stick.park(Vector2(r.position.x + STICK_INSET, r.end.y - STICK_INSET))
+	var aim_home := Vector2(r.end.x - STICK_INSET, r.end.y - STICK_INSET)
 	aim_stick.park(aim_home)
 	super_stick.park(aim_home + SUPER_STICK_OFFSET)
+	# Every label spans the full safe width and aligns inside it, rather than
+	# sitting in a fixed-width box at a computed x. A Label grows RIGHTWARD past
+	# its minimum size to fit its text, so a right-aligned one in a 430-wide box
+	# walks off the edge the moment an elimination line is long; given the whole
+	# width it has nowhere to overflow to.
+	var inner := Vector2(r.position.x + HUD_MARGIN, r.position.y + HUD_MARGIN)
+	var span: float = r.size.x - HUD_MARGIN * 2.0
+	for l: Label in [status_label, players_label, feed_label, center_label]:
+		l.custom_minimum_size.x = span
+		l.size.x = span
+	status_label.position = inner
+	players_label.position = inner
+	feed_label.position = inner + Vector2(0.0, HUD_FEED_DROP)
+	center_label.position = Vector2(inner.x,
+			r.position.y + r.size.y * CENTER_LABEL_FRAC)
 
 func _build_hud() -> void:
 	hud = CanvasLayer.new()
@@ -453,14 +495,13 @@ func _build_hud() -> void:
 	hud.add_child(move_stick)
 	hud.add_child(aim_stick)
 	hud.add_child(super_stick)
-	_layout_sticks(get_viewport().get_visible_rect().size)
-	get_viewport().size_changed.connect(func() -> void:
-		_layout_sticks(get_viewport().get_visible_rect().size))
-
-	center_label = _label(Vector2(640, 240), 72, HORIZONTAL_ALIGNMENT_CENTER)
-	players_label = _label(Vector2(1130, 20), 26, HORIZONTAL_ALIGNMENT_RIGHT)
-	feed_label = _label(Vector2(830, 60), 18, HORIZONTAL_ALIGNMENT_RIGHT)
-	status_label = _label(Vector2(20, 20), 20, HORIZONTAL_ALIGNMENT_LEFT)
+	center_label = _label(72, HORIZONTAL_ALIGNMENT_CENTER)
+	players_label = _label(30, HORIZONTAL_ALIGNMENT_RIGHT)
+	feed_label = _label(24, HORIZONTAL_ALIGNMENT_RIGHT)
+	status_label = _label(22, HORIZONTAL_ALIGNMENT_LEFT)
+	# After the labels exist: _layout_hud places the sticks and all four.
+	_layout_hud()
+	get_viewport().size_changed.connect(_layout_hud)
 	_build_results_overlay()
 	_build_down_overlay()
 
@@ -798,12 +839,12 @@ func _showdown_rows(f: Fighter) -> Array:
 		["SURVIVED", _fmt_clock(float(f.stats.survived))],
 	]
 
-func _label(pos: Vector2, size: int, align: int) -> Label:
+## A HUD label. Position and width are _layout_hud's job, not constructor
+## arguments — all four move and resize on every viewport change.
+func _label(size: int, align: int) -> Label:
 	var l := Label.new()
-	l.position = pos
 	l.add_theme_font_size_override("font_size", size)
 	l.horizontal_alignment = align
-	l.custom_minimum_size = Vector2(430, 0) if align != HORIZONTAL_ALIGNMENT_CENTER else Vector2(0, 0)
 	hud.add_child(l)
 	return l
 

@@ -23,6 +23,9 @@ signal profile_changed
 var stage: Control
 var bg: ColorRect
 var brawler_view: MenuStage
+## Everything a thumb presses or an eye reads, inset by the device's safe area
+## while the stage behind it fills the display. See _fit_stage.
+var chrome: Control
 var home: HomeScreen
 var screens_root: Control
 var toast_column: VBoxContainer
@@ -95,15 +98,22 @@ func _build_stage() -> void:
 	brawler_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	stage.add_child(brawler_view)
 
+	# The picture above fills the stage; everything below is inset into the safe
+	# area by _fit_stage. Screens anchor FULL_RECT to this rather than to the
+	# stage, so no screen file has to know the safe area exists.
+	chrome = Control.new()
+	chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(chrome)
+
 	home = HomeScreen.new()
 	home.menu = self
 	home.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	stage.add_child(home)
+	chrome.add_child(home)
 
 	screens_root = Control.new()
 	screens_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	screens_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(screens_root)
+	chrome.add_child(screens_root)
 
 	toast_column = MenuUI.vbox(12)
 	toast_column.alignment = BoxContainer.ALIGNMENT_BEGIN
@@ -111,8 +121,12 @@ func _build_stage() -> void:
 	toast_column.offset_top = 170
 	toast_column.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	toast_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(toast_column)
+	chrome.add_child(toast_column)
 
+	# Deliberately NOT in `chrome`: particle bursts are decorative, they should
+	# be free to cross the whole picture, and MenuScreen.center_of / fly_to both
+	# compute their destinations in STAGE space off `stage.global_position`.
+	# Reparenting this would silently offset every burst by the safe inset.
 	fx = Control.new()
 	fx.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	fx.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -131,44 +145,40 @@ func _build_stage() -> void:
 
 ## fitStage() from web-menu/src/main.js: keep 1080 stage-pixels of height and
 ## widen the stage on anything wider than 16:9, so a phone gains stage width
-## instead of black bars. The device's safe area is honoured on iPhone.
+## instead of black bars.
+##
+## The safe area is honoured by insetting `chrome`, NOT by shrinking the stage,
+## and that distinction is the whole of todo 1.2. Fitting the stage itself into
+## the safe rect is what the first version did, and on an iPhone 15 it threw
+## away 177 device px on each side and 63 at the bottom — 13.9% of the screen —
+## which read exactly as "the menu does not reach the edges". It was invisible
+## in development because the bars and MenuUI.INK are the same colour, and a
+## desktop window has no safe area to inset by. Measured on the device: the
+## stage now fills all 2556x1179, and the chrome still gets 2017 stage px of
+## width to lay out in, which is more than the 1920 it is authored against.
 func _fit_stage() -> void:
 	if stage == null:
 		return
-	var view: Rect2 = _safe_rect()
+	var view := Rect2(Vector2.ZERO, get_viewport().get_visible_rect().size)
 	var scale_factor: float = minf(view.size.x / STAGE_MIN_W, view.size.y / STAGE_H)
 	var stage_w: float = maxf(STAGE_MIN_W, view.size.x / scale_factor)
 	stage.scale = Vector2(scale_factor, scale_factor)
 	stage.size = Vector2(stage_w, STAGE_H)
 	stage.position = view.position + (view.size - stage.size * scale_factor) / 2.0
+	# The safe rect arrives in viewport pixels and `chrome` is a child of the
+	# scaled stage, so it is divided back into stage pixels — and offset by the
+	# stage's own position, which is non-zero when the display is narrower than
+	# 16:9 and the stage really is letterboxed (an iPad).
+	var safe: Rect2 = Session.safe_rect(get_viewport())
+	chrome.position = (safe.position - stage.position) / scale_factor
+	chrome.size = safe.size / scale_factor
 	# Device pixels per stage pixel: the 3D view renders at that resolution so
 	# the fighter stays sharp on a retina phone rather than being upscaled.
 	var window: Vector2i = DisplayServer.window_get_size()
-	var visible: Vector2 = get_viewport().get_visible_rect().size
 	var density: float = 1.0
-	if window.x > 0 and visible.x > 0:
-		density = float(window.x) / visible.x
+	if window.x > 0 and view.size.x > 0:
+		density = float(window.x) / view.size.x
 	brawler_view.set_render_scale(scale_factor * density)
-
-## The viewport rect, inset by the device's safe area (notch / home indicator).
-## Desktop reports the whole display here, so the inset is mobile-only.
-func _safe_rect() -> Rect2:
-	var visible: Vector2 = get_viewport().get_visible_rect().size
-	if not OS.has_feature("mobile"):
-		return Rect2(Vector2.ZERO, visible)
-	var safe: Rect2i = DisplayServer.get_display_safe_area()
-	var window: Vector2i = DisplayServer.window_get_size()
-	if window.x <= 0 or window.y <= 0 or safe.size.x <= 0:
-		return Rect2(Vector2.ZERO, visible)
-	var k := Vector2(visible.x / float(window.x), visible.y / float(window.y))
-	var full := Rect2(Vector2.ZERO, visible)
-	var rect: Rect2 = full.intersection(Rect2(Vector2(safe.position) * k,
-			Vector2(safe.size) * k))
-	# Some platforms report the whole display rather than the window's safe
-	# area; anything that implausibly small is ignored.
-	if rect.size.x < visible.x * 0.5 or rect.size.y < visible.y * 0.5:
-		return full
-	return rect
 
 # MARK: screen stack
 

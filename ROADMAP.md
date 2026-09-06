@@ -17,12 +17,16 @@ other and nothing else.
 | **Ryder** | Gameplay. Kits, characters, balance, match feel, controls, modes, multiplayer, arena. Every character design is his call — nobody builds a fighter without him. |
 | **Jackson** | Menus and assets, end to end. Owns `godot/scripts/menu/` as a developer *and* owns the art: he designs it, makes it, and implements it. Ryder does not touch the menu surface. |
 
-**All on-device testing is Ryder's**, whoever wrote the code. The phone is his,
-Developer Mode is his to switch on, and `devicectl` installs from his machine.
-That means every phone-fit item below is a **loop, not a handoff**: Jackson
-changes the menu, Ryder shoots it on the handset, the screenshot comes back.
-Budget for the round trip — it is the slowest feedback loop in the project, and
-it is on the critical path for three of the four P0s.
+**On-device testing is Ryder's hardware — but a screenshot is no longer a
+handoff.** *(Corrected 6 Sep 2026; this paragraph used to call the device round
+trip "the slowest feedback loop in the project" and budget for it.)*
+`Tools/device_install.sh` puts a build on the phone in one command and
+`Tools/device_shot.sh` drives it with any `NS3_*` hook and brings the PNG back,
+so anyone with the repo and the cable can shoot the handset without asking
+anybody to look at it. What still needs Ryder in the room is anything that has
+to be **felt or played** — the haptics verdict (`todo 3.2`), how the sticks sit
+under a real thumb, whether the game is fun. Those are the round trips to budget
+for; a screenshot is forty seconds.
 
 Item detail lives in [`todo.md`](todo.md) — references below like `todo 1.1` point
 at it. Finished work and the reasoning behind it is in [`done.md`](done.md).
@@ -78,31 +82,38 @@ because "not in beta" and "don't start yet" are different answers.
 ## Phase 0 — Unblock
 
 *Nothing else can be judged until the game is on a phone at a readable size.
-Every P0 in `todo.md` is in here.*
+Every P0 in `todo.md` is in here.* **Nearly done — one item left, and it is the
+one that is a design decision rather than a bug.**
 
 | Owner | Item | Size | |
 |---|---|---|---|
-| **Ryder** | **Commit and verify the working tree** | S | see below |
-| **Ryder** | Turn on Developer Mode on the handset | XS | `todo 1.4` |
-| **Ryder** | The match reaches the screen edges | S | `todo 1.1` |
+| ~~Ryder~~ | ~~Commit and verify the working tree~~ — **done**, `94f26b5`+`cf5a466` | S | — |
+| ~~Ryder~~ | ~~Turn on Developer Mode~~ — **it was already on** | XS | `todo 1.4` |
+| ~~Ryder~~ | ~~The match reaches the screen edges~~ — **done** | S | `todo 1.1` |
+| ~~Ryder~~ | ~~The menu reaches the screen edges~~ — **done** | S | `todo 1.2` |
 | **Jackson** | Onboarding: repo, Godot 4.7.2, the reimport hook, `Tools/godot.sh` | S | — |
-| **Jackson** | The menu reaches the screen edges *(Ryder shoots it)* | S | `todo 1.2` |
-| **Jackson** | Buttons and text are readable at arm's length *(Ryder shoots it)* | M | `todo 1.3` |
+| **Jackson** | **Text readable at arm's length — the menu's type scale** | M | `todo 1.3` |
 
-**There are 1,982 uncommitted lines across nine gameplay scripts**, sitting on
-top of a commit that says `WIP: match feel (stalled agent, unverified)`. Two
-finished features are in there that no document mentioned until now, and one of
-them closes a whole roadmap item — see **Already built** below. Verified this
-pass: a headless Showdown sim, a headless Cup match, the wifi room screen, the
-join-code probe, and a two-instance LAN Cup match all run with **zero script
-errors**. It works. It needs committing before anyone branches off it, because
-right now a second person cloning the repo gets none of it.
+**The working tree is committed and the phone-fit bugs are fixed and verified on
+an iPhone 15.** `done.md` carries the reasoning; the short version is that the
+menu was fitting its *whole stage* into the safe area and losing 13.9% of the
+screen width to bars the same colour as its own background, and the match HUD
+was placed at coordinates authored for a 1280-wide viewport that no shipping
+device has. Both now lay out from `Session.safe_rect`, with the **picture
+filling the display and only the chrome inset**.
 
-**Ryder's Developer Mode switch gates all four of the others** — it is Settings →
-Privacy & Security → Developer Mode, then a restart, and it cannot be done from
-a laptop. Until it is on, `devicectl` refuses to install and the other three
-items are being fixed blind against a desktop window that cannot reproduce them.
-Do it first.
+**The menu's type scale is the one thing left, and it moved from Ryder's column
+to a real decision on Jackson's system.** It is now measured rather than
+guessed: the utility tier renders at **6.2-8.0 pt** on the handset against
+Apple's 11 pt floor for body text, roughly half. Clearing the floor needs about
+30 stage px, which lands on the bottom of the display tier at 44 — so this is
+**a redesign of the deliberate hole in the scale, not a multiply**, and it is
+exactly the change CLAUDE.md's **Menu** section warns will flatten the design if
+done blind. The match HUD's half of the same item was fixed alongside 1.1, since
+its labels sit at 12-39 pt with no such doctrine attached.
+
+**Jackson's onboarding is now the critical-path item in this phase**, because
+1.3 is his call and nothing in Phase 2 starts before **D1** either.
 
 **Jackson's onboarding, specifically.** Clone, then `Tools/godot.sh --path godot
 --headless --import` once (a fresh clone must import before the project will
@@ -112,7 +123,14 @@ file that cannot parse, silently; never `class_name` anything Godot ships
 natively; and run one Godot at a time per project, which is what
 `Tools/godot.sh` enforces. Then read CLAUDE.md's **Menu** section start to
 finish before changing a single token — the current design's every rule looks
-arbitrary in isolation and is not.
+arbitrary in isolation and is not — and its **Phone fit** section, which is
+where 1.3's numbers come from and which explains why the stage and the chrome
+are two different rectangles.
+
+**And learn `Tools/device_shot.sh` early.** A menu change can be shot on the
+actual handset in one command without the phone leaving Ryder's desk drawer, so
+the type scale can be iterated against real device pixels rather than against a
+desktop window that is lying to you about every one of them.
 
 ---
 

@@ -16,6 +16,141 @@ Newest work is roughly at the top of each section.
 
 ---
 
+## Phone fit (6 Sep 2026) — the P0 block, and the loop that made it cheap
+
+- [x] **The device round trip no longer needs anyone's eyes.**
+      `Tools/device_shot.sh` + `Tools/device_install.sh`. ROADMAP.md called the
+      handset loop "the slowest feedback loop in the project" and put it on the
+      critical path for three of the four P0s, on the reasoning that the phone
+      is Ryder's and a desktop window cannot reproduce a notch. The first half
+      of that is true and the second half turned out not to matter, because
+      three `devicectl` facts compose into a complete loop:
+      - **`process launch -e '{...}'` passes environment variables into the
+        app**, so every `NS3_*` hook this project already has works on the
+        handset exactly as it does on a desktop.
+      - **`NS3_SHOTS` / `NS3_MENU_SHOT` resolve a relative path against
+        `user://`**, which on iOS is the app's own `Documents/`. That was
+        already true and was written for a different reason entirely — to stop
+        debug screenshots landing in the project where the importer swept them
+        up — and it is what makes the file reachable.
+      - **`copy from --domain-type appDataContainer` reads that directory** for
+        a development-signed app.
+      So: launch with hooks, poll for the file, pull it. A screenshot of the
+      real phone is now one command and about forty seconds, and **every claim
+      in the entries below is measured on an iPhone 15 rather than reasoned
+      about**. Three things learned building it, all in the script's own header:
+      `--console` attaches and never returns even after the app has exited;
+      `--destination` must be a file path, not a directory; and the device must
+      be picked out of `--json-output`'s `connectionProperties`, because the
+      printed State column is prose that changes under you ("connected" one
+      minute, "available (paired)" the next) and CLAUDE.md's own warning applies
+      — `unavailable` contains `available`.
+      - **The install had a trap that reads like a signing failure and is not.**
+        Xcode keeps a *second* `Debug-iphoneos` tree under
+        `<derived>/Index.noindex/Build/Products` for the indexer, one level
+        deeper than the real one, and its `.app` is a stub whose `Info.plist`
+        carries no `CFBundleIdentifier`. `devicectl` then refuses with "Failed
+        to get the identifier for the app to be installed". CLAUDE.md's
+        documented `find -maxdepth 6 … -print -quit` can match either, whichever
+        it reaches first. `-maxdepth 5` plus `-not -path '*Index.noindex*'` is
+        exact.
+
+- [x] **1.4 — Developer Mode was already on.** Nothing to do: the export builds,
+      `devicectl` installs and launches, and the entry was written before the
+      phone testing that produced `cf5a466` had happened. Verified rather than
+      assumed — an install ran end to end this pass.
+
+- [x] **1.1 — The match reaches the screen edges. Half of this entry was stale
+      and the other half was real, and they had different causes.**
+      - **The rendering half no longer reproduces.** Shot on the phone before
+        changing anything, as the entry instructed: the match fills all
+        2556x1179. What that symptom almost certainly was is recorded in
+        `cf5a466` under a different heading — the launch storyboard defaulted to
+        `contentMode="center"`, so at @3x iOS drew a 1920x1080 splash at 640x360
+        points on an 852x393 screen and **a fresh install came up small and sat
+        there**. That was fixed; the todo entry describing it was not.
+      - **The HUD's own anchors were real, and were the entry's other guess.**
+        `main.gd` placed four labels at coordinates authored for a 1280-wide
+        viewport — a size **no shipping device has**, because
+        `stretch/aspect="expand"` hands a 19.5:9 phone 1561x720. The sharpest
+        case: `players_label` sat at x=1130 inside a 430-wide box, putting its
+        right edge at 1560, so **the "N LEFT" counter has never once been
+        visible in a desktop run** at the project's own 1280x720 base
+        resolution, and on the phone it landed flush against the display edge
+        with the last glyph under the rounded corner. `status_label` at x=20 was
+        33 device px in, inside a **177 px** safe inset — under the Dynamic
+        Island. And `center_label` was never centred at any width: with a zero
+        minimum size, CENTER alignment centres text inside nothing and
+        `position` is only its left edge.
+      - **The fix is `_layout_hud`, run on every viewport change**, placing all
+        four labels and all three sticks from `Session.safe_rect`. Two details
+        worth keeping: every label now spans the full safe width and aligns
+        inside it rather than sitting in a fixed-width box at a computed x,
+        **because a Label grows rightward past its minimum size to fit its
+        text** and a right-aligned one in a 430-wide box walks off the edge the
+        moment an elimination line is long; and the sticks inset from the safe
+        rect while **touch input deliberately still uses the whole glass** —
+        `_unhandled_input`'s left/right split is on the raw viewport, since a
+        thumb in the notch strip should still walk.
+      - **The picture is deliberately NOT inset.** The arena runs under the
+        island and the home indicator, which is right; it is only chrome that
+        cannot be read or reached there. That distinction is the whole of the
+        next entry.
+
+- [x] **1.2 — The menu reaches the screen edges: the stage fills the display and
+      only the chrome is inset.** `MenuShell._fit_stage` fitted the *whole
+      stage* into the safe rect, and on the iPhone 15 that threw away **177
+      device px on each side and 63 at the bottom — 13.9% of the screen width**,
+      which is exactly "the menu does not reach the edges".
+      - **It was invisible in development for two compounding reasons**, and
+        both are worth remembering: the letterbox and the menu's own background
+        are the same colour (`MenuUI.INK`), so it does not read as bars, it
+        reads as a small menu; and a desktop window has no safe area at all, so
+        no amount of resizing on a Mac reproduces it.
+      - **The file's own comment already said this was wrong.** `_fit_stage` is
+        documented as widening the stage past 1920 "so a phone gains stage width
+        instead of black bars" — and then the safe-area inset ate the gain back
+        and produced the bars anyway. Treating it as a bug rather than a design
+        change is on that basis.
+      - **The fix is one new node**, `chrome`, a Control inside the stage that
+        `_fit_stage` insets by the safe rect. `home`, `screens_root` and
+        `toast_column` hang off it; `bg` and `brawler_view` stay on the stage and
+        fill the display. **No screen file changed** — every screen anchors
+        FULL_RECT to its parent and so is inset for free, which is what kept this
+        out of Jackson's surface as anything more than a reparent.
+      - **`fx` deliberately stays on the stage, not in the chrome.** Particle
+        bursts should be free to cross the whole picture, and both
+        `MenuScreen.center_of` and `MenuShell.fly_to` compute destinations in
+        stage space off `stage.global_position` — reparenting it would silently
+        offset every burst by the safe inset with nothing to show for it.
+      - Measured after: the stage fills all 2556x1179, and the chrome still gets
+        **2017 stage px** of width to lay out in, more than the 1920 it is
+        authored against. The design intent survives; the bars are gone.
+
+- [x] **`Session.safe_rect` is the one copy of this.** The menu had a private
+      `_safe_rect` and the match needed the identical numbers, which is the
+      setup CLAUDE.md already warns about for `Arena.make_sun` — "a second copy
+      of those numbers is how the tool and the game drift apart". It lives on
+      `Session` because that class already exists to hold the things both scenes
+      need. It keeps the original's guard: some platforms report the whole
+      display instead of the window's safe area, so anything implausibly small
+      is ignored rather than obeyed.
+
+**Not done this pass, on purpose:**
+
+- **The menu type scale (1.3).** Now measured — the utility tier renders at
+  6.2-8.0 pt against Apple's 11 pt floor, about half — but clearing that floor
+  needs about 30 stage px, which lands on the bottom of the display tier at 44.
+  So the fix is a redesign of the deliberate hole in the scale, not a multiply,
+  and that is a decision on Jackson's own system rather than a bug. The match
+  HUD's half *was* done, because its labels sit at 12-39 pt with no such
+  doctrine attached. Numbers are in `todo.md` 1.3.
+- **The loading screen's title under the island.** Same class of bug, one line
+  from being fixed, and left alone because `LoadingScreen.compose()` is shared
+  with the boot-splash renderer and the seamlessness of that handoff is a tuned
+  property. Filed as `todo.md` 1.5 with the reasoning rather than fixed in
+  passing.
+
 ## Phone pass (5 Sep 2026) — The lineup — done, this pass
 
 - [x] **Nobody appears twice on a team, and the bots have names.** Three of the

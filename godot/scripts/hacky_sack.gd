@@ -1,6 +1,6 @@
 class_name HackySack
 extends Area3D
-## Anders' rally sack — "Keep It Up".
+## Anders' rally sack — "Fundies".
 ##
 ## The sack travels in ARCS, not lines. Each kick is a hop: it lifts, floats
 ## across, and comes down on a landing spot, and only the landing does damage.

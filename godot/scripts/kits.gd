@@ -304,7 +304,7 @@ static func sanjit() -> Dictionary:
 	return {
 		"name": "Sanjit", "color": Color(0.95, 0.5, 0.2),
 		"role": "Assassin",
-		"desc": "Fast on his feet with a lightning one-two punch combo.",
+		"desc": "Dashes forward with each hit of a lightning one-two punch combo.",
 		"super_desc": "Hurls his staff over walls; it boomerangs back, hitting both ways.",
 		"model": "res://assets/sanjit.glb",
 		"clips": {"idle": "Idle", "run": "Running", "attack": "Double_Combo_Attack",
@@ -493,7 +493,7 @@ static func anders() -> Dictionary:
 		"clips": {"idle": "Idle", "run": "Running", "attack": "Kick_a_Soccer_Ball",
 				  "attack_speed": 2.2, "attack_seek": 0.28,
 				  "super": "Backflip", "super_speed": 1.6, "super_seek": 0.55},
-		"desc": "Throws a hacky sack that arcs down on a spot — catch it on the way back to reload instantly and hit harder next throw.",
+		"desc": "Kicks a hacky sack onto a spot and catches it on the way back to reload instantly and hit harder next kick.",
 		"super_desc": "Pop Off: flicks the sack up and leaps clear, then spikes the ground he left, blasting everyone there away from him.",
 		"max_health": HEALTH_HIGH,
 		"move_speed": SPEED_NORMAL,

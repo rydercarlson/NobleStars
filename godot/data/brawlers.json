@@ -108,10 +108,10 @@
    },
    "attack": {
     "name": "One-Two Punch",
-    "text": "A lightning two-hit combo; the second hit lands a beat later."
+    "text": "A lightning two-hit combo that dashes forward with each punch; the second hit lands a beat later."
    },
    "super": {
-    "name": "Staff Return",
+    "name": "Stafferang",
     "text": "Hurls his staff over walls; it boomerangs back and hits on both passes."
    },
    "unlocked": true,
@@ -259,7 +259,7 @@
    "title": "The Hacky-Sack Captain",
    "rarity": "rare",
    "role": "Skirmisher",
-   "description": "Throws a hacky sack onto a spot — catch it on the way back to reload instantly and make the next throw hit harder.",
+   "description": "Kicks a hacky sack onto a spot and catches it on the way back to reload instantly and make the next kick hit harder.",
    "model": "assets/models/anders.glb",
    "portrait": "assets/portraits/anders.png",
    "stance": "ready",
@@ -272,8 +272,8 @@
    ],
    "moveClip": "Running",
    "attack": {
-    "name": "Keep It Up",
-    "text": "Aim the sack onto an enemy, then catch its return to reload instantly and build a harder-hitting streak."
+    "name": "Fundies",
+    "text": "Kick the hacky sack onto an enemy, then catch it on the way back to reload instantly and build a harder-hitting streak."
    },
    "super": {
     "name": "Pop Off",

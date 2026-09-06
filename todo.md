@@ -38,13 +38,11 @@ they are not urgent, and `Voicelines` is the extreme case.
 
 | # | Item | Area | Pri | Effort | Blocked on |
 |---|---|---|---|---|---|
-| 1.1 | Match does not reach the screen edges | Phone fit | P0 | S | — |
-| 1.2 | Menu does not reach the screen edges | Phone fit | P0 | S | — |
-| 1.3 | Buttons and text are too small | Phone fit | P0 | M | — |
-| 1.4 | Developer Mode on the handset | Ship | P0 | XS | Ryder + the phone |
+| 1.3 | Menu text is half the readable size | Phone fit | P0 | M | a type-scale redesign |
+| 1.5 | Loading title sits under the Dynamic Island | Phone fit | P1 | S | what the splash handoff should do |
 | 2.1 | Speed / camera / model scale — one decision | Feel | P1 | M | a taste call |
 | 3.1 | A shot cannot be called off after aiming | Controls | P1 | S | — |
-| 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | a device install |
+| 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | — |
 | 4.1 | Nova and Ayaan are still capsules | Characters | P1 | L | Meshy pass |
 | 8.1 | A client's death is silent and its HUD lies | Multiplayer | P1 | S | — |
 | 10.1 | The app icon is a placeholder | Ship | P1 | S | — |
@@ -76,40 +74,57 @@ they are not urgent, and `Voicelines` is the extreme case.
 
 # 1. Phone fit — the P0 block
 
-Four items, and together they are the whole reason the game is not yet good in
-the hand. Everything else on this list is worth less than these until a build on
-the phone fills the screen at a readable size. **All device testing is Ryder's** —
-the phone is his and `devicectl` installs from his machine, so anything Jackson
-changes in the menu is a loop through him, not a handoff.
+**Three of the four are done** (6 Sep 2026) and are in `done.md`: 1.1 the match
+reaching the edges, 1.2 the menu reaching them, and 1.4 Developer Mode, which
+turned out to be on already. What made them finishable in one pass is that the
+device round trip **stopped needing Ryder's eyes** — `Tools/device_shot.sh`
+drives the handset with the `NS3_*` hooks and brings the PNG back, so every
+claim below is now measured on an iPhone 15 rather than reasoned about from a
+desktop window. That changes the note this section used to carry: device
+*testing* is still Ryder's hardware, but a screenshot is no longer a handoff.
 
-- [ ] **1.1 — The match does not reach the edges of the screen.** `P0` `S`
-      `project.godot` is `stretch/mode="canvas_items"`, `aspect="expand"` at
-      1280x720, which should fill — so this is either the safe-area inset or the
-      HUD's own anchors. **Shoot it on the device before changing anything**; a
-      desktop window cannot reproduce it.
-
-- [ ] **1.2 — The menu does not reach the edges either**, and it is a different
-      bug from 1.1. `P0` `S`
-      `MenuShell._fit_stage` deliberately *widens* the 1920x1080 stage past 1920
-      on anything taller than 16:9, so a phone is supposed to gain stage width
-      rather than bars. Either that path is not running on device, or honouring
-      the safe area is eating the gain back.
+What is left is the half that is a design decision rather than a bug.
 
 - [ ] **1.3 — Buttons and text are too small.** `P0` `M`
-      On the menu this is a type scale authored against a 1920 stage and read at
-      arm's length on a 6-inch screen; in the match it is the HUD. **Measure the
-      real device pixels per point first** — the stage scale makes guessing
-      useless, and the type scale has a deliberate hole in it (utility at 17-22,
-      display at 44+) that a blind bump would fill in and flatten. See CLAUDE.md's
-      **Menu** section before picking numbers.
+      *Measured on the device 6 Sep 2026; the numbers below replace the "measure
+      it first" instruction this entry used to lead with.* On an iPhone 15 in
+      landscape (2556x1179 at 3x, so 852x393 pt):
 
-- [ ] **1.4 — Developer Mode is off on the handset.** `P0` `XS` `[blocked: Ryder]`
-      The export runs end to end and leaves a signed `.ipa`, but `devicectl`
-      stops with `Developer Mode is disabled` until Settings → Privacy &
-      Security → Developer Mode is switched on and the phone restarted. It
-      cannot be done from here, and it gates every other P0 on this list, since
-      all three need shooting on the device. `devicectl` also needs
-      `DEVELOPER_DIR` set, exactly like the export.
+      | | stage/viewport px → pt | utility tier | display tier |
+      |---|---|---|---|
+      | **Menu** (1080-tall stage) | x0.364 | 17-22 → **6.2-8.0 pt** | 44 → 16.0 pt |
+      | **Match** (720-tall viewport) | x0.546 | 22 → 12.0 pt | 72 → 39.3 pt |
+
+      Apple's floor for body text is **11 pt**. So:
+      - **The match HUD is fine now.** Its four labels were bumped with the 1.1
+        layout fix (status 20→22, feed 18→24, players 26→30) and all three clear
+        11 pt. Nothing further is wanted here.
+      - **The menu's utility tier is the whole remaining problem**, at roughly
+        *half* the readable floor. Clearing 11 pt means about 30 stage px, which
+        lands on the bottom of the display tier — so this cannot be done as a
+        blind multiply. **It is the deliberate hole in the type scale that has to
+        be redesigned, not the sizes.** That is a design call on Jackson's own
+        system (CLAUDE.md's **Menu** section explains why the hole exists), and
+        it is the one part of the P0 block that is not a bug fix.
+      - Fixing 1.2 did *not* help enough to matter: filling the display moved the
+        stage scale from 0.631 to 0.667, worth 5.7%.
+      - Note it is only the **type**. Tap targets are fine — PLAY is 168x64 pt
+        and the smallest nav link is over 44 pt tall.
+
+- [ ] **1.5 — The loading screen's title sits under the Dynamic Island.**
+      `P1` `S` *(found 6 Sep 2026, the same pass that fixed 1.1 and 1.2)*
+      `loading_screen.gd:277` insets `strip` by 46 px on a 1280-authored
+      viewport = 75 device px, inside the phone's **177 px** landscape safe
+      inset — so "NOBLES CUP" and the progress bar are behind the island. It is
+      the first screen a tester ever sees.
+      **It was deliberately not fixed with 1.1 and 1.2**, because it is not the
+      same mechanical change: `LoadingScreen.compose()` is shared with
+      `tools/make_boot_splash.gd`, which renders it at 1280x720 as the engine's
+      boot splash, and CLAUDE.md records that the splash-to-live handoff being
+      seamless is a tuned property. Insetting the live one moves it relative to
+      the splash. Decide what the handoff should do first — the splash is
+      already `scaleAspectFit`, so it is letterboxed to 2096 px of a 2556 px
+      screen and the two do not line up edge to edge today either.
 
 ---
 
@@ -160,7 +175,11 @@ changes in the menu is a loop through him, not a handoff.
       **tap**, and a tap must keep firing at the nearest target.
 
 - [ ] **3.2 — Nothing in the haptics layer has been judged on an actual
-      phone.** `P1` `XS` `[blocked: a device install]`
+      phone.** `P1` `XS`
+      *No longer blocked on a device install: `Tools/device_install.sh` puts a
+      build on the handset in one command and `Tools/device_shot.sh` drives it
+      with any `NS3_*` hook, `NS3_HAPTIC_DEMO` included. What is still needed is
+      a person holding it, because feeling it is the entire test.*
       The score vocabulary is written, measured and instrumented, and the
       amplitudes are reasoned from a measured damage curve — but they have not
       been **felt**, and that is the only test that settles them. This also
