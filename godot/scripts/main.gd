@@ -1235,6 +1235,40 @@ func _attack_sound(weapon: Dictionary) -> String:
 
 # MARK: combat
 
+## Anders' sack, born where the kick lands it — at his foot when the kit
+## has the gear, a step ahead of him otherwise (see KEEP_IT_UP).
+func _launch_sack(f: Fighter, weapon: Dictionary, unit: Vector3, hop_to: float) -> void:
+	var sack := HackySack.new()
+	sack.weapon = weapon
+	sack.base_damage = int(weapon.damage * f.damage_multiplier())
+	sack.owner_fighter = f
+	sack.game = self
+	sack.position = f.gear_global_position() + Vector3(0, 0.2, 0) if f.has_gear() \
+			else f.global_position + unit * 0.8 + Vector3(0, 1.0, 0)
+	# Damage step is capped; the streak the player sees is not.
+	sack.rally = clampi(f.sack_streak + 1, 1, HackySack.MAX_RALLY)
+	sack.streak = f.sack_streak + 1
+	sack.on_enemy_hit = _on_rally_sack_hit
+	sack.on_rally = _on_sack_caught
+	sack.on_land = _on_sack_land
+	sack.on_box_hit = _on_sack_box_hit
+	if sim_active:
+		_sim_kit(f.kit.name).s_launch += 1
+	add_child(sack)
+	# After add_child: the arc needs the node in the tree to sweep for
+	# walls and to place its landing ring.
+	sack.launch_at(f.global_position + unit * hop_to)
+	if f.has_gear():
+		# Born at the size of the sack on his foot and grown to its own over
+		# the first stretch of the arc, so the hand-off reads as one object
+		# rather than a small ball popping into a bigger one. Visual only:
+		# hits and landings resolve by radius, never by this scale.
+		var grow: float = float(f.kit.gear.get("radius", 0.22)) / float(weapon.radius)
+		sack.scale = Vector3.ONE * grow
+		create_tween().tween_property(sack, "scale", Vector3.ONE, 0.15) \
+				.set_ease(Tween.EASE_OUT)
+
+
 ## Owner references on in-flight projectiles can outlive the fighter; typed
 ## params reject freed instances, so sanitize them to null before deal_damage.
 func _live(f) -> Fighter:
@@ -1467,25 +1501,19 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 						_sim_kit(f.kit.name).attacks -= 1   # never happened; keep dmg/atk honest
 					return
 			var hop_to: float = clamp(dist, Kits.TILE * 1.5, weapon.range)
-			var sack := HackySack.new()
-			sack.weapon = weapon
-			sack.base_damage = int(weapon.damage * f.damage_multiplier())
-			sack.owner_fighter = f
-			sack.game = self
-			sack.position = f.global_position + unit * 0.8 + Vector3(0, 1.0, 0)
-			# Damage step is capped; the streak the player sees is not.
-			sack.rally = clampi(f.sack_streak + 1, 1, HackySack.MAX_RALLY)
-			sack.streak = f.sack_streak + 1
-			sack.on_enemy_hit = _on_rally_sack_hit
-			sack.on_rally = _on_sack_caught
-			sack.on_land = _on_sack_land
-			sack.on_box_hit = _on_sack_box_hit
-			if sim_active:
-				_sim_kit(f.kit.name).s_launch += 1
-			add_child(sack)
-			# After add_child: the arc needs the node in the tree to sweep for
-			# walls and to place its landing ring.
-			sack.launch_at(f.global_position + unit * hop_to)
+			# The sack rides his kicking foot through the wind-up and leaves from
+			# it when the kick lands, `delay` seconds in. The projectile is not
+			# born until then, so there is never a second sack on screen. The sim
+			# runs unattended and gets it at once.
+			if sim_active or not f.has_gear():
+				_launch_sack(f, weapon, unit, hop_to)
+			else:
+				f.set_gear_visible(true)
+				get_tree().create_timer(float(weapon.get("delay", 0.12))).timeout.connect(func() -> void:
+					if not is_instance_valid(f) or f.is_dead():
+						return
+					f.set_gear_visible(false)
+					_launch_sack(f, weapon, unit, hop_to))
 		Kits.Style.POP_OFF:
 			# Pops the sack up and leaps clear along the aim; the spike fires
 			# back down the same line on landing (see _update_leaps). Consumes
@@ -3421,8 +3449,18 @@ func _shot_check() -> void:
 		return
 	if now >= _shot_times[0]:
 		var t: float = _shot_times.pop_front()
+		# The engine skips drawing while the window cannot draw (occluded by
+		# another app, another Space, the display asleep) and get_image() then
+		# hands back whatever frame was drawn last — a harness run under a
+		# browser window came back as N identical shots. Draw it ourselves.
+		if not DisplayServer.window_can_draw():
+			RenderingServer.force_draw(false)
 		var img := get_viewport().get_texture().get_image()
-		var out: String = Session.shot_path("%s_%d.png" % [_shot_prefix, int(t)])
+		# Whole seconds keep their old names (prefix_8.png); a fractional time
+		# keeps its decimals (prefix_7.06.png), so a burst can catch a 0.12 s
+		# wind-up instead of every shot in the same second overwriting the last.
+		var stamp: String = str(int(t)) if is_equal_approx(t, floor(t)) else String.num(t, 2)
+		var out: String = Session.shot_path("%s_%s.png" % [_shot_prefix, stamp])
 		img.save_png(out)
 		print("NS3_SHOTS wrote ", ProjectSettings.globalize_path(out))
 		if _shot_times.is_empty():

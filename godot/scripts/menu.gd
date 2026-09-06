@@ -506,6 +506,8 @@ func _wire_debug_screenshot() -> void:
 	var delay: float = 0.55 if start == "loading" else 2.0
 	get_tree().create_timer(delay).timeout.connect(func() -> void:
 		var out: String = Session.shot_path(shot)
+		if not DisplayServer.window_can_draw():   # occluded windows are not drawn; see main.gd:_shot_check
+			RenderingServer.force_draw(false)
 		get_viewport().get_texture().get_image().save_png(out)
 		print("NS3_MENU_SHOT wrote ", ProjectSettings.globalize_path(out))
 		get_tree().quit())

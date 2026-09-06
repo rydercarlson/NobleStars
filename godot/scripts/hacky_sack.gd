@@ -113,17 +113,29 @@ func _ready() -> void:
 	if is_instance_valid(owner_fighter):
 		owner_fighter.ammo_locked = true
 
-	var visual := MeshInstance3D.new()
-	var mesh := SphereMesh.new()
-	mesh.radius = weapon.radius
-	mesh.height = weapon.radius * 2.0
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.95, 0.88, 0.45)
-	mat.emission_enabled = true
-	mat.emission = Color(0.12, 0.35, 0.25)
-	mesh.material = mat
-	visual.mesh = mesh
-	add_child(visual)
+	# The sack is a model when the kit names one (`weapon.model` — the same
+	# GLB that sits on Anders' foot as gear, so the throw is visibly the ball
+	# he was kicking), fitted to `weapon.radius`; the plain sphere is the
+	# fallback and what the sim runs with.
+	var model_path: String = str(weapon.get("model", ""))
+	if model_path != "" and ResourceLoader.exists(model_path):
+		var scene: PackedScene = load(model_path)
+		if scene != null:
+			var model: Node3D = scene.instantiate()
+			Fighter.flatten_metallic(model)
+			add_child(Fighter.fit_ball(model, float(weapon.radius)))
+	else:
+		var visual := MeshInstance3D.new()
+		var mesh := SphereMesh.new()
+		mesh.radius = weapon.radius
+		mesh.height = weapon.radius * 2.0
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.95, 0.88, 0.45)
+		mat.emission_enabled = true
+		mat.emission = Color(0.12, 0.35, 0.25)
+		mesh.material = mat
+		visual.mesh = mesh
+		add_child(visual)
 
 	_build_marker()
 

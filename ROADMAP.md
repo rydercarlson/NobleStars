@@ -39,9 +39,10 @@ free choice in this codebase has a rejected first attempt on record.
 
 Ten things. Beta is when all ten are true — not when a date arrives.
 
-1. **12 fighters, none of them capsules.** Nine kits exist today, seven of them
-   modelled. That is **three new characters** plus models for Nova and Ayaan =
-   **five GLBs**, and three fresh kit designs.
+1. **12 fighters, none of them capsules.** Nine kits exist today, eight of them
+   modelled (Ayaan landed 6 Sep — Jackson's export, skis and all). That is
+   **three new characters** plus a model for Nova = **four GLBs**, and three
+   fresh kit designs.
 2. **Every fighter has real attack animations.** All seven modelled kits name an
    `attack` clip today, but they are **borrowed Meshy stock** — Hammy attacks
    with `baseball_pitching`, Anders with `Kick_a_Soccer_Ball`, Leon with
@@ -143,14 +144,14 @@ now and runs underneath everything else.*
 |---|---|---|---|
 | **Ryder** | Design three new fighters | M | **D2** |
 | **Ryder** | Stat them, then build the kits | M | `CHARACTER_BUILDING.md` |
-| **Ryder** | Meshy passes for Nova and Ayaan | M | `todo 4.1` |
+| **Ryder** | Meshy pass for Nova *(Ayaan is done)* | S | `todo 4.1` |
 | **Ryder** | Meshy passes for the three new fighters | L | — |
 | **?** | Real attack animations for all 12 fighters | L | **D9** |
 | **?** | Super animations for the kits that have none | M | **D9** |
-| **Jackson** | Portraits for all five, wired through the menu | S | `todo 4.1`, pipeline 2 |
+| **Jackson** | Portraits for the remaining four, wired through the menu *(Ayaan's is in)* | S | `todo 4.1`, pipeline 2 |
 | **Jackson** | Decide the card medium, then produce the set | M | `todo 4.2`, **D5** |
 
-**Nova first, ahead of the other four.** She is the sole starter, so her capsule
+**Nova first, ahead of the other three.** She is the sole starter, so her capsule
 is the first thing every new tester sees, on the first screen they see. A beta
 tester's first impression is a placeholder cylinder.
 

@@ -438,6 +438,55 @@ Newest work is roughly at the top of each section.
 
 ## Character models & animation
 
+- [x] **Ayaan is modelled, wears skis through his Super, and stands like a
+      skier.** Jackson's Meshy export (`Assets/3D/Animation/carver_brawler_animated.glb`
+      → `assets/ayaan.glb`, 6 Sep 2026) through `fix_meshy_glb.py`, textures
+      capped at 1024 on import like the other characters; `Jump_Over_Obstacle`
+      is the Super clip and `Punch_Combo_3` the attack. The skis are a second
+      GLB (`assets/skis.glb`) split into `left`/`right` by `--split-halves` and
+      bolted to `LeftFoot`/`RightFoot` for the life of the Super — worn from
+      the cast, through the flip, to the landing, gone with the run.
+      - **Skis solved in skeleton space vanished at the apex.** On the ground
+        they looked right; at the top of the jump they were a hundred metres
+        away, because a Meshy armature carries a 0.01 scale that a child of
+        the skeleton inherits. The solve is in world space now
+        (`skeleton.global_transform * get_bone_global_rest`), which folds that
+        scale into the inverse. Written up in CLAUDE.md under **Worn gear**.
+      - **The first Idle was a frame of the punch combo's guard**, and on the
+        home screen it read as hands-up surrender. The rest pose was worse (a
+        T-pose with relaxed arms is a mannequin). What shipped is the guard
+        frame's symmetric feet with both arms re-aimed to hip height and an
+        8° forward lean — a skier gripping poles — built with the tool's new
+        `--idle-from` / `--idle-aim` / `--idle-spin` flags rather than by
+        hand-editing quaternions. Rejected on the way: forearms level at chest
+        height (zombie arms), the jump's crouch frames (every one is an
+        asymmetric lunge), and the walk frame (straight legs, no stance).
+      - **The stance flags did nothing for four candidates in a row** and the
+        renders of "different" poses were the raw clip frames. zsh does not
+        word-split an unquoted `$FLAGS`, so the whole flag string arrived as
+        one argument that matched neither parser — the same zsh trap CLAUDE.md
+        already records for the wifi harness. `${=FLAGS}`.
+
+- [x] **Anders' hacky sack is the pink "N" ball, on his foot and in the air.**
+      The ball Jackson supplied as `Meshy_AI_Soccer_Ball_8k_…` was taken for the
+      Cup ball and wired as one; it is the hacky sack. The Cup ball went back to
+      the drawn twelve-pentagon shader (`ball.gd`), and the model is
+      `assets/hacky_sack.glb`: worn on `RightFoot` from the cast until the kick
+      lands (`kits.gd` `gear`, `"on": "attack"`), then thrown as the same model
+      (`weapon.model`, `hacky_sack.gd`), fitted to `weapon.radius` by
+      `Fighter.fit_ball`. Landings and hits still resolve by radius.
+      - **At the projectile's radius (0.44) the ball on his foot was a beach
+        ball** strapped to his ankle. It is half that on the foot and
+        `main.gd:_launch_sack` swells the throw from that size to its own over
+        its first 0.15 s, so the hand-off reads as one object rather than a
+        small ball popping into a big one.
+      - **The atlas had pink speckle over every white panel** — the bake's
+        noise, recoloured with the panels. Cleaned by classifying each texel
+        (white / pink / navy / seam) and replacing any pink-in-white or
+        white-in-pink fleck with the local mean of the majority class, and the
+        metal/roughness map was dropped (its dot pattern read as a grid on the
+        navy panels; the material is metallic 0, roughness 0.8 now).
+
 - [x] **Feet sinking through the floor.** Meshy's run/attack clips drop the hips
       6–11 cm below the rest pose, pushing the feet under the floor plane.
       `fighter.gd` now calibrates the idle foot height at spawn and lifts the
@@ -1198,6 +1247,25 @@ Newest work is roughly at the top of each section.
         positional stereo (everything is mono, attenuated only by distance).
 
 ## Tooling & workflow
+
+- [x] **Frozen-frame probes for stances and worn gear, and screenshots that
+      survive an occluded window.** `tools/pose_probe.gd` freezes a kit at
+      `CLIP:SECONDS` frames (plus the menu stage's straight-on view, plus the
+      match ball from four sides) and `tools/gear_probe.gd` runs
+      `Fighter._setup_gear`'s exact solve on a frozen frame — the live wind-up
+      the sack sits on the foot for is 0.12 s, which no `NS3_SHOTS` burst could
+      reliably catch before `prefix_7.06.png` names existed.
+      - **Nine identical screenshots from one run.** The engine skips drawing
+        while its window cannot draw (occluded by another app, on another
+        Space, the display asleep), and `get_image()` then hands back the last
+        frame it did draw. Both probes, `NS3_SHOTS` and `NS3_MENU_SHOT` now call
+        `RenderingServer.force_draw(false)` when `DisplayServer.window_can_draw()`
+        is false, and the probes ask for an always-on-top window; the harness
+        runs pass `--always-on-top`. Verified with the window covered:
+        thirteen shots, thirteen different pictures.
+      - **`NS3_SHOTS` named every shot `prefix_<int>.png`**, so a burst inside
+        one second overwrote itself. Whole seconds keep the old names; a
+        fractional time keeps its decimals.
 
 - [x] **The stalled match-feel branch is committed and pushed.** 1,982 lines
       across nine gameplay scripts, landed as `94f26b5` on 2026-09-06. They had

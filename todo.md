@@ -43,7 +43,7 @@ they are not urgent, and `Voicelines` is the extreme case.
 | 2.1 | Speed / camera / model scale — one decision | Feel | P1 | M | a taste call |
 | 3.1 | A shot cannot be called off after aiming | Controls | P1 | S | — |
 | 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | — |
-| 4.1 | Nova and Ayaan are still capsules | Characters | P1 | L | Meshy pass |
+| 4.1 | Nova is still a capsule | Characters | P1 | M | Meshy pass |
 | 8.1 | A client's death is silent and its HUD lies | Multiplayer | P1 | S | — |
 | 10.1 | The app icon is a placeholder | Ship | P1 | S | — |
 | 5.1 | The menu's second look | Menu | P2 | M | — |
@@ -252,20 +252,26 @@ What is left is the half that is a design decision rather than a bug.
 
 # 4. Characters and art
 
-- [ ] **4.1 — Nova and Ayaan still render as capsules.** `P1` `L`
+- [ ] **4.1 — Nova still renders as a capsule.** `P1` `M`
       `[blocked: a Meshy pass]`
-      No `model` key in `kits.gd`, so they fall back to `_setup_capsule` in the
-      match **and** on the menu stage. **Nova is the sole starter**, so a capsule
-      is the first thing a new player ever sees, on the first screen they see it
-      on. Anders and Hammy are wired now (`kits.gd:481`, `:559`).
-      - The two need a Meshy export through `python3 Tools/fix_meshy_glb.py`,
-        then `Assets/3D/` → `godot/assets/` → `kits.gd` `model`/`clips`.
-      - **This is the same blocker as their portraits.** `tools/render_portraits.gd`
-        re-shot all seven modelled kits so the roster reads as one set for the
-        first time; these two are the whole remaining hole and the tool cannot
-        help, because there is no GLB to shoot.
-      - They are the only items in this file that **cannot** be produced by one
-        of the three pipelines in **Reference**.
+      *Rewritten 6 Sep 2026: this entry covered Nova and Ayaan; Ayaan landed
+      that day (Jackson's Meshy export through the pipeline, skis worn through
+      his Super, a portrait off the model) and his half is in `done.md`.*
+      No `model` key in `kits.gd`, so Nova falls back to `_setup_capsule` in the
+      match **and** on the menu stage. **She is the sole starter**, so a
+      capsule is the first thing a new player ever sees, on the first screen
+      they see it on. Anders, Hammy and Ayaan are wired (`kits.gd` `anders()`,
+      `hammy()`, `ayaan()`).
+      - She needs a Meshy export through `python3 Tools/fix_meshy_glb.py`,
+        then `Assets/3D/` → `godot/assets/` → `kits.gd` `model`/`clips`; give
+        the Idle a stance with `--idle-from`/`--idle-aim` (CLAUDE.md, character
+        model pipeline) rather than shipping the rest pose.
+      - **This is the same blocker as her portrait.** `tools/render_portraits.gd`
+        re-shot the modelled kits so the roster reads as one set; she is the
+        whole remaining hole and the tool cannot help, because there is no GLB
+        to shoot.
+      - The only item in this file that **cannot** be produced by one of the
+        three pipelines in **Reference**.
 
 - [ ] **4.2 — The character cards are a different medium from the portraits, and
       the medium has to be chosen.** `P3` `M` `[blocked: a medium call]`

@@ -83,6 +83,14 @@ func to_match(tree: SceneTree) -> void:
 		var model: String = str(kit.get("model", ""))
 		if model != "" and not wanted.has(model):
 			wanted.append(model)
+		# Worn gear (Ayaan's skis) is a GLB of its own that `Fighter._setup_gear`
+		# loads on the spawn frame, so it wants the same cache hit as the body.
+		var gear: String = str((kit.get("gear", {}) as Dictionary).get("model", ""))
+		if gear != "" and not wanted.has(gear):
+			wanted.append(gear)
+		var thrown: String = str((kit.get("weapon", {}) as Dictionary).get("model", ""))
+		if thrown != "" and not wanted.has(thrown):
+			wanted.append(thrown)
 	# The gas bank is built on the match's first frame now (it used to be built
 	# on the first shrink), so its model wants to be in the cache by then for the
 	# same reason `power_cube.glb` is preloaded: a multi-megabyte GLB coming off

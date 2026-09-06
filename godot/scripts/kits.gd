@@ -490,6 +490,17 @@ static func anders() -> Dictionary:
 		# backflip is airborne 0.60-1.35s, and Pop Off's leap lasts 0.48s
 		# (fighter.gd:begin_leap), so seeking to 0.55 at 1.6x puts the flight
 		# over the leap and leaves the landing recovery to play after it.
+		# The sack sits on his kicking foot from the cast until the kick lands
+		# (0.12s in at this speed), then leaves from there as the projectile.
+		# The sack is the pink "N" ball (`assets/hacky_sack.glb`), worn on his
+		# kicking foot from the cast until the kick lands and thrown as the
+		# same model (`weapon.model`). Half the projectile's radius here: at
+		# `weapon.radius` (0.44) it read as a beach ball strapped to his foot,
+		# so `main.gd:_launch_sack` swells the throw from this size up to its
+		# own over its first 0.15 s. `offset.y` is an absolute height; 0.24
+		# keeps the ball off the floor.
+		"gear": {"model": "res://assets/hacky_sack.glb", "radius": 0.22, "on": "attack",
+				 "pieces": [{"bone": "RightFoot"}], "offset": Vector3(0, 0.24, 0.05)},
 		"clips": {"idle": "Idle", "run": "Running", "attack": "Kick_a_Soccer_Ball",
 				  "attack_speed": 2.2, "attack_seek": 0.28,
 				  "super": "Backflip", "super_speed": 1.6, "super_seek": 0.55},
@@ -511,6 +522,7 @@ static func anders() -> Dictionary:
 			# timed against movement, not against reaction time.
 			"style": Style.KEEP_IT_UP, "pellets": 1, "spread_deg": 0.0, "damage": 900,
 			"range": 3.5 * TILE, "speed": SPEED_NORMAL * 3.00, "radius": 0.44,
+			"model": "res://assets/hacky_sack.glb",   # the thrown sack's look; hits still resolve by `radius`
 			"destroys_walls": false, "knockback": 3.0, "pierces": false,
 			"aoe": 0.95 * TILE, "water_mult": 1.0,
 			# The kick blasts the ground Anders kicks from, at `kick_damage_mult`
@@ -652,7 +664,8 @@ static func ayaan() -> Dictionary:
 		# along Y, both tips curling to -Z), so it is laid flat with a quarter
 		# turn about X, narrowed to sit under the feet (0.24 m apart at rest)
 		# and shortened to 1.7 m. Worn from the Super's cast to the ride's end.
-		"gear": {"model": "res://assets/skis.glb",
+		"gear": {"model": "res://assets/skis.glb", "on": "super",
+				 "pieces": [{"node": "left", "bone": "LeftFoot"}, {"node": "right", "bone": "RightFoot"}],
 				 "rotation_deg": Vector3(90, 0, 0),
 				 "scale": Vector3(0.6, 0.9, 0.8),
 				 "offset": Vector3(0, 0.07, 0.05)},

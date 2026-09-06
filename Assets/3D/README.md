@@ -21,6 +21,9 @@ assets**, not shipped app resources.
 | `paddle_brawler.glb` | Meshy AI (remeshed + texture), 2026-08-31 | 6,796 | 10,091 | No | 28.3 MB |
 | `Animation/tennis_brawler_animated.glb` | Meshy AI (merged animations), 2026-08-31, cleaned | ~21,000 | 19,628 | Yes, 24 joints | 7.0 MB |
 | `Animation/paddle_brawler_animated.glb` | Meshy AI (merged animations), 2026-08-31, cleaned | ~8,300 | 11,417 | Yes, 24 joints | 17.5 MB |
+| `skis.glb` | Meshy AI (blue striped skis), 2026-09-05, cleaned, split into `left`/`right` nodes, textures 1024 | — | — | No | 3.4 MB |
+| `hacky_sack.glb` | Meshy AI (pink "N" ball, exported as "Soccer Ball 8k"), 2026-09-05, atlas de-speckled, metal/roughness map dropped | — | — | No | 1.5 MB |
+| `soccer_ball.glb` | Meshy AI (Nobles low-poly soccer ball), 2026-09-02 | — | — | No | 0.6 MB — unused: the Cup ball is drawn by `ball.gd`'s shader |
 
 The static files are kept as generator-output archives (the paddle one carries two
 4096×4096 maps — hence the size); the `Animation/` versions are what the game uses.

@@ -369,6 +369,7 @@ class Rig:
 
     def __init__(self, j, blob):
         self.j = j
+        self.blob = blob
         self.names = [n.get('name') for n in j['nodes']]
         self.idx = {n: i for i, n in enumerate(self.names)}
         self.parent = {c: i for i, n in enumerate(j['nodes'])
@@ -409,6 +410,33 @@ class Rig:
 
     def copy(self, pose):
         return {k: [np.array(x) for x in v] for k, v in pose.items()}
+
+    def sample(self, clip_name, t):
+        """The rest pose with every channel of `clip_name` evaluated at `t`."""
+        anim = next((a for a in self.j.get('animations', []) if a.get('name') == clip_name), None)
+        if anim is None:
+            raise SystemExit(f"--idle-from: no clip named {clip_name!r}")
+        pose = self.copy(self.rest)
+        slot = {'translation': 0, 'rotation': 1, 'scale': 2}
+        for ch in anim['channels']:
+            node = ch['target']['node']
+            if node not in pose:
+                continue
+            samp = anim['samplers'][ch['sampler']]
+            tin = read_accessor(self.j, self.blob, samp['input'])[:, 0]
+            tout = read_accessor(self.j, self.blob, samp['output'])
+            k = int(np.searchsorted(tin, t)); k = min(max(k, 1), len(tin) - 1)
+            t0, t1 = tin[k - 1], tin[k]
+            u = 0.0 if t1 <= t0 else float(np.clip((t - t0) / (t1 - t0), 0, 1))
+            v0, v1 = tout[k - 1].astype(np.float64), tout[k].astype(np.float64)
+            if ch['target']['path'] == 'rotation':
+                if np.dot(v0, v1) < 0:
+                    v1 = -v1
+                v = v0 + u * (v1 - v0); v /= np.linalg.norm(v)
+            else:
+                v = v0 + u * (v1 - v0)
+            pose[node][slot[ch['target']['path']]] = v
+        return pose
 
     def relaxed(self):
         """Rest pose with the T/A-pose arms relaxed so each hand hangs just
@@ -484,7 +512,7 @@ def write_clip(j, blob, name, times, poses, driven):
         {'name': name, 'samplers': samplers, 'channels': channels})
 
 
-def add_idle(j, blob, log, duration=4.0, keys=17):
+def add_idle(j, blob, log, duration=4.0, keys=17, base_from=None, aims=(), spins=()):
     """Looping standing idle: the relaxed rest pose plus a slow breath cycle.
 
     Every bone the other clips drive gets a track here too -- a clip with
@@ -496,8 +524,26 @@ def add_idle(j, blob, log, duration=4.0, keys=17):
     rig = Rig(j, blob)
     if not rig.driven:
         log("no existing animation tracks to mirror, skipping idle"); return
-    base = rig.relaxed()
-    log("relaxed A/T-pose arms, hands solved to 4 cm outside each thigh")
+    if base_from:
+        clip_name, at = base_from
+        base = rig.sample(clip_name, at)
+        log(f"idle stance taken from '{clip_name}' at {at:.2f}s")
+    else:
+        base = rig.relaxed()
+        log("relaxed A/T-pose arms, hands solved to 4 cm outside each thigh")
+    # Stance edits on top of the base frame, parents before children: an aim
+    # reads the parent's world rotation as it is at that moment, so an upper
+    # arm listed after its forearm would swing the forearm off its target.
+    for bone, direction in aims:
+        if bone not in rig.idx or rig.idx[bone] not in base:
+            log(f"--idle-aim: no driven bone named {bone!r}, ignored"); continue
+        rig.aim(base, bone, direction)
+        log(f"idle stance: {bone} aimed along {tuple(direction)}")
+    for bone, axis, deg in spins:
+        if bone not in rig.idx or rig.idx[bone] not in base:
+            log(f"--idle-spin: no driven bone named {bone!r}, ignored"); continue
+        rig.spin(base, bone, axis, deg)
+        log(f"idle stance: {bone} turned {deg:g} deg about local {tuple(axis)}")
 
     # +X on the spine chain pitches forward/back; amplitudes in degrees.
     breath = {'Spine02': -0.5, 'Spine01': -1.3, 'Spine': -0.9,
@@ -519,6 +565,36 @@ def add_idle(j, blob, log, duration=4.0, keys=17):
         poses.append(p)
     write_clip(j, blob, 'Idle', times, poses, rig.driven)
     log(f"added looping 'Idle' clip — {duration:g}s over {len(rig.driven)} bones")
+
+
+def drop_idle(j, log):
+    """Remove a previously synthesized Idle so add_idle can rebuild it on an
+    already-fixed file. The clip's accessors stay behind as a few kilobytes
+    of orphans, exactly as drop_junk_clips leaves them; repack sheds the
+    buffer data nothing references."""
+    anims = j.get('animations', [])
+    kept = [a for a in anims if a.get('name') != 'Idle']
+    if len(kept) != len(anims):
+        j['animations'] = kept
+        log("dropped the existing Idle clip for rebuilding")
+
+
+def parse_aims(items):
+    """'BONE:x,y,z' -> (bone, [x, y, z]) — a world direction for the bone's +Y."""
+    out = []
+    for it in items:
+        bone, _, vec = it.partition(':')
+        out.append((bone, [float(v) for v in vec.split(',')]))
+    return out
+
+
+def parse_spins(items):
+    """'BONE:ax,ay,az:deg' -> (bone, [ax, ay, az], deg) — a bone-local turn."""
+    out = []
+    for it in items:
+        bone, axis, deg = it.split(':')
+        out.append((bone, [float(v) for v in axis.split(',')], float(deg)))
+    return out
 
 
 ATTACKISH = ('attack', 'slash', 'thrust', 'punch', 'swing', 'smash', 'sweep',
@@ -757,6 +833,66 @@ def anchor_hips(j, blob, log):
             log(f"anchored hips in '{anim.get('name')}' — root motion of {drift / threshold * 0.5:.1f} hip-heights pinned")
 
 
+def split_halves(j, blob, log):
+    """Split an unskinned single-mesh prop into two nodes, 'left' (x<0) and
+    'right' (x>0), by triangle centroid, each with its own mesh. For things
+    that come as a pair in one mesh — a set of skis — so the game can hang
+    each half on its own bone.
+    """
+    import numpy as _np
+    if j.get('skins') or len(j['meshes']) != 1 or len(j['meshes'][0]['primitives']) != 1:
+        log("split-halves skipped: needs one unskinned mesh with one primitive")
+        return blob
+    prim = j['meshes'][0]['primitives'][0]
+    attrs = prim['attributes']
+    pos = read_accessor(j, blob, attrs['POSITION']).astype(_np.float32)
+    idx = read_accessor(j, blob, prim['indices']).reshape(-1, 3).astype(_np.int64)
+    nrm = read_accessor(j, blob, attrs['NORMAL']).astype(_np.float32) if 'NORMAL' in attrs else None
+    uv = read_accessor(j, blob, attrs['TEXCOORD_0']).astype(_np.float32) if 'TEXCOORD_0' in attrs else None
+    cx = pos[idx].mean(axis=1)[:, 0]
+    def add_view(arr, target):
+        nonlocal blob
+        pad = (-len(blob)) % 4
+        blob = blob + b'\x00' * pad
+        off = len(blob)
+        raw = arr.tobytes()
+        blob = blob + raw
+        j['bufferViews'].append({'buffer': 0, 'byteOffset': off, 'byteLength': len(raw), 'target': target})
+        return len(j['bufferViews']) - 1
+    def add_acc(arr, ctype, comp, view, minmax=False):
+        acc = {'bufferView': view, 'componentType': ctype, 'count': int(len(arr)), 'type': comp}
+        if minmax:
+            acc['min'] = [float(v) for v in arr.min(axis=0)]; acc['max'] = [float(v) for v in arr.max(axis=0)]
+        j['accessors'].append(acc)
+        return len(j['accessors']) - 1
+    new_meshes = []
+    for name, mask in (('left', cx < 0), ('right', cx >= 0)):
+        tris = idx[mask]
+        used = _np.unique(tris)
+        remap = _np.full(len(pos), -1, dtype=_np.int64); remap[used] = _np.arange(len(used))
+        new_idx = remap[tris].reshape(-1).astype(_np.uint32)
+        p_attrs = {'POSITION': add_acc(pos[used], 5126, 'VEC3', add_view(pos[used], 34962), True)}
+        if nrm is not None:
+            p_attrs['NORMAL'] = add_acc(nrm[used], 5126, 'VEC3', add_view(nrm[used], 34962))
+        if uv is not None:
+            p_attrs['TEXCOORD_0'] = add_acc(uv[used], 5126, 'VEC2', add_view(uv[used], 34962))
+        new_prim = {'attributes': p_attrs, 'indices': add_acc(new_idx, 5125, 'SCALAR', add_view(new_idx, 34963)), 'mode': 4}
+        if 'material' in prim:
+            new_prim['material'] = prim['material']
+        j['meshes'].append({'name': name, 'primitives': [new_prim]})
+        new_meshes.append((name, len(j['meshes']) - 1, len(tris)))
+    # the original mesh node becomes an empty parent of the two halves
+    old_nodes = [i for i, n in enumerate(j['nodes']) if n.get('mesh') == 0]
+    parent = old_nodes[0] if old_nodes else 0
+    j['nodes'][parent].pop('mesh', None)
+    for name, mi, ntris in new_meshes:
+        j['nodes'].append({'name': name, 'mesh': mi})
+        j['nodes'][parent].setdefault('children', []).append(len(j['nodes']) - 1)
+        log(f"split '{name}': {ntris} triangles")
+    j['buffers'][0]['byteLength'] = len(blob)
+    return blob
+
+
 def simplify_mesh(j, blob, log, target_tris):
     """Vertex-clustering decimation for unskinned props. Meshy hands back ~8k
     triangles for a grass clump or a gas puff; instanced a few hundred times
@@ -939,6 +1075,19 @@ def main():
     ap.add_argument('-o', '--output')
     ap.add_argument('--no-idle', action='store_true')
     ap.add_argument('--no-attack', action='store_true')
+    ap.add_argument('--idle-from', default='',
+                    help="CLIP:SECONDS — build the Idle on that frame's stance instead of the rest pose")
+    ap.add_argument('--idle-aim', action='append', default=[], metavar='BONE:x,y,z',
+                    help="in the idle stance, point BONE (its +Y, the bone direction) along this "
+                         "world direction; repeatable, list parents before children")
+    ap.add_argument('--idle-spin', action='append', default=[], metavar='BONE:ax,ay,az:deg',
+                    help="in the idle stance, turn BONE about its own local axis by deg; "
+                         "repeatable, applied after every --idle-aim")
+    ap.add_argument('--replace-idle', action='store_true',
+                    help="drop an existing Idle first, so the stance flags can rebuild it on an "
+                         "already-fixed file")
+    ap.add_argument('--split-halves', action='store_true',
+                    help="split the (unskinned) mesh into 'left'/'right' nodes about x=0, for paired props")
     ap.add_argument('--simplify', type=int, default=0,
                     help="decimate unskinned meshes to about N triangles")
     ap.add_argument('--texture-size', type=int, default=0,
@@ -962,12 +1111,21 @@ def main():
     drop_unused_textures(j, log)
     fix_stray_limb_weights(j, blob, log)
     face_forward(j, log)
+    if args.replace_idle:
+        drop_idle(j, log)
     if not args.no_idle and j.get('skins'):
-        add_idle(j, blob, log)
+        base_from = None
+        if args.idle_from:
+            clip_name, _, at = args.idle_from.rpartition(':')
+            base_from = (clip_name, float(at))
+        add_idle(j, blob, log, base_from=base_from,
+                 aims=parse_aims(args.idle_aim), spins=parse_spins(args.idle_spin))
     if not args.no_attack and j.get('skins'):
         add_attack(j, blob, log)
     if args.split_held_item and j.get('skins'):
         split_held_item(j, blob, log, args.split_held_item)
+    if args.split_halves:
+        blob = split_halves(j, blob, log)
     if args.simplify:
         blob = simplify_mesh(j, blob, log, args.simplify)
     if args.texture_size:

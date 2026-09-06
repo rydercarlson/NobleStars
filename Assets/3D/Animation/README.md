@@ -17,6 +17,7 @@ produce. The raw Meshy export of the tennis brawler is preserved in git history
 | `tennis_brawler_animated.glb` | Tony | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 5 | ~21,000 | 7.0 MB |
 | `paddle_brawler_animated.glb` | Henry | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 6 | ~8,300 | 17.5 MB |
 | `staff_brawler_animated.glb` | Sanjit (planned) | Meshy AI (merged animations), 2026-08-31, cleaned | 24-joint humanoid | 8 | ~7,300 | 9.8 MB |
+| `carver_brawler_animated.glb` | Ayaan | Meshy AI (merged animations), 2026-09-05, cleaned, textures 2048 in the file and capped at 1024 on import | 24-joint humanoid | 5 (`Idle` synthesized on `Punch_Combo_3` @0.0 with re-aimed arms — see CLAUDE.md, character model pipeline) | — | 6.4 MB |
 
 All three are wired into the game: copied to `godot/assets/<kit>.glb` and declared in
 `godot/scripts/kits.gd` (`model` + `clips`). Sanjit shipped as designed — double punch

@@ -130,7 +130,6 @@ var _conceal_applied := -1
 var _anim: AnimationPlayer
 var _held_item: Node3D   # e.g. Sanjit's staff — hidden while his Super flies
 var _gear: Node3D        # e.g. Ayaan's skis — shown from the Super's cast to the ride's end
-var _gear_bones: PackedInt32Array = []   # LeftFoot, RightFoot, LeftToeBase, RightToeBase
 var _skel: Skeleton3D
 var _foot_bones: PackedInt32Array = []
 var _foot_rest_y := 0.0
@@ -294,7 +293,6 @@ func _setup_model() -> void:
 					"energy": m.emission_energy_multiplier,
 				})
 	_held_item = _model.find_child("held_item", true, false)
-	_setup_gear()
 	_anim = _model.find_child("AnimationPlayer", true, false)
 	if _anim:
 		var clips: Dictionary = kit.clips
@@ -304,6 +302,7 @@ func _setup_model() -> void:
 				a.loop_mode = Animation.LOOP_LINEAR
 		_anim.play(clips.idle)
 	_calibrate_feet()
+	_setup_gear()
 
 ## Meshy's run and attack clips drop the hips well below the rest pose, which
 ## drives the feet through the floor. Record where the feet sit in the idle pose
@@ -377,7 +376,6 @@ func _lowest_foot_y() -> float:
 ## rise and fall intact. It never pushes down, so a clip whose feet stay high
 ## (every `run_fast_*` variant measures 0.000) just stands normally.
 func _ground_feet(delta: float) -> void:
-	_follow_feet()
 	if _skel == null or _anim == null:
 		return
 	# Model space out of the table, parent space into `position`.
@@ -389,72 +387,156 @@ func set_held_item_visible(shown: bool) -> void:
 	if _held_item:
 		_held_item.visible = shown
 
-## Kit gear worn only for the Super — Ayaan's skis. Built once under the model
-## so it follows the facing and the foot lift, hidden until the cast.
+## Kit gear: props bolted to bones for a move — Ayaan's skis for the Downhill
+## jump, the sack on Anders' foot as he kicks. Each piece is a child of a
+## BoneAttachment3D, so it is rigidly part of the foot through every frame of
+## every clip; its local transform is solved once from the rest pose so that,
+## standing, the piece sits where the kit says (offset from the bone, the
+## kit's rotation and scale, in model space). Hidden until the move.
+##
+## kit.gear = {
+##   "model": "res://assets/skis.glb",        # or "shape": "sphere"
+##   "pieces": [{"node": "left", "bone": "LeftFoot"}, ...],
+##   "rotation_deg": Vector3, "scale": Vector3, "offset": Vector3,
+##   "radius": float, "color": Color,           # sphere shape only
+## }
+var _gear_pieces: Array[Node3D] = []
+
 func _setup_gear() -> void:
 	_gear = null
-	if not kit.has("gear"):
+	_gear_pieces.clear()
+	if not kit.has("gear") or _skel == null:
 		return
 	var gear: Dictionary = kit.gear
-	var path: String = str(gear.get("model", ""))
-	if path == "" or not ResourceLoader.exists(path):
-		return
-	var scene: PackedScene = load(path)
-	if scene == null:
-		return
-	_gear = scene.instantiate()
-	_gear.name = "gear"
-	_gear.top_level = false
+	var pieces: Array = gear.get("pieces", [])
+	var source: Node3D = null
+	var scene: PackedScene = null
+	if str(gear.get("shape", "")) == "":
+		var path: String = str(gear.get("model", ""))
+		if path == "" or not ResourceLoader.exists(path):
+			return
+		scene = load(path)
+		if scene == null:
+			return
+		source = scene.instantiate()
+		flatten_metallic(source)
 	var rot: Vector3 = gear.get("rotation_deg", Vector3.ZERO)
-	_gear.rotation_degrees = rot
-	_gear.scale = gear.get("scale", Vector3.ONE)
-	_gear.position = gear.get("offset", Vector3.ZERO)
-	_gear.visible = false
-	for mi in _gear.find_children("*", "MeshInstance3D", true, false):
+	var scl: Vector3 = gear.get("scale", Vector3.ONE)
+	var offset: Vector3 = gear.get("offset", Vector3.ZERO)
+	for spec in pieces:
+		var bone: int = _skel.find_bone(str(spec.get("bone", "")))
+		if bone < 0:
+			continue
+		var piece: Node3D
+		if source != null and not spec.has("node"):
+			# The whole model is the piece (Anders' sack): a fresh copy per
+			# bone, scaled and centred so it reads as a ball of `radius`.
+			var whole: Node3D = scene.instantiate()
+			flatten_metallic(whole)
+			piece = fit_ball(whole, float(gear.get("radius", 0.2)))
+		elif source != null:
+			var found: Node = source.find_child(str(spec.get("node", "")), true, false)
+			if found == null or not (found is Node3D):
+				continue
+			found.get_parent().remove_child(found)
+			piece = found
+			# the split halves keep their pair-space position; the mesh's own
+			# transform is folded in by parenting it under a fresh pivot
+			var pivot := Node3D.new()
+			pivot.add_child(piece)
+			piece.transform = Transform3D.IDENTITY
+			piece = pivot
+		else:
+			var sphere := MeshInstance3D.new()
+			var sm := SphereMesh.new()
+			sm.radius = float(gear.get("radius", 0.2))
+			sm.height = sm.radius * 2.0
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = gear.get("color", Color.WHITE)
+			mat.roughness = 0.9
+			sm.material = mat
+			sphere.mesh = sm
+			piece = sphere
+		var attach := BoneAttachment3D.new()
+		attach.bone_name = str(spec.get("bone", ""))
+		attach.bone_idx = bone
+		_skel.add_child(attach)
+		attach.add_child(piece)
+		# Solve the local transform: in the rest pose the piece should sit at
+		# (bone rest position + offset) with the kit's rotation and scale, in
+		# the model's frame. Everything below is in the skeleton's space.
+		# Solved in WORLD space: Meshy armatures carry a 0.01 scale, so a
+		# child of the skeleton inherits it; taking the attachment's true
+		# global transform (skeleton * bone rest) folds that scale into the
+		# inverse, and the piece comes out at the size the kit asked for.
+		var rest_global: Transform3D = _skel.global_transform * _skel.get_bone_global_rest(bone)
+		var rest_model: Vector3 = _model.to_local(rest_global.origin)
+		var desired_model := Transform3D(Basis.from_euler(Vector3(deg_to_rad(rot.x), deg_to_rad(rot.y), deg_to_rad(rot.z))).scaled(scl),
+				Vector3(rest_model.x + offset.x, offset.y, rest_model.z + offset.z))
+		piece.transform = rest_global.affine_inverse() * (_model.global_transform * desired_model)
+		piece.visible = false
+		_gear_pieces.append(piece)
+	if source != null:
+		source.queue_free()
+	_gear = _gear_pieces[0] if not _gear_pieces.is_empty() else null
+
+func set_gear_visible(shown: bool) -> void:
+	for piece in _gear_pieces:
+		piece.visible = shown
+
+func has_gear() -> bool:
+	return not _gear_pieces.is_empty()
+
+## Where the gear is right now, in world space — the sack leaves from the foot.
+## Meshy bakes ship metallic 1.0, which turns a prop black under the sun.
+static func flatten_metallic(node: Node) -> void:
+	for mi in node.find_children("*", "MeshInstance3D", true, false):
 		if mi.mesh == null:
 			continue
 		for si in mi.mesh.get_surface_count():
 			var m = mi.mesh.surface_get_material(si)
 			if m is BaseMaterial3D:
 				m.metallic = 0.0
-	_model.add_child(_gear)
 
-func set_gear_visible(shown: bool) -> void:
-	if _gear:
-		_gear.visible = shown
-		if shown:
-			_follow_feet()
+## A prop that stands in for a sphere (the sack, a ball): parent `model` under
+## a fresh pivot, scaled so its widest extent is `radius * 2` and shifted so
+## its centre sits on the pivot's origin. Returns the pivot, which is what gets
+## placed; the model's own size and origin never have to be right.
+static func fit_ball(model: Node3D, radius: float) -> Node3D:
+	var pivot := Node3D.new()
+	pivot.add_child(model)
+	var lo := Vector3(INF, INF, INF)
+	var hi := Vector3(-INF, -INF, -INF)
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		if mi.mesh == null:
+			continue
+		var xf := Transform3D.IDENTITY
+		var n: Node = mi
+		while n != null and n != model:
+			if n is Node3D:
+				xf = (n as Node3D).transform * xf
+			n = n.get_parent()
+		xf = model.transform * xf
+		var ab: AABB = mi.mesh.get_aabb()
+		for i in 8:
+			var pt: Vector3 = xf * ab.get_endpoint(i)
+			lo = lo.min(pt)
+			hi = hi.max(pt)
+	if lo.x == INF:
+		return pivot
+	var extent: Vector3 = hi - lo
+	var span: float = maxf(extent.x, maxf(extent.y, extent.z))
+	if span <= 0.0:
+		return pivot
+	var k: float = radius * 2.0 / span
+	model.scale *= k
+	model.position = (model.position - (lo + hi) * 0.5) * k
+	return pivot
 
-## The skis ride the feet: every frame they are placed at the midpoint of the
-## two foot bones, kept level in yaw with the body, and pitched with the feet,
-## so when the jump tucks his legs the skis come up with them instead of
-## waiting on the floor to be landed on.
-func _follow_feet() -> void:
-	if _gear == null or not _gear.visible or _skel == null:
-		return
-	if _gear_bones.is_empty():
-		for bone_name in ["LeftFoot", "RightFoot", "LeftToeBase", "RightToeBase"]:
-			_gear_bones.append(_skel.find_bone(bone_name))
-		if _gear_bones[0] < 0 or _gear_bones[1] < 0:
-			return
-	var gear: Dictionary = kit.gear
-	var offset: Vector3 = gear.get("offset", Vector3.ZERO)
-	var base_rot: Vector3 = gear.get("rotation_deg", Vector3.ZERO)
-	var lf: Vector3 = _skel.to_global(_skel.get_bone_global_pose(_gear_bones[0]).origin)
-	var rf: Vector3 = _skel.to_global(_skel.get_bone_global_pose(_gear_bones[1]).origin)
-	var mid: Vector3 = _model.to_local((lf + rf) * 0.5)
-	# the foot bone sits above the sole; `offset.y` is measured from it
-	_gear.position = Vector3(mid.x + offset.x, mid.y + offset.y - 0.19, mid.z + offset.z)
-	var pitch := 0.0
-	# Foot tilt as the bone's rotation away from its rest, about the model's
-	# X axis, averaged over both feet: level at rest, up as the toes come up.
-	for k in 2:
-		var rest_basis: Basis = _skel.get_bone_global_rest(_gear_bones[k]).basis
-		var now_basis: Basis = _skel.get_bone_global_pose(_gear_bones[k]).basis
-		pitch += (rest_basis.inverse() * now_basis).get_euler().x * 0.5
-	# stiff skis: half the foot's tilt, and never past 25 degrees
-	pitch = clampf(pitch * 0.5, deg_to_rad(-25.0), deg_to_rad(25.0))
-	_gear.rotation_degrees = Vector3(base_rot.x + rad_to_deg(pitch), base_rot.y, base_rot.z)
+func gear_global_position() -> Vector3:
+	if _gear_pieces.is_empty():
+		return global_position
+	return _gear_pieces[0].global_position
 
 ## Nobles Cup team marker: a flat ring on the ground under the fighter. It has
 ## to sit outside the body rather than tint it, because five of eight kits wear
@@ -536,7 +618,7 @@ func play_attack_animation(game_now: float, is_super: bool = false) -> void:
 		return
 	var clips: Dictionary = kit.clips
 	var prefix := "super" if is_super else "attack"
-	if is_super:
+	if is_super and str(kit.get("gear", {}).get("on", "super")) == "super":
 		set_gear_visible(true)
 	var clip_name: String = clips.get("super", clips.attack) if is_super else clips.attack
 	var speed: float = clips.get("super_speed", clips.get("attack_speed", 1.0)) if is_super \
