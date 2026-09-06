@@ -132,21 +132,107 @@ var _sim_done := 0
 # clients — it gates every mutation (damage, loot, walls) so client-side
 # projectiles and melee arcs stay purely visual.
 const NET_WAIT_TIMEOUT := 6.0     # start anyway if a client stalls loading
+## How far behind the host a client draws everyone else. Two and a half
+## snapshots at 30 Hz: enough slack that one late or dropped packet is covered
+## by the buffer rather than showing as a freeze followed by a jump, and short
+## enough that shooting where a body is drawn still hits it at LAN latency. This
+## is a fixed delay ON TOP of the link's own — buying it back by shrinking this
+## buys the stutter back with it.
+const NET_INTERP_DELAY := 0.085
+## Longest a starved buffer carries a puppet on the velocity of its last two
+## samples before it simply holds. Past this, extrapolation reads as a fighter
+## skating through a wall, which is worse than a fighter standing still.
+const NET_EXTRAP_MAX := 0.12
+## Reconciliation thresholds for the client's own fighter. Under TOLERANCE the
+## host and the local prediction agree closely enough to leave alone — replaying
+## every frame to chase three centimetres is pure cost. Over HARD_SNAP something
+## happened that the client could not have predicted (a knockback, a dash, a
+## respawn), and easing across that distance is a fighter swimming to their new
+## position rather than being put there.
+const NET_PRED_TOLERANCE := 0.05
+const NET_PRED_HARD_SNAP := 2.5
+## How fast a reconciliation offset bleeds off, per second. 12 puts a 30 cm
+## correction under a centimetre inside a quarter of a second.
+const NET_PRED_FIX_RATE := 12.0
+## Inputs kept for replay, and the most that will ever be replayed on one frame.
+## The cap is what stops a client that stalled for two seconds from paying for
+## it with a hundred move_and_slide calls on the frame it comes back.
+const NET_INPUT_HISTORY := 128
+const NET_REPLAY_MAX := 30
+## Host-side input buffer: one input is consumed per physics tick, so a pair
+## that arrive in the same frame are not thrown away. Past this the client is
+## running ahead of us and the backlog is dropped rather than replayed late.
+const NET_INPUT_QUEUE_MAX := 3
+## Snapshot wire format: positions in centimetres. The Showdown map is 78 m
+## across and world coordinates start at zero, so u16 covers it with room over.
+const NET_POS_SCALE := 100.0
+
 var net_active := false
 var net_host := false
 var authoritative := true
 var net_fighters: Array = []      # roster index -> Fighter (freed after death)
 var _net_roster: Array = []
 var _my_kit_name := ""            # for trophies after `player` is freed
+var _my_idx := -1                 # my own roster index, for acks and prediction
 var _match_ready := false         # roster applied, arena built
 var _match_seq := 0               # dedupes re-sent _net_start RPCs
 var _net_seen_seq := 0
 var _net_ready_peers: Dictionary = {}
-var _peer_inputs: Dictionary = {}     # peer_id -> {move, face}
-var _puppet_targets: Dictionary = {}  # roster idx -> {pos, rot}
+var _peer_inputs: Dictionary = {}     # peer_id -> {seq, move, face} last applied
+var _peer_queue: Dictionary = {}      # peer_id -> Array of pending inputs
 var _next_ready_send := 0.0
 var _cube_seq := 0
 var _snap_tick := 0
+
+# Client-side replication state (see the wifi play section at the bottom).
+var _snap_buf: Array = []         # decoded snapshots, ascending by host time
+var _snap_intake: Array = []      # arrived this frame, not yet buffered
+var _snap_applied_t := -1.0       # host time of the last snapshot whose discrete half ran
+var _host_offset := 0.0           # local `now` minus host `now`, min-filtered
+var _clock_synced := false
+var _input_seq := 0
+var _pred_pos := Vector3.ZERO     # the reconciled prediction; the body is drawn at
+var _pred_error := Vector3.ZERO   # this plus the correction still bleeding off
+var _pred_hist: Array = []        # [[seq, move, resulting position], ...] oldest first
+var _my_net_stats: Dictionary = {}   # what the host says I did, for the results card
+var _rematch_wanted: Dictionary = {} # host: peers that asked for another match
+var results_wait: Label              # the rematch line on the results card
+
+# NS3_NET_LAG / NS3_NET_JITTER (ms) and NS3_NET_LOSS (0-1) fake a worse link
+# than a LAN so interpolation and prediction can actually be seen working.
+# Applied on both sides: the host delays inbound inputs, the client delays
+# inbound snapshots, so setting it on both instances is a full round trip.
+var _net_lag := float(OS.get_environment("NS3_NET_LAG")) / 1000.0 \
+		if OS.get_environment("NS3_NET_LAG") != "" else 0.0
+var _net_jitter := float(OS.get_environment("NS3_NET_JITTER")) / 1000.0 \
+		if OS.get_environment("NS3_NET_JITTER") != "" else 0.0
+var _net_loss := float(OS.get_environment("NS3_NET_LOSS")) \
+		if OS.get_environment("NS3_NET_LOSS") != "" else 0.0
+var _net_stats_on := OS.get_environment("NS3_NET_STATS") != ""
+## NS3_NET_KILL=<sec>: host-side sibling of NS3_KILL. Eliminates every REMOTE
+## player's fighter that long after FIGHT!, because the one screen the wifi
+## harness otherwise cannot reach is the client's own results card — a client
+## dies when a bot happens to kill it, which is neither on a schedule nor at a
+## moment either instance is taking a screenshot.
+var _net_kill_at := float(OS.get_environment("NS3_NET_KILL")) \
+		if OS.get_environment("NS3_NET_KILL") != "" else 0.0
+## NS3_NET_REMATCH=1: on a client, ask for a rematch the moment the results card
+## goes up; on a host, deal the next match once everyone has asked. The rematch
+## flow is a round trip between two instances, so without this it can only be
+## checked by hand on two machines.
+var _net_auto_rematch := OS.get_environment("NS3_NET_REMATCH") != ""
+var _net_rematch_fired := false
+var _lag_snaps: Array = []
+var _lag_inputs: Array = []
+var _lag_last_at := -1.0          # ordered channel: a packet overtaken is dropped
+var _stat_at := 0.0
+var _stat_bytes := 0
+var _stat_packets := 0
+var _stat_legacy := 0
+var _stat_starved := 0
+var _stat_err_sum := 0.0
+var _stat_err_max := 0.0
+var _stat_err_n := 0
 
 ## Battle music. The menu owns its own track; the match had none at all, so it
 ## starts one here and honours the same Settings toggle.
@@ -383,8 +469,12 @@ func _build_results_overlay() -> void:
 ## hands in a full team scoreboard, because a 3v3 result is about what both
 ## sides did and not only about you. Showdown and the net client leave it null
 ## and get the personal card unchanged.
+## `net_wait` is the wifi client's card: it cannot start a match, so instead of
+## PLAY AGAIN it gets a REMATCH request it sends up to the host, and a line that
+## says what it is waiting on.
 func _show_results(outcome: int, headline: String, kit_name: String,
-		award: Dictionary, rows: Array, rematch: bool, board: Control = null) -> void:
+		award: Dictionary, rows: Array, rematch: bool, board: Control = null,
+		net_wait := false) -> void:
 	for c in results_body.get_children():
 		results_body.remove_child(c)
 		c.queue_free()
@@ -414,6 +504,13 @@ func _show_results(outcome: int, headline: String, kit_name: String,
 	results_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	results_note.visible = false
 	col.add_child(results_note)
+
+	# Kept apart from results_note, which is already carrying "X wins!" by the
+	# time anyone asks for a rematch.
+	results_wait = MenuUI.display("", 18, MenuUI.TEXT_DIM, 4)
+	results_wait.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	results_wait.visible = false
+	col.add_child(results_wait)
 
 	var body: HBoxContainer = MenuUI.hbox(18)
 	col.add_child(body)
@@ -447,6 +544,19 @@ func _show_results(outcome: int, headline: String, kit_name: String,
 			else:
 				start_match())
 		buttons.add_child(again)
+	elif net_wait:
+		# Only the host can deal a new roster, so a client asks for one. The
+		# button reports itself rather than vanishing: "I have asked and nothing
+		# has happened yet" is the state that needed saying.
+		var ask: Button = MenuUI.button("REMATCH", "green", 30, Vector2(250, 74))
+		ask.pressed.connect(func() -> void:
+			ask.disabled = true
+			_net_rematch_request.rpc_id(1)
+			results_wait.text = "WAITING FOR THE HOST…"
+			results_wait.visible = true)
+		buttons.add_child(ask)
+		if _net_auto_rematch:
+			ask.pressed.emit()   # NS3_NET_REMATCH: ask without waiting for a thumb
 	var menu: Button = MenuUI.button("LOBBY", "grey", 26, Vector2(168, 74))
 	menu.pressed.connect(func() -> void:
 		Net.leave()
@@ -475,7 +585,28 @@ func _animate_results(card: Control, table: Control) -> void:
 		return
 	MenuUI.pop_in(card)
 	if is_instance_valid(table):
-		MenuUI.stagger(table, 0.06)
+		_fade_in_rows(table, 0.06)
+
+## The stagger for the results table, and deliberately NOT `MenuUI.stagger`.
+##
+## That one goes through `pop_in`, which also tweens `position:y` — and the rows
+## live in a VBoxContainer, which OWNS its children's positions. `pop_in` reads
+## `home` off a child that the container has not laid out yet, so on the losing
+## side of that race every row records home = 0 and the tween walks all four back
+## to the top of the table, stacked, where only the last one drawn is visible.
+## That is exactly what a wifi client's four-row card did while the host's
+## identical card, built a frame later in its own life, came out fine.
+##
+## Alpha is the half of the effect a container cannot fight, so this fades only.
+func _fade_in_rows(table: Control, step: float) -> void:
+	var i := 0
+	for child in table.get_children():
+		if child is Control:
+			child.modulate.a = 0.0
+			var tw := child.create_tween()
+			tw.tween_interval(i * step)
+			tw.tween_property(child, "modulate:a", 1.0, 0.16)
+			i += 1
 
 ## Your fighter, on the rarity-less dark backdrop the menu cards use. Falls back
 ## to the kit's initial in its own colour for Nova and Ayaan, which have no
@@ -1078,7 +1209,15 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			add_child(boom)
 			f.set_held_item_visible(false)   # the staff is in the air now
 		Kits.Style.JUMP_SMASH:
-			f.begin_leap(weapon, unit, dist)
+			# Gated like DASH and DOWNHILL below: `_update_leaps` runs only in the
+			# host's match loop, so a client that started a leap never ended one —
+			# `is_leaping()` stayed true for the rest of the match and
+			# `apply_movement` returns early while it is, which froze the client's
+			# own fighter the moment it used the Super. Harmless while the local
+			# fighter was a puppet moved by the snapshot stream; fatal once it
+			# predicts its own movement.
+			if authoritative:
+				f.begin_leap(weapon, unit, dist)
 		Kits.Style.SLALOM:
 			# `dist` is not a throw distance here, it is where the two shots
 			# MEET — the one thing this weapon asks the player to choose.
@@ -1858,6 +1997,11 @@ func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
 		return
 	var rank := fighters.size()
 	if net_host:
+		# Their own numbers first: every mutation is host-side, so a client's
+		# copy of its Fighter.stats is a column of noughts. Both RPCs are
+		# reliable on the same channel, so this lands before the elimination
+		# that raises the card it fills in.
+		_net_push_stats(f)
 		_net_eliminate.rpc(net_fighters.find(f), killer, rank, left_game)
 	_drop_cubes(f)
 	fighters.erase(f)
@@ -2163,6 +2307,8 @@ func _sim_report() -> void:
 
 func _physics_process(delta: float) -> void:
 	now += delta
+	if net_active and _net_lag > 0.0:
+		_net_drain_lag()
 	if net_active and not _match_ready:
 		_net_prestart_tick()
 		_shot_check()
@@ -2219,6 +2365,7 @@ func _physics_process(delta: float) -> void:
 		_snap_tick += 1
 		if _snap_tick % 2 == 0:   # 30Hz is plenty on LAN; clients interpolate
 			_net_send_snapshot()
+		_net_stats_tick()
 
 func _update_aim_indicator() -> void:
 	var im: ImmediateMesh = aim_mesh.mesh
@@ -2432,6 +2579,7 @@ func _run_playing(delta: float) -> void:
 		_force_kill_at = 0.0
 		player.health = 0
 		_eliminate(player, "")
+	_net_kill_check()
 	if _force_end_at > 0.0 and now - match_start >= _force_end_at and not sim_active:
 		_force_end_at = 0.0
 		if cup != null:
@@ -2473,7 +2621,7 @@ func _run_playing(delta: float) -> void:
 			var peer := int(f.get_meta("peer", 0))
 			if peer <= 1:
 				continue   # bots (0) belong to brains; 1 is the host itself
-			var inp: Dictionary = _peer_inputs.get(peer, {})
+			var inp: Dictionary = _consume_input(peer)
 			f.apply_movement(inp.get("move", Vector3.ZERO))
 			var face: Vector3 = inp.get("face", Vector3.ZERO)
 			if face.length() > 0.1:
@@ -2804,6 +2952,8 @@ func _net_all_ready() -> bool:
 ## assigned a shuffled spawn index (spawn count comes from the map's S tiles).
 func _net_host_start() -> void:
 	_match_seq += 1
+	_rematch_wanted.clear()
+	_net_rematch_fired = false
 	# Wifi play is Showdown only, so the spawn count comes from that map.
 	var spawn_idx: Array = range(Arena.SHOWDOWN_MAP.count("S"))
 	spawn_idx.shuffle()
@@ -2836,8 +2986,25 @@ func _start_from_roster(roster: Array) -> void:
 	fighters.clear()
 	brains.clear()
 	net_fighters.clear()
-	_puppet_targets.clear()
 	player = null
+	# Replication state is per-MATCH, not per-scene: PLAY AGAIN reuses this node,
+	# and a stale snapshot buffer or input history from the last match would be
+	# reconciled against the new one's spawn positions.
+	_snap_buf.clear()
+	_snap_intake.clear()
+	_pred_hist.clear()
+	_peer_queue.clear()
+	_peer_inputs.clear()
+	_lag_snaps.clear()
+	_lag_inputs.clear()
+	_lag_last_at = -1.0
+	_snap_applied_t = -1.0
+	_clock_synced = false
+	_input_seq = 0
+	_pred_error = Vector3.ZERO
+	_my_idx = -1
+	_my_net_stats = {}
+	_stat_at = now
 
 	arena = Arena.new()
 	add_child(arena)
@@ -2855,7 +3022,9 @@ func _start_from_roster(roster: Array) -> void:
 		net_fighters.append(f)
 		if own:
 			player = f
+			_my_idx = i
 			_my_kit_name = String(e.kit)
+			_pred_pos = f.position
 		elif authoritative and int(e.peer) == 0:
 			brains.append(BotBrain.new(f))
 	if net_host and player and OS.get_environment("NS3_SUPER") != "":
@@ -2881,10 +3050,12 @@ func _start_from_roster(roster: Array) -> void:
 	print("[net] roster applied: %d fighters, I am %s" % [roster.size(),
 			player.display_name if player else "spectator"])
 
-## Client frame: mirror the countdown, send input up, ease puppets toward the
-## latest snapshot. The local fighter is a puppet too — no prediction; on LAN
-## the round trip is a few ms.
+## Client frame. Three jobs, in this order: take delivery of whatever arrived,
+## predict my own fighter forward on my own stick, and draw everyone else at a
+## fixed delay behind the host so their motion is a straight line between two
+## known positions instead of a chase after the newest one.
 func _client_tick(delta: float) -> void:
+	_net_intake()
 	if phase == Phase.COUNTDOWN:
 		var elapsed_c: float = now - phase_at
 		if versus != null and is_instance_valid(versus):
@@ -2894,36 +3065,284 @@ func _client_tick(delta: float) -> void:
 			center_label.text = str(int(ceil(maxf(3.5 - elapsed_c, 1.0))))
 	elif versus != null:
 		_hide_versus()
-	if phase == Phase.PLAYING and player != null and is_instance_valid(player) \
-			and not player.is_dead():
-		var dir := Vector3.ZERO
-		if move_stick.active:
-			dir = Vector3(move_stick.value.x, 0, move_stick.value.y)
-		else:
-			if Input.is_physical_key_pressed(KEY_W): dir.z -= 1
-			if Input.is_physical_key_pressed(KEY_S): dir.z += 1
-			if Input.is_physical_key_pressed(KEY_A): dir.x -= 1
-			if Input.is_physical_key_pressed(KEY_D): dir.x += 1
-			dir = dir.normalized()
-		var face := Vector3.ZERO   # aim-stick facing, so the host can mirror it
-		var aim: TouchStick = super_stick if super_stick.active else aim_stick
-		if aim.active and aim.value.length() > 0.15:
-			face = Vector3(aim.value.x, 0, aim.value.y)
-		_net_input.rpc_id(1, dir.limit_length(1.0), face)
+	_net_predict(delta)
+	_net_render_puppets(delta)
+	_net_stats_tick()
 
-	var k := 1.0 - exp(-14.0 * delta)
+## Move MY fighter on MY stick, this frame, and tell the host what I did.
+##
+## Without this the local fighter is a puppet like everyone else, which means a
+## full round trip between pushing the stick and the body moving — invisible on
+## a LAN and unplayable on anything worse. The body is simulated through the
+## same `apply_movement` the host runs, so walls, water and the kit's own speed
+## all resolve identically; the difference between the two sims is corrected in
+## `_reconcile`, not papered over here.
+##
+## `_pred_pos` is the prediction proper and `_pred_error` is a purely visual
+## offset that a correction is bled off through. They are kept apart so that a
+## correction never feeds back into the simulation: the body moves from where
+## the host says it is, and is only DRAWN somewhere slightly else.
+func _net_predict(delta: float) -> void:
+	if phase != Phase.PLAYING or player == null or not is_instance_valid(player) \
+			or player.is_dead():
+		return
+	var dir := Vector3.ZERO
+	if OS.get_environment("NS3_AUTOWALK") != "":
+		# Honoured here as well as in _run_playing: a client's stick is the only
+		# thing prediction reacts to, so without this the harness has no way to
+		# make a predicted fighter move at all.
+		var parts := OS.get_environment("NS3_AUTOWALK").split(",")
+		dir = Vector3(float(parts[0]), 0, float(parts[1]))
+	elif move_stick.active:
+		dir = Vector3(move_stick.value.x, 0, move_stick.value.y)
+	else:
+		if Input.is_physical_key_pressed(KEY_W): dir.z -= 1
+		if Input.is_physical_key_pressed(KEY_S): dir.z += 1
+		if Input.is_physical_key_pressed(KEY_A): dir.x -= 1
+		if Input.is_physical_key_pressed(KEY_D): dir.x += 1
+		dir = dir.normalized()
+	dir = dir.limit_length(1.0)
+	var face := Vector3.ZERO   # aim-stick facing, so the host can mirror it
+	var aim: TouchStick = super_stick if super_stick.active else aim_stick
+	if aim.active and aim.value.length() > 0.15:
+		face = Vector3(aim.value.x, 0, aim.value.y)
+	_input_seq = (_input_seq + 1) & 0xFFFF
+	_net_input.rpc_id(1, _input_seq, dir, face)
+
+	if face.length() > 0.1:
+		player.face_direction(face)
+	player.position = _pred_pos
+	player.apply_movement(dir)
+	_pred_pos = player.position
+	_pred_hist.append([_input_seq, dir, _pred_pos])
+	while _pred_hist.size() > NET_INPUT_HISTORY:
+		_pred_hist.pop_front()
+	if _pred_error.length_squared() > 0.0:
+		_pred_error *= exp(-NET_PRED_FIX_RATE * delta)
+		if _pred_error.length() < 0.004:
+			_pred_error = Vector3.ZERO
+	player.position = _pred_pos + _pred_error
+
+	# NS3_AUTOFIRE, which lives in _run_playing and so did nothing at all on a
+	# client. It is how the harness gets a client to deal damage, which is the
+	# only way to tell a real stat table apart from a table of the zeros a
+	# client's own Fighter.stats always hold.
+	if auto_fire > 0.0 and now - _last_auto_fire >= auto_fire:
+		_last_auto_fire = now
+		var weapon: Dictionary = player.kit["super"] if player.is_super_ready() \
+				else player.kit.weapon
+		var target := auto_aim_target(player, weapon)
+		var shot_dir := player.facing
+		var shot_dist: float = weapon.range
+		if target:
+			shot_dir = target.global_position - player.global_position
+			shot_dist = shot_dir.length()
+		_fire_player(weapon, shot_dir, shot_dist)
+
+## Everyone but me, drawn at `NET_INTERP_DELAY` behind the host clock, between
+## the two snapshots that bracket that instant.
+##
+## The discrete half of a snapshot (health, ammo, the gas ring, the fighters-left
+## count) is applied at the same delayed instant rather than off the newest
+## packet, so a hit flash lands on the frame the body is drawn where it was hit.
+func _net_render_puppets(delta: float) -> void:
+	if _snap_buf.is_empty() or not _clock_synced:
+		return
+	var render_t: float = now - _host_offset - NET_INTERP_DELAY
+	for s: Dictionary in _snap_buf:
+		if float(s.t) <= render_t and float(s.t) > _snap_applied_t:
+			_apply_snapshot_state(s)
+			_snap_applied_t = float(s.t)
+	# Two samples are always kept: the pair the render clock sits between, and
+	# the pair a starved buffer extrapolates from.
+	while _snap_buf.size() > 2 and float(_snap_buf[1].t) <= render_t:
+		_snap_buf.pop_front()
+	var a: Dictionary = _snap_buf[0]
+	var b: Dictionary = a
+	var u := 0.0
+	if _snap_buf.size() >= 2:
+		b = _snap_buf[1]
+		var span: float = float(b.t) - float(a.t)
+		if span > 0.0001:
+			u = (render_t - float(a.t)) / span
+			u = clampf(u, 0.0, 1.0 + NET_EXTRAP_MAX / span)
+			if u > 1.0:
+				_stat_starved += 1
 	for i in net_fighters.size():
+		if i == _my_idx:
+			continue   # mine is predicted, not interpolated
 		var f = net_fighters[i]
-		if f == null or not is_instance_valid(f) or not _puppet_targets.has(i):
+		if f == null or not is_instance_valid(f) or f.is_dead():
 			continue
-		var t: Dictionary = _puppet_targets[i]
+		var has_a: bool = a.f.has(i)
+		var has_b: bool = b.f.has(i)
+		if not has_a and not has_b:
+			continue   # they were already down in both samples
+		var sa: Dictionary = a.f[i] if has_a else b.f[i]
+		var sb: Dictionary = b.f[i] if has_b else sa
+		var pa: Vector3 = sa.pos
+		var pb: Vector3 = sb.pos
 		var prev: Vector3 = f.position
-		f.position = f.position.lerp(t.pos, k)
-		f.rotation.y = lerp_angle(f.rotation.y, t.rot, k)
+		f.position = pa.lerp(pb, u)
+		f.rotation.y = lerp_angle(float(sa.rot), float(sb.rot), clampf(u, 0.0, 1.0))
 		f.facing = Vector3(-sin(f.rotation.y), 0, -cos(f.rotation.y))
 		f.velocity = (f.position - prev) / delta   # drives run/idle animation
 
+## The half of a snapshot that is state rather than motion. Skips my own
+## fighter, whose numbers were applied the moment they arrived — his body is
+## drawn at `now`, so delaying his health bar to match everyone else's would put
+## his own hit flash behind his own screen.
+func _apply_snapshot_state(s: Dictionary) -> void:
+	players_label.text = "%d LEFT" % int(s.left)
+	if phase == Phase.COUNTDOWN and int(s.phase) == int(Phase.PLAYING):
+		phase = Phase.PLAYING
+		match_start = now
+		center_label.text = "FIGHT!"
+		get_tree().create_timer(0.8).timeout.connect(func() -> void:
+			if phase == Phase.PLAYING:
+				center_label.text = "")
+	var inset := int(s.inset)
+	if inset >= 0:
+		if gas == null:
+			gas = GasRing.new()
+			add_child(gas)
+			gas.map_tiles = arena.columns
+		if gas.inset != inset:
+			gas.inset = inset
+			gas._rebuild_overlay()
+	for i: int in s.f:
+		if i == _my_idx or i >= net_fighters.size():
+			continue
+		_apply_fighter_state(net_fighters[i], s.f[i])
+
+func _apply_fighter_state(f, st: Dictionary) -> void:
+	if f == null or not is_instance_valid(f) or f.is_dead():
+		return
+	f.max_health = int(st.max_health)
+	var h := int(st.health)
+	if h < f.health:
+		f.take_damage(f.health - h, now)   # flash + damage popup
+	else:
+		f.health = h
+	f.ammo = float(st.ammo)
+	f.super_charge = float(st.super)
+	f.cubes = int(st.cubes)
+	f.heat_hits = int(st.heat)
+	f.on_fire_until = now + float(st.fire)
+	f.burn_until = now + float(st.burn)
+	if float(st.burn) > 0.0 and f._burn_glow == null:
+		f._setup_burn_glow()
+
+# MARK: net snapshot wire format
+# A snapshot as a Variant Array of Arrays costs about twelve bytes a field once
+# Godot has tagged every number as a double: ~1.4 KB for ten fighters, 42 KB/s
+# at 30 Hz, which a LAN swallows and a phone on a busy access point does not.
+# Packed and quantised the same snapshot is a ten-byte header plus fifteen bytes
+# per LIVING fighter, measured at about an eighth of the size (NS3_NET_STATS=1
+# prints both, so the claim stays checkable rather than remembered).
+#
+# Nothing here is delta-encoded against the previous snapshot. The stream is
+# unreliable: a field only sent when it changes is a field lost for good when
+# that one packet drops, and the ack scheme that fixes it costs more — in state
+# on both sides and in bugs — than the bytes it would save at this size.
+#
+# Quantisation, and why each is enough: position to a centimetre (the fighter
+# capsule is 0.65 m across), facing to 1/256 of a turn (1.4 degrees, on a body
+# that is 70 px wide on screen), ammo to 1/32 of a pip, Super charge to 1/255 of
+# the bar, and the two burn clocks to a sixteenth of a second.
+
+func _snapshot_bytes() -> PackedByteArray:
+	var live: Array[int] = []
+	var mask := 0
+	for i in net_fighters.size():
+		var f = net_fighters[i]
+		if f != null and is_instance_valid(f) and not f.is_dead():
+			live.append(i)
+			mask |= 1 << i
+	var acks: Array = []
+	for i in live:
+		var f: Fighter = net_fighters[i]
+		var peer := int(f.get_meta("peer", 0))
+		if peer > 1 and _peer_inputs.has(peer):
+			acks.append([i, int(_peer_inputs[peer].get("seq", 0)) & 0xFFFF])
+	var buf := PackedByteArray()
+	buf.resize(10 + live.size() * 15 + 1 + acks.size() * 3)
+	buf.encode_float(0, now)
+	buf.encode_u8(4, int(phase))
+	buf.encode_s16(5, gas.inset if gas else -1)
+	buf.encode_u8(7, mini(255, fighters.size()))
+	buf.encode_u16(8, mask)
+	var o := 10
+	for i in live:
+		var f: Fighter = net_fighters[i]
+		buf.encode_u16(o, clampi(int(round(f.position.x * NET_POS_SCALE)), 0, 65535))
+		buf.encode_u16(o + 2, clampi(int(round(f.position.z * NET_POS_SCALE)), 0, 65535))
+		buf.encode_u8(o + 4, int(round(fposmod(f.rotation.y, TAU) / TAU * 256.0)) & 0xFF)
+		buf.encode_u16(o + 5, clampi(f.health, 0, 65535))
+		buf.encode_u16(o + 7, clampi(f.max_health, 0, 65535))
+		buf.encode_u8(o + 9, clampi(int(round(f.ammo * 32.0)), 0, 255))
+		buf.encode_u8(o + 10, clampi(int(round(f.super_charge * 255.0)), 0, 255))
+		buf.encode_u8(o + 11, clampi(f.cubes, 0, 255))
+		buf.encode_u8(o + 12, clampi(f.heat_hits, 0, 255))
+		buf.encode_u8(o + 13, clampi(int(round(maxf(0.0, f.on_fire_until - now) * 16.0)), 0, 255))
+		buf.encode_u8(o + 14, clampi(int(round(maxf(0.0, f.burn_until - now) * 16.0)), 0, 255))
+		o += 15
+	buf.encode_u8(o, acks.size())
+	o += 1
+	for a: Array in acks:
+		buf.encode_u8(o, int(a[0]))
+		buf.encode_u16(o + 1, int(a[1]))
+		o += 3
+	return buf
+
+func _decode_snapshot(buf: PackedByteArray) -> Dictionary:
+	if buf.size() < 10:
+		return {}
+	var snap := {"t": buf.decode_float(0), "phase": buf.decode_u8(4),
+			"inset": buf.decode_s16(5), "left": buf.decode_u8(7),
+			"f": {}, "acks": {}}
+	var mask := buf.decode_u16(8)
+	var o := 10
+	for i in 16:
+		if mask & (1 << i) == 0:
+			continue
+		if o + 15 > buf.size():
+			return snap
+		snap.f[i] = {
+			"pos": Vector3(buf.decode_u16(o) / NET_POS_SCALE, 0.0,
+					buf.decode_u16(o + 2) / NET_POS_SCALE),
+			"rot": buf.decode_u8(o + 4) / 256.0 * TAU,
+			"health": buf.decode_u16(o + 5),
+			"max_health": buf.decode_u16(o + 7),
+			"ammo": buf.decode_u8(o + 9) / 32.0,
+			"super": buf.decode_u8(o + 10) / 255.0,
+			"cubes": buf.decode_u8(o + 11),
+			"heat": buf.decode_u8(o + 12),
+			"fire": buf.decode_u8(o + 13) / 16.0,
+			"burn": buf.decode_u8(o + 14) / 16.0,
+		}
+		o += 15
+	if o < buf.size():
+		var n := buf.decode_u8(o)
+		o += 1
+		for j in n:
+			if o + 3 > buf.size():
+				break
+			snap.acks[buf.decode_u8(o)] = buf.decode_u16(o + 1)
+			o += 3
+	return snap
+
 func _net_send_snapshot() -> void:
+	var buf := _snapshot_bytes()
+	if _net_stats_on:
+		_stat_bytes += buf.size()
+		_stat_packets += 1
+		_stat_legacy += var_to_bytes(_legacy_snapshot()).size()
+	_net_snapshot.rpc(buf)
+
+## The pre-packing snapshot, kept ONLY as the thing NS3_NET_STATS measures the
+## packed one against. Nothing sends it.
+func _legacy_snapshot() -> Array:
 	var states: Array = []
 	for i in net_fighters.size():
 		var f = net_fighters[i]
@@ -2934,7 +3353,188 @@ func _net_send_snapshot() -> void:
 					f.health, f.max_health, f.ammo, f.super_charge, f.cubes,
 					f.heat_hits, maxf(0.0, f.on_fire_until - now),
 					maxf(0.0, f.burn_until - now)])
-	_net_snapshot.rpc(int(phase), gas.inset if gas else -1, fighters.size(), states)
+	return [int(phase), gas.inset if gas else -1, fighters.size(), states]
+
+# MARK: net client intake, clock and reconciliation
+
+## Take delivery of everything that arrived since the last physics frame.
+##
+## Deliberately NOT done inside the RPC: reconciliation replays movement through
+## `move_and_slide`, which is only legal inside `_physics_process`, and an RPC is
+## delivered from the network poll. `now` does not advance outside the physics
+## step either, so nothing is lost by waiting for it.
+func _net_intake() -> void:
+	for snap: Dictionary in _snap_intake:
+		var raw: float = float(snap.recv) - float(snap.t)
+		if not _clock_synced:
+			_clock_synced = true
+			_host_offset = raw
+		else:
+			# Minimum-filtered: the smallest local-minus-host difference seen is
+			# the one that travelled with the least latency, so it is the best
+			# estimate of the true offset. The upward creep stops one freakishly
+			# fast packet from pinning the estimate low forever, which would eat
+			# the interpolation buffer and leave every other packet late.
+			_host_offset = minf(raw, _host_offset + 0.0006)
+		if not _snap_buf.is_empty() and float(snap.t) <= float(_snap_buf.back().t):
+			continue   # duplicate, or overtaken on the wire
+		_snap_buf.append(snap)
+		while _snap_buf.size() > 64:
+			_snap_buf.pop_front()
+		# My own fighter is not interpolated, so its state and its acknowledged
+		# input are both used the moment they land rather than at render time.
+		if _my_idx >= 0 and snap.f.has(_my_idx):
+			var mine: Dictionary = snap.f[_my_idx]
+			if phase == Phase.PLAYING:
+				if snap.acks.has(_my_idx):
+					_reconcile(int(snap.acks[_my_idx]), mine.pos as Vector3)
+			elif player != null and is_instance_valid(player):
+				_pred_pos = mine.pos            # still on the countdown; just sit there
+				player.position = _pred_pos
+			if player != null and is_instance_valid(player):
+				_apply_fighter_state(player, mine)
+	_snap_intake.clear()
+
+## Fold the host's word on where I was into where I think I am.
+##
+## The host acknowledges the last input it applied; the client kept the position
+## each of its own inputs produced. If the two agree at that input, everything
+## since is sound and there is nothing to do — which is the normal case, and the
+## reason the tolerance test comes before the replay. If they disagree, the body
+## is put where the host says it was and every input the host has not seen yet is
+## run through `apply_movement` again from there, so walls and water resolve on
+## the corrected path rather than being teleported through.
+##
+## The correction is applied to the SIMULATION immediately and to the PICTURE
+## over the next fraction of a second: `_pred_error` absorbs the jump and decays.
+## Without that split, a client on a lossy link twitches on every packet.
+func _reconcile(seq: int, auth: Vector3) -> void:
+	if player == null or not is_instance_valid(player) or player.is_dead():
+		return
+	var at := -1
+	for i in _pred_hist.size():
+		if int(_pred_hist[i][0]) == seq:
+			at = i
+			break
+	if at < 0:
+		return   # acking an input we no longer hold; the next one will land
+	var predicted: Vector3 = _pred_hist[at][2]
+	var err := auth - predicted
+	err.y = 0.0
+	if _net_stats_on:
+		# How far the local sim had drifted from the host's by the time the host
+		# answered. This is THE number that says whether prediction is working:
+		# with none at all it would be the whole round trip's worth of travel.
+		_stat_err_sum += err.length()
+		_stat_err_max = maxf(_stat_err_max, err.length())
+		_stat_err_n += 1
+	var pending: Array = _pred_hist.slice(at + 1)
+	_pred_hist = pending
+	if err.length() < NET_PRED_TOLERANCE:
+		return
+	var before := _pred_pos
+	if err.length() > NET_PRED_HARD_SNAP:
+		# Something the client could not have predicted. Easing across two and a
+		# half metres is a fighter swimming; put them there.
+		_pred_pos = auth
+		_pred_error = Vector3.ZERO
+		_pred_hist.clear()
+		player.position = auth
+		player.reset_physics_interpolation()
+		return
+	_pred_pos = auth
+	player.position = auth
+	var keep := mini(pending.size(), NET_REPLAY_MAX)
+	for i in range(pending.size() - keep, pending.size()):
+		player.apply_movement(pending[i][1])
+		pending[i][2] = player.position
+	_pred_pos = player.position
+	_pred_error += before - _pred_pos
+	player.position = _pred_pos + _pred_error
+
+## Host: one input is consumed per physics tick. Two that arrive inside the same
+## frame are both applied, a frame apart, instead of the first being overwritten
+## and the client's own prediction of it corrected back out.
+func _consume_input(peer: int) -> Dictionary:
+	var q: Array = _peer_queue.get(peer, [])
+	if not q.is_empty():
+		_peer_inputs[peer] = q.pop_front()
+	return _peer_inputs.get(peer, {})
+
+func _queue_input(id: int, seq: int, move: Vector3, face: Vector3) -> void:
+	var q: Array = _peer_queue.get(id, [])
+	q.append({"seq": seq, "move": move, "face": face})
+	while q.size() > NET_INPUT_QUEUE_MAX:
+		q.pop_front()   # they are running ahead of us; drop the backlog
+	_peer_queue[id] = q
+
+# MARK: net debug hooks (NS3_NET_LAG / JITTER / LOSS / STATS)
+
+## Deliver whatever the fake link has held long enough. Ordering is preserved
+## the way the real channel preserves it: `unreliable_ordered` DISCARDS a packet
+## that has been overtaken, so a jittered packet that would land out of order is
+## dropped rather than delivered late.
+func _net_drain_lag() -> void:
+	while not _lag_snaps.is_empty() and float(_lag_snaps[0].at) <= now:
+		var item: Dictionary = _lag_snaps.pop_front()
+		_recv_snapshot(item.buf)
+	while not _lag_inputs.is_empty() and float(_lag_inputs[0].at) <= now:
+		var item: Dictionary = _lag_inputs.pop_front()
+		_queue_input(int(item.id), int(item.seq), item.move, item.face)
+
+func _lag_delay() -> float:
+	return _net_lag + (randf_range(-_net_jitter, _net_jitter) if _net_jitter > 0.0 else 0.0)
+
+## NS3_NET_KILL: put every remote player down on a schedule, so that the client's
+## results card — which otherwise only appears when a bot gets lucky — happens at
+## a time a screenshot can be aimed at.
+func _net_kill_check() -> void:
+	if _net_kill_at <= 0.0 or not net_host or now - match_start < _net_kill_at:
+		return
+	_net_kill_at = 0.0
+	for f in fighters.duplicate():
+		if is_instance_valid(f) and not f.is_dead() and int(f.get_meta("peer", 0)) > 1:
+			f.health = 0
+			_eliminate(f, "")
+
+func _recv_snapshot(buf: PackedByteArray) -> void:
+	var snap := _decode_snapshot(buf)
+	if snap.is_empty():
+		return
+	snap["recv"] = now
+	_snap_intake.append(snap)
+	if _net_stats_on:
+		_stat_bytes += buf.size()
+		_stat_packets += 1
+
+## Every two seconds: what the snapshot stream is actually costing, what the
+## unpacked form would have cost, and how often the client ran out of buffered
+## snapshots and had to extrapolate. Prints on both sides.
+func _net_stats_tick() -> void:
+	if not _net_stats_on or now - _stat_at < 2.0:
+		return
+	var span: float = maxf(0.001, now - _stat_at)
+	var line := "[net] %s %d snap/s  %.1f KB/s" % [
+			"out" if net_host else "in", int(round(_stat_packets / span)),
+			_stat_bytes / span / 1024.0]
+	if net_host:
+		line += "  (unpacked would be %.1f KB/s, %.1fx)" % [
+				_stat_legacy / span / 1024.0, float(_stat_legacy) / maxf(1.0, float(_stat_bytes))]
+	else:
+		line += "  buffer %d  offset %.0fms  extrapolated %d frames" % [
+				_snap_buf.size(), _host_offset * 1000.0, _stat_starved]
+		line += "  pred err avg %.0fcm max %.0fcm over %d acks" % [
+				(_stat_err_sum / maxf(1.0, float(_stat_err_n))) * 100.0,
+				_stat_err_max * 100.0, _stat_err_n]
+	print(line)
+	_stat_at = now
+	_stat_bytes = 0
+	_stat_packets = 0
+	_stat_legacy = 0
+	_stat_starved = 0
+	_stat_err_sum = 0.0
+	_stat_err_max = 0.0
+	_stat_err_n = 0
 
 ## Net results overlay: unlike _end_match this never flips the phase — the
 ## host's sim keeps running for whoever is still alive.
@@ -2947,15 +3547,42 @@ func _net_show_results(rank: int, victory: bool, who: Fighter = null) -> void:
 		who.stats.survived = maxf(0.0, now - match_start)
 	var award: Dictionary = SaveGame.award_match(_my_kit_name, rank)
 	_show_results(1 if victory else -1, "You placed #%d of %d" % [rank, _net_roster.size()],
-			_my_kit_name, award, _net_rows(who), authoritative)
+			_my_kit_name, award, _net_rows(who), authoritative, null, not authoritative)
+	if net_host:
+		_update_rematch_note()
 
-## A net client never runs deal_damage — every mutation is host-side and the
-## client only renders snapshots — so the one line it can fill in honestly is
-## the clock it keeps itself. The rest would be a column of zeros.
+## The stat table for a net result. On the host it is the ordinary Showdown one.
+## On a client, `Fighter.stats` are all zeros — `deal_damage` returns early when
+## `not authoritative`, so the client never counts a hit it did not resolve — and
+## the real numbers came down from the host with the elimination. If they somehow
+## have not, the survival clock the client keeps itself is still honest, and one
+## true row beats four invented ones.
 func _net_rows(f: Fighter) -> Array:
 	if authoritative:
 		return _showdown_rows(f)
-	return [["SURVIVED", _fmt_clock(maxf(0.0, now - match_start))]]
+	var clock: float = maxf(0.0, now - match_start)
+	if _my_net_stats.is_empty():
+		return [["SURVIVED", _fmt_clock(clock)]]
+	return [
+		["DAMAGE DEALT", MenuUI.fmt(int(_my_net_stats.get("d", 0)))],
+		["ELIMINATIONS", str(int(_my_net_stats.get("k", 0)))],
+		["POWER CUBES", str(int(_my_net_stats.get("c", 0)))],
+		["SURVIVED", _fmt_clock(float(_my_net_stats.get("s", clock)))],
+	]
+
+## Host: send a player the match stats only the host has. Everything a fighter
+## did was resolved here, so this is the only place the numbers exist.
+func _net_push_stats(f: Fighter) -> void:
+	if not net_host or f == null or not is_instance_valid(f):
+		return
+	var peer := int(f.get_meta("peer", 0))
+	# Still connected: the commonest reason a player's fighter is eliminated is
+	# that the player LEFT, and `_on_net_peer_left` eliminates it from inside the
+	# disconnect handler — by which point rpc_id to them is an engine error.
+	if peer <= 1 or not multiplayer.get_peers().has(peer):
+		return
+	_net_stats.rpc_id(peer, {"d": int(f.stats.damage), "k": int(f.stats.kills),
+			"c": int(f.stats.cubes), "s": float(f.stats.survived)})
 
 ## Host: one fighter (or none, if the gas closed) remains — end the match.
 func _net_finish() -> void:
@@ -2963,6 +3590,9 @@ func _net_finish() -> void:
 	var idx := -1
 	if fighters.size() == 1:
 		idx = net_fighters.find(fighters[0])
+		# The winner's clock stops here; everyone else's stopped in _eliminate.
+		fighters[0].stats.survived = maxf(0.0, now - match_start)
+		_net_push_stats(fighters[0])
 	_net_match_over.rpc(idx)
 	if idx >= 0 and fighters[0] == player:
 		_net_show_results(1, true, player)
@@ -2970,9 +3600,32 @@ func _net_finish() -> void:
 		results_note.text = "%s wins!" % fighters[0].display_name
 		results_note.visible = true
 
+## Host: how many of the other players have asked for another match. The host is
+## the only one who can deal one, so this is the line that tells them whether
+## anybody is still waiting on the button.
+func _update_rematch_note() -> void:
+	if not net_host or results_wait == null or not is_instance_valid(results_wait):
+		return
+	var others: int = maxi(0, Net.players.size() - 1)
+	if others <= 0:
+		results_wait.visible = false
+		return
+	results_wait.text = "%d of %d ready for a rematch" % [_rematch_wanted.size(), others]
+	results_wait.visible = true
+	# NS3_NET_REMATCH: deal the next match once the room has asked for it. The
+	# delay is so the card it is answering is on screen long enough to be shot.
+	if _net_auto_rematch and not _net_rematch_fired and _rematch_wanted.size() >= others:
+		_net_rematch_fired = true
+		get_tree().create_timer(3.0).timeout.connect(func() -> void:
+			results.visible = false
+			_net_host_start())
+
 func _on_net_peer_left(id: int) -> void:
 	_peer_inputs.erase(id)
+	_peer_queue.erase(id)
 	_net_ready_peers.erase(id)
+	_rematch_wanted.erase(id)
+	_update_rematch_note()
 	if not _match_ready:
 		return
 	for f in fighters.duplicate():
@@ -2981,6 +3634,11 @@ func _on_net_peer_left(id: int) -> void:
 
 func _on_net_host_lost() -> void:
 	center_label.text = "HOST LEFT"
+	# The results card covers center_label, and a client sitting on one having
+	# just asked for a rematch is exactly who needs telling.
+	if results.visible and results_wait != null and is_instance_valid(results_wait):
+		results_wait.text = "THE HOST LEFT — BACK TO THE LOBBY"
+		results_wait.visible = true
 	get_tree().create_timer(1.2).timeout.connect(func() -> void:
 		Loading.to_menu(get_tree()))
 
@@ -2996,9 +3654,31 @@ func _net_client_ready() -> void:
 		_net_start.rpc_id(id, _match_seq, _net_roster)
 
 @rpc("any_peer", "call_remote", "unreliable_ordered")
-func _net_input(move: Vector3, face: Vector3) -> void:
-	if net_host:
-		_peer_inputs[multiplayer.get_remote_sender_id()] = {"move": move, "face": face}
+func _net_input(seq: int, move: Vector3, face: Vector3) -> void:
+	if not net_host:
+		return
+	var id := multiplayer.get_remote_sender_id()
+	if _net_loss > 0.0 and randf() < _net_loss:
+		return
+	if _net_lag > 0.0:
+		var at := now + _lag_delay()
+		if at <= _lag_last_at:
+			return   # overtaken: the ordered channel would have dropped it
+		_lag_last_at = at
+		_lag_inputs.append({"at": at, "id": id, "seq": seq, "move": move, "face": face})
+		return
+	_queue_input(id, seq, move, face)
+
+## A client asks the host for another match. The host is the only peer that can
+## deal a roster, so the flow is: everyone who wants one says so, the host sees
+## the count on its own results card, and PLAY AGAIN pulls the whole room into
+## the next match through the _net_start it already broadcasts.
+@rpc("any_peer", "call_remote", "reliable")
+func _net_rematch_request() -> void:
+	if not net_host:
+		return
+	_rematch_wanted[multiplayer.get_remote_sender_id()] = true
+	_update_rematch_note()
 
 @rpc("any_peer", "call_remote", "reliable")
 func _net_fire(use_super: bool, dir: Vector3, dist: float) -> void:
@@ -3032,46 +3712,26 @@ func _net_start(seq: int, roster: Array) -> void:
 	_start_from_roster(roster)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
-func _net_snapshot(phase_h: int, inset: int, left: int, states: Array) -> void:
+func _net_snapshot(buf: PackedByteArray) -> void:
 	if not _match_ready:
 		return
-	players_label.text = "%d LEFT" % left
-	if phase == Phase.COUNTDOWN and phase_h == int(Phase.PLAYING):
-		phase = Phase.PLAYING
-		match_start = now
-		center_label.text = "FIGHT!"
-		get_tree().create_timer(0.8).timeout.connect(func() -> void:
-			if phase == Phase.PLAYING:
-				center_label.text = "")
-	if inset >= 0:
-		if gas == null:
-			gas = GasRing.new()
-			add_child(gas)
-			gas.map_tiles = arena.columns
-		if gas.inset != inset:
-			gas.inset = inset
-			gas._rebuild_overlay()
-	for i in mini(states.size(), net_fighters.size()):
-		var s: Array = states[i]
-		var f = net_fighters[i]
-		if s.is_empty() or f == null or not is_instance_valid(f) or f.is_dead():
-			continue
-		_puppet_targets[i] = {"pos": Vector3(s[0], 0, s[1]), "rot": float(s[2])}
-		f.max_health = int(s[4])
-		var h := int(s[3])
-		if h < f.health:
-			f.take_damage(f.health - h, now)   # flash + damage popup
-		else:
-			f.health = h
-		f.ammo = float(s[5])
-		f.super_charge = float(s[6])
-		f.cubes = int(s[7])
-		if s.size() >= 11:
-			f.heat_hits = int(s[8])
-			f.on_fire_until = now + float(s[9])
-			f.burn_until = now + float(s[10])
-			if float(s[10]) > 0.0 and f._burn_glow == null:
-				f._setup_burn_glow()
+	if _net_loss > 0.0 and randf() < _net_loss:
+		return
+	if _net_lag > 0.0:
+		var at := now + _lag_delay()
+		if at <= _lag_last_at:
+			return   # overtaken: the ordered channel would have dropped it
+		_lag_last_at = at
+		_lag_snaps.append({"at": at, "buf": buf})
+		return
+	_recv_snapshot(buf)
+
+## Host -> one client: what that player actually did this match. See _net_rows.
+@rpc("authority", "call_remote", "reliable")
+func _net_stats(payload: Dictionary) -> void:
+	if net_host:
+		return
+	_my_net_stats = payload
 
 @rpc("authority", "call_remote", "reliable")
 func _net_attack(idx: int, use_super: bool, dir: Vector3, dist: float) -> void:

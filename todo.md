@@ -447,11 +447,12 @@ those before anything else on the list.
         scoreline printed twice. Hidden rather than freed; `_build_hud` sweeps
         it on PLAY AGAIN.
       - Shoot it with `NS3_END=<sec>` alongside `NS3_SHOTS`.
-- [ ] **PLAY AGAIN still only exists for the host.** Both buttons are `MenuUI`
-      plates now and LOBBY goes through the loading screen, so what is left here
-      is purely the multiplayer question: PLAY AGAIN is not built at all for
-      anyone who is not `authoritative`, so a wifi client gets no rematch
-      control and just waits. See the Multiplayer item on the rematch flow.
+- [x] **PLAY AGAIN exists for everyone now.** Both buttons are `MenuUI` plates
+      and LOBBY goes through the loading screen; the multiplayer half is done
+      too — a wifi client gets REMATCH in place of PLAY AGAIN, which asks the
+      host, and a line saying what it is waiting on. See the Multiplayer
+      section for the flow and for the `VBoxContainer` bug the four-row client
+      card turned up in this card's own stagger.
 - [x] **A Nobles Cup goal resets the pitch properly.** `kickoff()` now calls
       `Fighter.kickoff_restore` on everyone still standing — health, ammo and
       every debuff timer, but deliberately **not** `super_charge`, since losing
@@ -581,18 +582,166 @@ those before anything else on the list.
 
 ## Multiplayer
 
-- [ ] **Clients have no prediction.** Client fighters are pure puppets rendering
-      30 Hz snapshots — fine on LAN, visibly laggy on anything worse.
-- [ ] **iOS can't receive UDP broadcast discovery replies** without Apple's
-      multicast entitlement, so iPhone players must use join-by-IP. Either
-      request the entitlement or make join-by-IP the primary flow on iOS.
-- [ ] **Only the host gets PLAY AGAIN**, and a host that dies keeps simulating
-      while showing results — the rematch flow needs a real design.
-- [ ] **A client's results card has one stat row.** `deal_damage` returns early
-      when `not authoritative`, so a client's `Fighter.stats` are all zeros and
-      `main.gd:_net_rows` shows only the survival clock it measures itself
-      rather than a column of noughts. Fixing it means the host sending each
-      player their damage / eliminations / cubes with the match-over RPC.
+- [x] **Clients interpolate, and predict their own fighter.** They used to be
+      pure puppets chasing the newest 30 Hz snapshot on an exponential lerp,
+      which is invisible on a LAN and both laggy and steppy on anything worse.
+      - **Everyone else is drawn at a fixed delay behind the host**
+        (`NET_INTERP_DELAY`, 85 ms — two and a half snapshots), by
+        interpolating between the two buffered snapshots that bracket that
+        instant. The host stamps its own `now` into every snapshot and the
+        client keeps a **min-filtered** `local now − host now` in
+        `_host_offset`, so the delay is measured against the host's clock
+        rather than against arrival times and jitter stops moving bodies. A
+        starved buffer extrapolates from the last two samples for at most
+        `NET_EXTRAP_MAX` (120 ms) and then holds — past that, extrapolation
+        reads as a fighter skating through a wall, which is worse than a
+        fighter standing still.
+      - **The discrete half of a snapshot** (health, ammo, Super, the gas ring,
+        the fighters-left count) **is applied at that same delayed instant**,
+        not off the newest packet, so a hit flash lands on the frame the body
+        is drawn where it was hit. Your OWN fighter is the deliberate
+        exception: it is drawn at `now`, so its numbers are applied the moment
+        they arrive.
+      - **Your own fighter moves on your own stick** (`_net_predict`), through
+        the same `Fighter.apply_movement` the host runs, so walls, water and
+        the kit's speed all resolve identically. The host acknowledges the last
+        input seq it applied in each snapshot; `_reconcile` compares that
+        against the position the client's own copy of that input produced and,
+        past `NET_PRED_TOLERANCE` (5 cm), puts the body where the host says it
+        was and **replays** every unacknowledged input from there — so a
+        correction resolves against walls instead of teleporting through them.
+        Past `NET_PRED_HARD_SNAP` (2.5 m) it snaps: a knockback or a dash is
+        not something to swim to.
+      - **`_pred_pos` and `_pred_error` are kept apart, and that is
+        load-bearing.** The correction goes into the SIMULATION at once and
+        into the PICTURE over the next fraction of a second. Feed the visual
+        offset back into the simulation and the next frame's prediction
+        measures its own correction, double-counts it, and the client twitches
+        on every packet. Ask for a `git log -p` on the first draft before
+        rewriting this: the bookkeeping needed to make the naive version
+        correct is longer than the replay.
+      - **The host buffers inputs and consumes one per physics tick**
+        (`_consume_input`) instead of applying whatever arrived last. Two
+        inputs landing inside one frame used to mean one was thrown away and
+        the client had predicted a step the host never took.
+      - **Measured** with `NS3_NET_STATS=1` under `NS3_NET_LAG=80
+        NS3_NET_JITTER=20 NS3_NET_LOSS=0.03` (a 160 ms round trip with 3%
+        loss): reconcile error **avg 0 cm, max 15 cm** across the settling
+        frames and **0 cm** for the rest of the match, buffer 3-4 snapshots
+        deep, 0 extrapolated frames. Untouched, the same link leaves the local
+        body about 0.9 m behind the stick.
+      - Gotcha the pass turned up, and it is worth knowing before tuning the
+        buffer: **`unreliable_ordered` DISCARDS a packet that has been
+        overtaken**, so a client whose frame rate drops below the snapshot rate
+        gets one snapshot per FRAME and the ordered channel collapses the rest.
+        Measured at 12-18 received against 30 sent through the first seconds of
+        a match while the models are still landing — which is exactly what the
+        buffer and the extrapolation window are covering.
+      - Gotcha 2: **`Kits.Style.JUMP_SMASH` was starting a leap on clients**,
+        where `_update_leaps` never runs, so `is_leaping()` stayed true for the
+        rest of the match — and `apply_movement` returns early while it is.
+        Free while the local fighter was a puppet the snapshot stream moved; it
+        freezes a predicting one solid. Now gated on `authoritative` like the
+        DASH and DOWNHILL cases beside it.
+      - Still open, and the next thing anyone will feel: **attacks are not
+        predicted.** A client's shot goes up as `_net_fire` and only appears
+        when `_net_attack` echoes back, so pressing fire on a 160 ms link is a
+        160 ms wait for the muzzle flash. Doing it means the client predicting
+        its own ammo and cooldown well enough not to draw a shot the host
+        refuses; the snapshot already carries both, one interpolation delay
+        late.
+- [x] **The snapshot is packed and quantised — 6.2x smaller, measured.** It was
+      a Variant `Array` of `Array`s, which costs about twelve bytes a field
+      once Godot has tagged every number as a double: **29-30 KB/s** at 30 Hz
+      for ten fighters, which a LAN swallows and a phone on a busy access point
+      does not. It is now a ten-byte header plus fifteen bytes per LIVING
+      fighter — **4.7-4.8 KB/s**, and down to 3.1 KB/s late in a match as the
+      roster thins, because dead fighters are left out of the alive mask
+      instead of costing an empty array each.
+      - Quantisation, and why each is enough: position to a centimetre (the
+        capsule is 0.65 m across and the map is 78 m, so u16 covers it),
+        facing to 1/256 of a turn (1.4°, on a body 70 px wide on screen), ammo
+        to 1/32 of a pip, Super to 1/255 of the bar, the two burn clocks to a
+        sixteenth of a second. The reconcile tolerance is 5 cm, five times the
+        position quantum, so packing cannot itself provoke a correction.
+      - **Nothing is delta-encoded, on purpose.** The stream is unreliable: a
+        field only sent when it changes is a field lost for good when that one
+        packet drops, and the ack scheme that fixes it costs more — in state on
+        both sides, and in bugs — than the bytes it saves at this size.
+      - `NS3_NET_STATS=1` prints both figures every two seconds (the host
+        builds the old form alongside the new one and `var_to_bytes` it), so
+        the ratio stays checkable rather than remembered.
+- [x] **A client's results card has its real stat table.** `deal_damage`
+      returns early when `not authoritative`, so a client's own `Fighter.stats`
+      are all zeros and the card fell back to the one row it could fill in
+      honestly. The host now sends the fighter's damage / eliminations / cubes
+      / survival with `_net_push_stats` immediately before the `_net_eliminate`
+      that raises the card, and again to the last survivor before
+      `_net_match_over`; `_net_rows` prints them. The single-row fallback is
+      kept for the case where they somehow have not arrived — one true row
+      still beats four invented ones.
+      - `multiplayer.get_peers().has(peer)` guards the send. The commonest
+        reason a player's fighter is eliminated is that the player LEFT, and
+        `_on_net_peer_left` eliminates it from inside the disconnect handler,
+        by which point `rpc_id` to them is an engine error. That error was
+        printing on every clean exit of the wifi harness.
+      - **It also turned up a real rendering bug in the results card**, which
+        had been invisible because Showdown's four rows had never been built on
+        the losing side of the race: `MenuUI.stagger` goes through `pop_in`,
+        which tweens `position:y` — and the rows live in a `VBoxContainer`,
+        which OWNS its children's positions. `pop_in` reads `home` off a child
+        the container has not laid out yet, records 0 for every row, and walks
+        all four back to the top of the table stacked, where only the last one
+        drawn is visible. The card looked like it had one row and the log said
+        it had four. `main.gd:_fade_in_rows` replaces it and fades only —
+        alpha is the half of that effect a container cannot fight.
+- [x] **A client can ask for a rematch, and is told what it is waiting on.**
+      Only the host can deal a roster, so the flow is: the client's card gets a
+      REMATCH button in place of PLAY AGAIN, which sends `_net_rematch_request`
+      and turns into "WAITING FOR THE HOST…"; the host's card carries "N of M
+      ready for a rematch"; the host's PLAY AGAIN pulls the whole room into the
+      next match through the `_net_start` it already broadcast, and
+      `_start_from_roster` hides the results card at the far end. LOBBY works
+      on both, and a host that leaves gets its clients "THE HOST LEFT — BACK TO
+      THE LOBBY" written onto the same line, because the results card covers
+      the `center_label` the old "HOST LEFT" was printed on.
+      - Verified end to end in the two-instance harness with the two hooks
+        added for it (`NS3_NET_KILL`, `NS3_NET_REMATCH`): client dies, card
+        with four real rows and a REMATCH button, request goes up, host's card
+        counts it, host deals, both instances come up in a new match's versus
+        screen.
+- [x] **iOS leads with join-by-IP.** An iPhone cannot receive the broadcast
+      half of discovery without Apple's multicast entitlement — neither the
+      replies a browsing phone needs nor the probes a HOSTING phone needs — so
+      the games list there is permanently empty, and an empty list where the
+      answer should be reads as a broken feature rather than an unavailable
+      one. `Net.discovery_works()` is false on iOS and `room_screen.gd` swaps
+      the two halves on it: JOIN BY IP first, in gold, with a green button,
+      prefilled with the last address used and on a numeric keypad
+      (`KEYBOARD_TYPE_NUMBER_DECIMAL` — the default layout hides the dot behind
+      a shift); the list below it, carrying the one line that says why. Desktop
+      keeps discovery first, because there it works.
+      - The last address joined by hand is remembered across launches in its
+        own `user://lan.cfg` (`Net.last_ip` / `remember_ip`). Typing an IPv4
+        address on a phone keyboard is the entire cost of this flow and it is
+        the same address every time in one house. Its own file rather than the
+        save: the save is the player's progress and has no business carrying a
+        LAN address.
+      - The host's room screen now prints its own IP at 34 pt in gold under
+        "Friends join by typing this address:", instead of as a clause in a
+        muted hint line. On iOS that number is the only way anyone joins.
+      - Shoot the iOS layout from a desktop with `NS3_FAKE_IOS=1
+        NS3_MENU_SCREEN=wifi NS3_MENU_SHOT=<abs.png>`. Without it the one
+        screen that only exists on a phone is the one screen this project
+        cannot photograph.
+- [ ] **Nobles Cup still cannot be hosted.** `net_play.gd` and the whole net
+      section of main.gd are Showdown-only; the ball, the score, the clock and
+      respawns would all have to go into the snapshot. `_rpc_start_game` hard-
+      codes `Session.mode = "showdown"`.
+- [ ] **No interest management.** Every client is sent every fighter every
+      snapshot, even the ones across the map that its camera cannot show. At
+      ten fighters that is 150 bytes and not worth the complexity; it is the
+      next lever if a mode ever wants a bigger roster.
 
 ## Ship
 

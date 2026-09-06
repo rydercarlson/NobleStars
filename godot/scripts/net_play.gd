@@ -3,9 +3,12 @@ extends Node
 ## Owns the ENet connection, the pre-match room roster, and wifi game
 ## discovery (UDP broadcast probe/reply). Match replication lives in main.gd.
 ##
-## iOS note: receiving broadcast replies needs Apple's multicast entitlement,
-## so discovery may find nothing on iPhone — the room screen's join-by-IP
-## field is the fallback that always works.
+## iOS note: an iPhone cannot receive the broadcast half of this without Apple's
+## multicast entitlement, so discovery finds nothing there — neither the probe a
+## browsing phone would have to hear replies to, nor the probe a HOSTING phone
+## would have to hear in the first place. `discovery_works()` is what the room
+## screen reads to decide whether to lead with the games list or with the
+## join-by-IP field, and on iOS it is the field.
 
 signal roster_changed
 signal join_failed(reason: String)
@@ -17,11 +20,18 @@ const DISCOVERY_PORT := 42538
 const PROBE := "NS3_FIND_V1"
 const REPLY := "NS3_HOST_V1"
 const MAX_PLAYERS := 10
+## Where the last address joined by hand is kept. Typing an IPv4 address on a
+## phone keyboard is the whole cost of the iOS flow, and it is the same address
+## every time in one house — so it is remembered across launches rather than
+## across a session. Its own tiny file: the save is the player's progress and
+## has no business carrying a LAN address.
+const LAN_FILE := "user://lan.cfg"
 
 var active := false            # hosting or joined (room or match)
 var locked := false            # host started the match; no new joins
 var players: Dictionary = {}   # peer_id -> {"name": String, "kit": String}
 var games: Dictionary = {}     # host ip -> {"name": String, "count": int, "seen": float}
+var last_ip := ""              # last address joined by hand; see LAN_FILE
 
 var _pending: Dictionary = {}  # my name/kit while a join handshake is in flight
 var _discovery: PacketPeerUDP  # host side: answers probes
@@ -31,7 +41,17 @@ var _next_probe_at := 0.0
 func is_host() -> bool:
 	return active and multiplayer.is_server()
 
+## Whether UDP broadcast discovery can be relied on here. False on iOS, where
+## both halves of it need the multicast entitlement.
+##
+## `NS3_FAKE_IOS=1` forces the false branch on a desktop. Without it the iOS
+## room layout can only be looked at on a phone, and the phone is the one place
+## this project cannot take a screenshot.
+func discovery_works() -> bool:
+	return OS.get_name() != "iOS" and OS.get_environment("NS3_FAKE_IOS") == ""
+
 func _ready() -> void:
+	_load_last_ip()
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
@@ -58,13 +78,29 @@ func host_game(player_name: String, kit: String) -> Error:
 func join_game(ip: String, player_name: String, kit: String) -> void:
 	browse_stop()
 	var peer := ENetMultiplayerPeer.new()
-	if peer.create_client(ip.strip_edges(), GAME_PORT) != OK:
+	var address := ip.strip_edges()
+	if peer.create_client(address, GAME_PORT) != OK:
 		join_failed.emit("Bad address")
 		return
+	remember_ip(address)
 	multiplayer.multiplayer_peer = peer
 	active = true
 	players = {}
 	_pending = {"name": player_name, "kit": kit}
+
+func remember_ip(ip: String) -> void:
+	var address := ip.strip_edges()
+	if address == "" or address == last_ip:
+		return
+	last_ip = address
+	var cfg := ConfigFile.new()
+	cfg.set_value("lan", "last_ip", address)
+	cfg.save(LAN_FILE)
+
+func _load_last_ip() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(LAN_FILE) == OK:
+		last_ip = String(cfg.get_value("lan", "last_ip", ""))
 
 func leave() -> void:
 	active = false
