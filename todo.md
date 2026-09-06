@@ -129,10 +129,37 @@ overlaps.
       read that first so the redesign is a decision and not a drift.
 - [ ] **The roster should be tiles, not a grid.** `roster_screen.gd` is a plain
       picker of rows; Ryder wants character tiles.
-- [ ] **Every character should show its stats.** Nova and Ayaan have no
-      `brawlers.json` entry, so `MenuData._merge` synthesises their card and the
-      loadout block returns null — they read as unfinished next to the other
-      seven. Give them JSON entries.
+- [x] **Every character has a card now.** The old entry was half stale: **Ayaan
+      has had a `brawlers.json` entry all along** (title, role, description,
+      attack and Super copy) and so do Anders and Hammy — what those three lack
+      is only the loadout names, and that block currently has no reader at all
+      (`BrawlerDetailScreen._build_loadout` went with the roster's detail card
+      in the menu overhaul; `MenuData._merge` still emits `loadout` and nothing
+      consumes it). **Nova** was the one genuinely missing entry, and it showed
+      the most because she is the sole starter and the first fighter anyone
+      sees: `_merge`'s fallbacks titled her "Shotgunner" under a role tag
+      already reading SHOTGUNNER, named her attack "SHOTGUNNER" and her Super
+      "SUPER", and printed her kit description twice. She now has a full entry
+      in the shape of Leon's, and home reads SCATTERSHOT / MEGA BLAST with real
+      copy under the title FIRST DAY.
+      - The JSON is copy, never balance: her numbers were read out of
+        `kits.gd` (5000 HP, 250 x 5 pellets, 22° fan, 4.3 tiles; Super 333 x 9,
+        34°, 5.0 tiles, breaks walls) and the write-ups quote them. `_merge`
+        does not read the JSON `stats` block at all — every figure on screen
+        comes from `kits.gd` — so it is there for shape parity and nothing else.
+      - No `model` or `portrait` key: Nova has neither file on disk, and unlike
+        Ayaan's entry (which names a portrait that does not exist and is never
+        resolved anyway — `MenuData.portrait` derives the path from the id) this
+        one does not pretend otherwise. She still renders as the capsule.
+      - The copy is deliberately descriptive rather than a character concept —
+        Nova is the placeholder reference kit and has none written down
+        anywhere. Replace the title and the four loadout names freely.
+      - **Left alone, worth a look:** Leon's entry is still `"rarity":
+        "starting"` and `"unlocked": true` from the web build, so the roster
+        labels him Starting Brawler alongside Nova, who is the only id in
+        `game.json`'s `startingBrawlers`. Changing it moves him between rarity
+        buckets, which the rarity-weighted `brawler_drop` reads — a content
+        decision, not a typo fix.
 - [ ] **A real progression system.** `SaveGame` already banks trophies, coins,
       gems, Power Points and pass tokens per match, and Trophy Road and the pass
       spend them — but power levels, Star Powers and gadgets are displayed and
@@ -378,16 +405,19 @@ those before anything else on the list.
       mode/currency icons, logo, key art). Copy and config live in
       `godot/data/{brawlers,game}.json`; stats come from `kits.gd`.
 - [ ] **v0.5 content: what is still unwired is now a short list.**
-      Gadget/gear/Star Power/Hypercharge **are** displayed — `MenuData._merge`
-      carries them as a `loadout` dict and `BrawlerDetailScreen._build_loadout`
-      draws a two-column block under the attack/super write-ups, returning null
-      rather than four empty slots for a kit with no JSON entry (Nova, Ayaan).
-      `trophyRoad` is wired too — the screen reads the nested
+      Gadget/gear/Star Power/Hypercharge are **no longer displayed anywhere**,
+      and this entry used to claim otherwise. `MenuData._merge` still carries
+      them as a `loadout` dict, but `BrawlerDetailScreen._build_loadout` — the
+      two-column block that drew them — went with the roster's detail card when
+      home became the detail view, so the dict has zero readers. Five kits name
+      a full set in `brawlers.json` (Nova, Leon, Sanjit, Tony, Kovacs, Henry;
+      Anders, Hammy and Ayaan name none) and none of it reaches a screen.
+      `trophyRoad` is wired — the screen reads the nested
       `{trophies, reward}` shape and renders all six reward kinds.
-      **Still unwired:** game.json's `quests`, `leaderboard`, `gameLog` and
-      `upcoming` are read by nothing, and `MenuData.card_art` still has zero
-      callers. `passRewards` was deliberately left at the 15 tiers the pass
-      screen parses rather than the web build's 40.
+      **Still unwired:** the whole `loadout` dict, and game.json's `quests`,
+      `leaderboard`, `gameLog` and `upcoming` are read by nothing, and
+      `MenuData.card_art` still has zero callers. `passRewards` was deliberately
+      left at the 15 tiers the pass screen parses rather than the web build's 40.
 - [ ] **Leon, Anders, Hammy and Ayaan have no named unlock.** The v0.5 trophy
       road unlocks Sanjit, Tony, Kovacs and Henry only, so those four are
       reachable only through a shop Star Drop. Decide whether they get road
@@ -482,16 +512,76 @@ those before anything else on the list.
         y = 1 inside a box that starts at 0. 2.05 m was shot and looks
         chunkier and more like the reference; 1.5 m keeps more floor out of
         shadow. Taste, one constant, no balance consequence either way.
-- [ ] **The gas ring looks crappy, and it jumps.** `gas_ring.gd` moves
-      `inset` by `TILES_PER_SHRINK` (2) in one assignment every
-      `SHRINK_INTERVAL` (12s), so the wall teleports two tiles inward with no
-      motion at all — and `inset` is an **int** that the geometry, `contains()`
-      and `depth_inside()` all read, so making it drift means making the visual
-      edge a float that eases toward the logical one while the rules keep
-      stepping (or committing to a float inset everywhere, which touches the
-      bots' `gas_depth` steering). Decide which before starting. The look is the
-      other half: it is flat cloud geometry reseeded off `rng.seed = 7 + inset`,
-      so it also pops its whole pattern on every step.
+- [x] **The gas ring eases, and it looks like gas.** It used to move `inset` by
+      `TILES_PER_SHRINK` in one assignment every `SHRINK_INTERVAL`, so the wall
+      teleported two tiles with no motion at all, reseeded the whole cloud bank
+      off `rng.seed = 7 + inset` in the same frame, and painted the danger zone
+      as four flat translucent `BoxMesh`es rebuilt from scratch. The cadence is
+      untouched — `FIRST_SHRINK_DELAY`, `SHRINK_INTERVAL`, `TILES_PER_SHRINK`
+      and `TICKS_TO_KILL` are all exactly what they were, verified by stepping
+      the ring in a probe: it starts at t=18, settles two tiles at t=21, steps
+      again at t=30 and t=42, and stops at inset 20 on a 39-tile map.
+      - **`inset` is a float everywhere, rules included** — the choice the old
+        entry said to make. Easing only the visuals is a lie the player cannot
+        see through: for the whole three seconds you would burn while standing
+        on ground that plainly reads as safe. Every caller outside the file goes
+        through `contains()` / `depth_inside()` / `safe_min()` / `safe_max()` /
+        `safe_center()`, all of which were floats already, so the bots'
+        `gas_depth` steering gets a continuously moving edge for free and
+        `main.gd:gas_closing()`'s `inset > 0` still flips on the same frame.
+      - **The rate is the number to check, not the duration.** A smoothstep
+        peaks at 1.5x its average: two tiles (4 m) over `SHRINK_EASE` = 3 s tops
+        out at **2.00 m/s**, against `Kits.SPEED_VERY_SLOW` = 4.48 m/s. The wall
+        has to stay walkable-out-of or the ease becomes an execution.
+      - **One net line changed**: `main.gd:_net_snapshot`'s `inset` parameter is
+        `float`. The send site is untouched (`gas.inset`). Left as int the
+        client's wall would land back on whole tiles and keep the jump the host
+        no longer has. `GasRing` also gained a `_running` flag set only by
+        `start()`, so a client — which never calls it — no longer runs the
+        shrink schedule and the gas damage loop locally underneath the snapshot
+        it is being sent.
+      - **The bank is parametric now.** Each cloud stores its edge, its position
+        along it, and its own jitter/scale/yaw, generated ONCE at a constant
+        seed; world transforms are recomputed every frame from the eased edge.
+        The count per edge is fixed at what the map's full width needs and the
+        clouds bunch as the ring closes rather than being culled — culling
+        reintroduces the pop, and dropping instances from a fixed buffer breaks
+        the only thing that sorts a MultiMesh of transparent instances, which is
+        the order they were written in. Buffer order is far edge, flanks, near
+        edge, which is back-to-front under a camera at +Z.
+      - **The fill is a shader over two quads**, a mat at ankle height and a
+        haze at 2.6 m drifting faster, so the pair separates under the camera's
+        pitch instead of reading as one decal. The front is the safe rectangle's
+        box SDF pushed about by a noise octave, which is what stops it reading
+        as a rectangle; a bright lip sits on the front and the interior billows.
+      - **Two passes went into picking the colour in sRGB and wondering where
+        the purple went.** Godot blends in LINEAR space, where grass's green
+        channel is 0.45 against a dark violet's 0.003 — so a plausible violet at
+        60% composites to a dead grey-green and the fill looks *dirty* rather
+        than dangerous, which is exactly what the old flat slab did. The fix is
+        a nearly-opaque, nearly-zero-green purple: at 0.93 alpha ALBEDO is more
+        or less the answer, and the mat can afford it because it sits under a
+        fighter's feet and never occludes anyone. Only the thin haze is ever
+        between the camera and a body.
+      - Two smaller things each cost a look: a quad's own straight edge is
+        visible wherever the map's isn't (the haze is 2.6 m up, so its rectangle
+        projects clear of the slab lip), hence the `rim_fade` that takes both
+        quads out before their geometry ends; and scaling a whole 78 m edge of
+        clouds up from zero on the first shrink puts a line of ten-pixel specks
+        along the border that reads as confetti, hence the 0.55 floor under the
+        bank's appear ramp.
+      - `gas_cloud.glb` is now in `Loading.to_match`'s preload list (Showdown
+        only). The bank is built on the match's first frame rather than on the
+        first shrink, so without it a 6.6 MB GLB would come off disk during the
+        pre-match beat — the same trap as `power_cube.glb`.
+      - Fixed in passing: the MultiMesh was driving instance transforms from
+        `_process` with physics interpolation on, which logged a warning every
+        frame. `PHYSICS_INTERPOLATION_MODE_OFF` — the bank drifts on render
+        time by design.
+      - **Still open:** the gas makes no sound of its own and nothing announces
+        a step. `MenuAudio` already has `gas_tick` for your own burn; a low
+        rolling swell timed to the ease is the obvious next thing, and a haptic
+        for "the ring is moving" would suit the table in **Haptics**.
 - [ ] **Camera framing — measured, and the lens is the wrong lever.** The
       numbers, so this is not re-derived: the camera is 105.5 m out at a 60
       degree pitch behind a 7 degree vertical FOV, which is **22.9 x 12.9 m** at

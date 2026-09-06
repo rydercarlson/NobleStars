@@ -3103,8 +3103,11 @@ func _net_start(seq: int, roster: Array) -> void:
 	_net_seen_seq = seq
 	_start_from_roster(roster)
 
+## `inset` is a float because `GasRing.inset` is: the ring eases between its
+## steps rather than teleporting, so an int here would land the client's wall
+## back on whole tiles and give it the jump the host no longer has.
 @rpc("authority", "call_remote", "unreliable_ordered")
-func _net_snapshot(phase_h: int, inset: int, left: int, states: Array) -> void:
+func _net_snapshot(phase_h: int, inset: float, left: int, states: Array) -> void:
 	if not _match_ready:
 		return
 	players_label.text = "%d LEFT" % left
