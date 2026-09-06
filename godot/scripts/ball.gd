@@ -120,6 +120,22 @@ func place(pos: Vector3, now: float, hold := 0.0) -> void:
 	free_at = now + hold
 	position = Vector3(pos.x, LOOSE_HEIGHT, pos.z)
 
+## Shaken loose by a Super rather than put down: the ball is dropped where the
+## carrier stood and keeps some of the shove that stripped it. Everything after
+## the launch is a kick's own path — it coasts against DRAG, bounces off walls
+## and is catchable once `hold` is up — so nothing downstream needs a second case
+## for a knocked ball.
+##
+## `last_touch` is deliberately NOT changed. Whoever landed the Super never
+## touched the ball; the carrier it came off did, and leaving them on it is what
+## keeps goal credit and the own-goal test honest.
+func knock_loose(pos: Vector3, dir: Vector3, speed: float, now: float, hold := 0.0) -> void:
+	place(pos, now, hold)
+	var unit := Vector3(dir.x, 0, dir.z).normalized()
+	if unit == Vector3.ZERO or speed <= STOP_SPEED:
+		return
+	velocity = unit * speed
+
 func pick_up(f: Fighter) -> void:
 	carrier = f
 	last_touch = f

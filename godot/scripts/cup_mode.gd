@@ -30,9 +30,23 @@ const GOAL_CAMERA_INSET := 0.3
 ## carried into range; anything longer comes out as a pass instead.
 const SHOT_RANGE := 6.0
 
-## A knock this hard shakes the ball loose. Above every melee lunge and the
-## lightest hits (1.5), below the real knockback Supers deal (9 and up).
+## A Super's knock this hard or harder shakes the ball loose. It is a floor, not
+## the rule — see _carrier_check and _knock_was_super for what actually decides.
 const KNOCK_DROP_SPEED := 3.0
+
+## What a Super that strips the ball does to it. A strip is not a pass: the ball
+## keeps some of the shove so it reads as knocked away rather than put down, but
+## it is capped well inside a kick, because a ball that outran a kick would make
+## "have a team-mate hit you" the fastest way up the pitch. The hardest Super in
+## the roster (Anders, 14) gets KNOCK_BALL_MAX, which coasts about 6 m against a
+## normal kick's 15 — so a strip can never be a shot from anywhere a kick could
+## not already have been taken.
+const KNOCK_BALL_PER_STRENGTH := 0.5
+const KNOCK_BALL_MIN := 2.0
+const KNOCK_BALL_MAX := 6.0
+## How long the ball cannot be picked up after it is shaken loose. Long enough
+## that the shove actually separates the carrier from it.
+const KNOCK_BALL_HOLD := 0.35
 
 ## Group on the scoreboard's root node, so a leftover from a previous match can
 ## be found on main.gd's HUD layer and cleared.
@@ -58,6 +72,44 @@ var _lineup: Array[Array] = [[], []]
 var _score_label: Label
 var _clock_label: Label
 var _banner: Label
+
+## NS3_BALL_LOG=1: every time the ball leaves a pair of hands, and how far it
+## then ran before it stopped or was collected. The two complaints this exists to
+## settle — "a knock sends the ball further than a kick" and "a tap does one of
+## two different things" — are both claims about a DISTANCE, which is exactly
+## what a screenshot cannot show and what one match cannot average. Same
+## instrument as NS3_SAVE_LOG and NS3_BOT_LOG: it tells "the rule never matched"
+## apart from "the situation never arose".
+var _ball_log := OS.get_environment("NS3_BALL_LOG") != ""
+var _loose_from := Vector3.ZERO
+var _loose_why := ""
+var _loose_open := false
+var _loose_rest := -1.0
+
+func _log_loose(why: String, from: Vector3) -> void:
+	if not _ball_log:
+		return
+	if _loose_open:
+		_log_settled("taken again")
+	_loose_from = from
+	_loose_why = why
+	_loose_open = true
+	_loose_rest = -1.0
+
+## Flat distance: the ball's y never changes while it is loose, and the drop
+## point is read off a fighter whose own y is not the ball's, so the straight
+## distance carries a constant offset that hides exactly the number being
+## measured — a dead-still drop reported 0.42 m of travel.
+func _flat_from_loose() -> float:
+	return Vector2(ball.position.x - _loose_from.x, ball.position.z - _loose_from.z).length()
+
+func _log_settled(how: String) -> void:
+	if not _ball_log or not _loose_open:
+		return
+	_loose_open = false
+	print("[ball] %6.1fs %-26s ran %6.2f m%s -> %s" % [
+			MATCH_SECONDS - clock, _loose_why, _flat_from_loose(),
+			"" if _loose_rest < 0.0 else " (rest %5.2f)" % _loose_rest, how])
 
 # MARK: setup
 
@@ -92,9 +144,20 @@ func build_match(now: float) -> void:
 			f.display_name = "You" if is_you else game.next_bot_name()
 			if is_you:
 				game.player = f
-			else:
+			# NS3_AUTOPLAY hands the player's own slot to a brain as well, so a
+			# match run from the command line is 3v3 rather than a 2v3 against
+			# somebody standing on the kickoff spot. main.gd skips its own input
+			# block in the same breath, so the fighter is only moved once a frame.
+			if not is_you or game.autoplay:
 				game.brains.append(BotBrain.new(f))
 
+	if _ball_log:
+		for team in 2:
+			var names: Array = []
+			for f: Fighter in game.fighters:
+				if f.team == team:
+					names.append(f.kit.name)
+			print("[ball] team %d: %s" % [team, ", ".join(names)])
 	ball = Ball.new()
 	game.add_child(ball)
 	ball.place(arena.centre(), now)
@@ -173,6 +236,7 @@ func kickoff(now: float, opening := false) -> void:
 	# air, and the freeze holds everyone still on the centre spot for it to land
 	# on. Ahead of ball.place(), which must not be swept up with it.
 	game.clear_in_flight()
+	_log_settled("kickoff reset")
 	ball.place(arena.centre(), now, KICKOFF_FREEZE)
 	ball.last_touch = null
 	_frozen_until = now + KICKOFF_FREEZE
@@ -201,6 +265,12 @@ func tick(delta: float, now: float) -> void:
 	# where they fell, not have the ball follow a corpse for a frame first.
 	_carrier_check(now)
 	ball.tick(delta, now, game.arena)
+	# Where it came to rest is noted rather than reported: the entry stays open so
+	# the line that eventually prints says who collected it, which is the half of
+	# a turnover that matters.
+	if _loose_open and _loose_rest < 0.0 and ball.carrier == null \
+			and ball.velocity == Vector3.ZERO:
+		_loose_rest = _flat_from_loose()
 	_pickup_check(now)
 	_respawn_check(now)
 	if _goal_check(now):
@@ -212,23 +282,74 @@ func tick(delta: float, now: float) -> void:
 	elif overtime:
 		_overtime_wipe_check()
 
-## What shakes the ball loose. Brawl Ball's rule is that a carrier drops it
-## when stunned, knocked back or defeated; a dash and a jump-smash are added to
-## that here, because both are a fighter throwing itself across the pitch and
-## carrying the ball through one would make every mobility Super a free run at
-## the goal.
+## What shakes the ball loose. Brawl Ball's rule is that a carrier drops it when
+## stunned, knocked back or defeated; a dash and a jump-smash are added to that
+## here, because both are a fighter throwing itself across the pitch and carrying
+## the ball through one would make every mobility Super a free run at the goal.
+##
+## A knock only counts when it came from a SUPER, and that is the whole of this
+## rule's history. It used to be a bare speed threshold on `knockback_vel`, and
+## measured over a full match (NS3_BALL_LOG=1) what that actually did was let
+## **Kovacs' clap** strip the carrier every time it landed — a basic attack, on a
+## normal reload, across a 2.4-tile 78-degree cone. Nothing else in the roster
+## takes the ball off you with its regular attack, and nothing should.
+##
+## No number can separate the two, which is why the fix is not a bigger
+## threshold: his clap shoves at 4.0, exactly as hard as Sanjit's Super does.
+## What separates them is where the shove came from, so main.gd's deal_damage
+## sends the attacker along with the impulse and `_knock_was_super` asks whether
+## it was harder than that attacker's own weapon.
 func _carrier_check(now: float) -> void:
 	var c: Fighter = ball.carrier
 	if c == null:
 		return
 	if not is_instance_valid(c) or c.is_dead():
-		ball.place(_free_spot(c.global_position if is_instance_valid(c) else game.arena.centre()),
-				now, 0.35)
+		var where := _free_spot(c.global_position if is_instance_valid(c) else game.arena.centre())
+		_log_loose("death", where)
+		ball.place(where, now, 0.35)
 		return
-	if c.is_dashing() or c.is_leaping() or c.knockback_vel.length() > KNOCK_DROP_SPEED:
+	if c.is_dashing() or c.is_leaping():
 		# Dropped where they were standing, not where they end up: the ball
-		# stays behind and the dash or the knock is what separates them from it.
-		ball.place(_free_spot(c.global_position), now, 0.35)
+		# stays behind and the dash or the leap is what separates them from it.
+		var where := _free_spot(c.global_position)
+		_log_loose("dash/leap %s" % c.kit.name, where)
+		ball.place(where, now, 0.35)
+		return
+	if _knock_was_super(c) and c.knock_strength > KNOCK_DROP_SPEED:
+		# Knocked away rather than put down, and in the direction of the shove.
+		# `knock_strength` is the impulse as DEALT: `knockback_vel` has already
+		# decayed by the time this runs, and how hard the Super hit is the whole
+		# input to how far the ball goes.
+		var where := _free_spot(c.global_position)
+		_log_loose("knock %s %.1f by %s" % [c.kit.name, c.knock_strength,
+				c.knock_from.kit.name], where)
+		ball.knock_loose(where, c.knock_dir,
+				clampf(c.knock_strength * KNOCK_BALL_PER_STRENGTH,
+						KNOCK_BALL_MIN, KNOCK_BALL_MAX),
+				now, KNOCK_BALL_HOLD)
+		# The shove is spent the moment it takes the ball. It outlives the ball's
+		# own pickup hold by a wide margin — 0.58s against 0.35s for a 10 m/s
+		# knock — so without this the carrier re-collects while still carrying a
+		# live knock record and is stripped again on the next frame, and again:
+		# three strips off one Kovacs Super, measured.
+		c.forget_knock()
+
+## Whether the shove currently on `f` came from a Super rather than from someone's
+## regular attack. Measured against the attacker's OWN weapon rather than against
+## a constant, because a constant cannot tell them apart — Kovacs' clap and
+## Sanjit's Super both shove at 4.0. Every kit gives its Super more knockback
+## than its weapon (Kovacs 10 against 4, Leon 5 against 1.5, Anders 14 against 3,
+## and the other six put no knockback on the weapon at all), so "harder than
+## their own attack" IS "their Super", and it stays true for a kit added later
+## without anything here being retuned.
+##
+## `knock_from` is cleared the moment the shove decays (Fighter._forget_knock),
+## so this can never read a stale attacker from an exchange that is already over.
+static func _knock_was_super(f: Fighter) -> bool:
+	var from: Fighter = f.knock_from
+	if not is_instance_valid(from):
+		return false
+	return f.knock_strength > float(from.kit.weapon.get("knockback", 0.0))
 
 func _pickup_check(now: float) -> void:
 	if ball.carrier != null or now < ball.free_at:
@@ -258,6 +379,9 @@ func _pickup_check(now: float) -> void:
 					"SAVE" if _is_save(best) else "-"])
 		if _is_save(best):
 			best.stats.saves += 1
+		_log_settled("%s (%s)" % [best.kit.name,
+				"same team" if is_instance_valid(ball.last_touch) and ball.last_touch.team == best.team
+				else "turnover"])
 		ball.pick_up(best)
 		game.feed_label.text = "%s has the ball" % best.display_name
 
@@ -359,6 +483,7 @@ func _goal_check(now: float) -> bool:
 	if ball.carrier != null and ball.carrier.team == conceded:
 		return false
 	var scorer := 1 - conceded
+	_log_settled("GOAL for team %d" % scorer)
 	score[scorer] += 1
 	var who: String = ball.last_touch.display_name if is_instance_valid(ball.last_touch) \
 			else "Somebody"
@@ -419,6 +544,14 @@ func _overtime_wipe_check() -> void:
 func _finish(_now: float) -> void:
 	finished = true
 	_banner.text = ""
+	if _ball_log:
+		# Quits at the whistle on purpose, the way NS3_SHOTS does: a Cup match can
+		# be over in twenty seconds and the results card holds the process open
+		# for the other two minutes, so without this a batch of matches is mostly
+		# spent waiting on nothing.
+		print("[ball] full time %d — %d" % [score[0], score[1]])
+		game.get_tree().quit()
+		return
 	game.end_cup_match(score[0], score[1])
 
 func _refresh_hud() -> void:
@@ -452,6 +585,7 @@ func kick(f: Fighter, dir: Vector3, now: float, use_super := false) -> bool:
 	elif not f.consume_ammo(now):
 		return true
 	ball.kick(dir, now, game.arena, Ball.SUPER_KICK_MULT if use_super else 1.0)
+	_log_loose("%s %s" % ["super kick" if use_super else "kick", f.kit.name], ball.position)
 	# A Super Shot is twice the ball speed, so it gets the Super's own sound
 	# rather than a louder boot.
 	game.sfx_at("super_fire" if use_super else "cup_kick", f.global_position,
@@ -460,10 +594,21 @@ func kick(f: Fighter, dir: Vector3, now: float, use_super := false) -> bool:
 	f.play_attack_animation(now, use_super)
 	return true
 
-## Where a tap-to-kick sends the ball: at the goal being attacked, unless a
-## team-mate is closer to it and in the clear, in which case it is a pass.
-## A Super Shot reaches twice as far, so it goes for goal from twice as far out.
-func kick_aim(f: Fighter, powerful := false) -> Vector3:
+## Where a tap-to-kick sends the ball, AND what it is doing with it: a shot at
+## the goal being attacked, a pass to a team-mate better placed than you, or a
+## clearance upfield when there is neither. A Super Shot reaches twice as far, so
+## it goes for goal from twice as far out.
+##
+## The three cases were always here; what is new is saying which one out loud.
+## main.gd's aim indicator draws `at` as a ring under the player's thumb, because
+## the rule turns on a distance that appears nowhere on screen — so a tap did one
+## of two quite different things and there was no way to know which in advance.
+## Returned as a plan rather than computed twice: the drawing and the kick have
+## to agree, and a second copy of this is how they would stop agreeing.
+##
+## `kind` is "shot", "pass" or "clear". A clearance is aimed at the goal like a
+## shot but by definition cannot reach it, which is why it is named separately.
+func kick_plan(f: Fighter, powerful := false) -> Dictionary:
 	var goal: Vector3 = game.arena.goal_centers[1 - f.team]
 	var to_goal: float = f.global_position.distance_to(goal)
 	# SHOT_RANGE, not the ball's full coast: the two have to agree, or a bot
@@ -471,7 +616,7 @@ func kick_aim(f: Fighter, powerful := false) -> Vector3:
 	# range still had this aim it at the goal, and hit.
 	var reach: float = SHOT_RANGE * (Ball.SUPER_KICK_MULT if powerful else 1.0)
 	if to_goal <= reach and game.has_line_of_sight(f.global_position, goal):
-		return goal - f.global_position
+		return {"kind": "shot", "at": goal, "dir": goal - f.global_position}
 	var best: Fighter = null
 	var best_d := to_goal
 	for mate: Fighter in game.fighters:
@@ -482,5 +627,10 @@ func kick_aim(f: Fighter, powerful := false) -> Vector3:
 			best = mate
 			best_d = d
 	if best != null:
-		return best.global_position - f.global_position
-	return goal - f.global_position
+		return {"kind": "pass", "at": best.global_position,
+				"dir": best.global_position - f.global_position}
+	return {"kind": "clear", "at": goal, "dir": goal - f.global_position}
+
+## The direction half of kick_plan, for the callers that only kick with it.
+func kick_aim(f: Fighter, powerful := false) -> Vector3:
+	return kick_plan(f, powerful).dir

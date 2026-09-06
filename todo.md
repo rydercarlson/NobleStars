@@ -88,22 +88,41 @@ overlaps.
       controls (`super_button.gd` + `virtual_joystick.gd`), so the aim starts
       only once the finger is already on the button. Worth trying the Brawl
       Stars arrangement: the Super button is itself a stick you drag off.
-- [ ] **The Super's auto-aim picks badly.** A tapped Super takes
-      `nearest_visible_enemy(player, range * 1.1, ...)` and nothing else
-      (`main.gd:_auto_aim_fire`) — no lead beyond `_aim_lead`, no preference for
-      a target that is actually worth a charge, and no memory of what you were
-      already shooting at. Nearest is the wrong metric for the one shot that
-      costs something: the right target is usually the one you have been
-      fighting, or the low one, not whoever happens to be a metre closer. Note
-      the deliberate exceptions already in there (Pop Off runs the way you are
-      running, Downhill sets off with nobody in reach, and any other Super with
-      no target keeps its charge rather than firing at nothing) — those are not
-      the bug and should survive whatever replaces the picker.
-- [ ] **Nobles Cup aiming is weird.** `CupMode.kick_aim` shoots inside
-      `SHOT_RANGE` and passes otherwise, and the indicator is the ball's own
-      bounce path — so a tap does one of two quite different things depending on
-      a distance the player cannot see. Reproduce and decide whether the tell is
-      missing or the rule is wrong.
+- [x] **A tapped Super is scored now, not nearest.** `main.gd:_super_target`
+      ranks every candidate in the same set the old rule used (`range * 1.1`,
+      the same wall and bush checks) as an expected value: what the target is
+      WORTH — would this Super finish them, are you already trading with them,
+      are they wounded, are they close — multiplied by `_connect_odds`, roughly
+      how likely the shot is to arrive given `_aim_lead` assumes the target
+      holds its heading. Weights are a ranking, not a measurement: a kill beats
+      the fight you are in, which beats a wounded bystander, which beats
+      nearest.
+      - **The regular tap is deliberately still nearest**, and the asymmetry is
+        the point. An attack repeats two to five times a second, so a wrong pick
+        costs one shot and the next tap corrects it — while a picker that
+        re-ranks every tap sends consecutive shots at different people, which
+        reads as the game arguing with you. Nearest is also the only rule a
+        player can predict without reading a marker. A Super is the one shot
+        that costs something, so it is the one that can afford the machinery.
+      - **All three deliberate exceptions survived**, which was the thing to
+        watch: Pop Off still leaps the way you are running, Downhill still sets
+        off with nobody in reach, and any other Super with no target still keeps
+        its charge. They live in the new `_tap_plan`, which returns
+        `{kind, dir, target}` and is shared by the firing path AND the aim
+        indicator — that sharing is what makes the Cup tell below possible.
+      - `Fighter.engaged_with` / `engaged_at` record the exchange on **both**
+        sides of every hit, so "the fighter you have been trading with" is true
+        whether you have been shooting them or they have been shooting you.
+- [x] **A Cup tap now says which of the two things it will do.** The rule was
+      not wrong — a tap shoots inside `SHOT_RANGE` and passes otherwise, which
+      is right — the tell was missing, so the tap silently did one of two very
+      different things depending on a distance the player cannot see.
+      `CupMode.kick_plan` now returns `{kind, at, dir}` where kind is
+      `shot` / `pass` / `clear`, and `main.gd` draws a ring on `at` — the goal,
+      or the team-mate — so you can see what a tap is aimed at before you take
+      it. `kick_aim` is kept as the direction-only half for the callers that
+      just kick. The bots read the same plan, so what the ring promises and what
+      a tap does cannot drift.
 
 ### Fit on a phone
 
@@ -218,10 +237,40 @@ overlaps.
       complaint is about with `NS3_KIT=sanjit` before touching the tier tables;
       `CHARACTER_BUILDING.md` derives damage from range, so a range change is a
       damage change.
-- [ ] **Kovacs knocks the ball out of play.** His clap and jump-smash deal
-      knockback well above `CupMode.KNOCK_DROP_SPEED`, so he strips the carrier
-      — intended — but the ball then travels further than a kick. Clamp what a
-      knock does to the ball, or drop it at the carrier's feet.
+- [x] **Kovacs stripped the carrier with a BASIC ATTACK, and that was the bug.**
+      The entry above assumed the fix was a clamp on distance. Measured over a
+      full match with the new `NS3_BALL_LOG=1`, the real fault was upstream:
+      `_carrier_check` tested a bare speed threshold on `knockback_vel`, and
+      Kovacs' clap shoves at 4.0 — over `KNOCK_DROP_SPEED` (3.0) — so it took
+      the ball off the carrier **every time it landed**, on a normal reload,
+      across a 2.4-tile 78-degree cone. Nothing else in the roster strips with
+      its regular attack and nothing should.
+      - **No threshold can fix it**, which is why the rule changed shape rather
+        than its number: his clap shoves at 4.0 and *Sanjit's Super* shoves at
+        exactly 4.0 too. What separates them is where the shove came from, so
+        `deal_damage` now records the attacker on the target and
+        `_knock_was_super` asks whether the impulse was harder than that
+        attacker's OWN weapon. Every kit gives its Super more knockback than its
+        attack (Kovacs 10 vs 4, Leon 5 vs 1.5, Anders 14 vs 3, and the other six
+        put none on the weapon at all), so "harder than their own attack" IS
+        "their Super" — and it stays true for a kit added later with nothing
+        here retuned.
+      - **The ball keeps some of the shove** (`Ball.knock_loose`) so a strip
+        reads as knocked away rather than put down, capped at `KNOCK_BALL_MAX`
+        — the hardest Super in the roster coasts it about 6 m against a kick's
+        15, so a strip can never be a shot from anywhere a kick could not
+        already have been taken. `last_touch` is deliberately NOT changed:
+        whoever landed the Super never touched the ball, and leaving the carrier
+        on it keeps goal credit and the own-goal test honest.
+      - **A knock outlives the ball's pickup hold**, which cost a pass to find:
+        a 10 m/s shove decays over ~0.58s against `KNOCK_BALL_HOLD` of 0.35s, so
+        the carrier re-collected while still wearing a live knock record and was
+        stripped again on the next frame — three strips off one Kovacs Super,
+        measured. `Fighter.forget_knock()` spends the shove the moment it takes
+        the ball.
+      - Verified after the fix: every `knock` line in a full match is a Super
+        (Kovacs 10.0, Nova 12.0) and the ball runs 1.6–2.0 m, against kicks of
+        3–13 m.
 
 ## Generating assets ourselves
 
@@ -1026,6 +1075,20 @@ those before anything else on the list.
         NS3_MENU_SCREEN=wifi NS3_MENU_SHOT=<abs.png>`. Without it the one
         screen that only exists on a phone is the one screen this project
         cannot photograph.
+- [ ] **A client's own death is silent, and its HUD lies about it.** Found while
+      verifying the merge, with `NS3_NET_KILL=6` + `NS3_HAPTIC_LOG=1`: the
+      results card comes up correctly (DEFEATED, #10 of 10, the real stat table)
+      while the HUD behind it still reads `HP 5000/5000`, and **not one haptic
+      fires** — no `death`, no `hit_taken`. The health line is what explains
+      both: a client is put down by the `_net_eliminate` EVENT, not by its health
+      being walked to zero, so `_update_status`'s frame-to-frame damage watch —
+      which CLAUDE.md calls "the one hook that covers both" — never sees a
+      decrease to react to. `death`, `elimination`, `cube`, `super_ready`,
+      `super_fire` and `count_go` are all hooked into host-side paths a client
+      never runs, so the whole haptic layer is effectively off in wifi play.
+      Largely pre-existing rather than caused by the net rework, but the fix
+      belongs here: zero the local health on a net elimination and fire the taps
+      from the client's own event handlers.
 - [ ] **Nobles Cup still cannot be hosted.** `net_play.gd` and the whole net
       section of main.gd are Showdown-only; the ball, the score, the clock and
       respawns would all have to go into the snapshot. `_rpc_start_game` hard-
@@ -1182,18 +1245,42 @@ wanted was configuration, not packages.
         independently in two sessions. The hook makes the import *feel* like a
         compile step, which is exactly what makes this sharp — to know a script
         parses, run the game.
-- [ ] **Concurrent Godot runs need a real guard, and the repo has none.** Two
-      processes contend on the import lock hard enough to look like a hang: an
-      import that takes 1.2s alone sat for six minutes beside a second instance.
-      Everything about detecting and clearing that has gone wrong at least once
-      and is written up in CLAUDE.md — detect with `pgrep -x Godot` (a
-      `ps | grep` matches the shell running your own script and reports a held
-      lock forever), kill the job rather than the binary (`pkill` leaves the
-      launching shell to start the next one), and **never kill an unidentified
-      Godot** — a person playing the game is distinguishable from a stale agent
-      process only by an interactive `-zsh` parent and the absolute `--path`
-      form. A small wrapper that takes a real lockfile and refuses rather than
-      clearing would remove the whole class of problem.
+- [x] **Concurrent Godot runs have a real guard now: `Tools/godot.sh`.** It
+      takes a lockfile keyed on the RESOLVED project directory and **refuses**
+      (exit 75) rather than clearing, and it never kills anything. `mkdir` is the
+      atomic primitive — a lockfile written with `>` has a window between the
+      test and the write. A stale lock whose owner is provably dead is the one
+      case where clearing is correct, and it is reclaimed silently.
+      - **Per project, not per machine**, which is the whole point: three agents
+        working in `.claude/worktrees/*` each have their own `.godot` cache and
+        their own real lock, so they no longer block each other or the main
+        checkout. Verified live against an agent's running Godot while the main
+        project correctly reported free — the exact case CLAUDE.md warns costs
+        "several minutes of dead waiting" with a naive `pgrep` wait-loop.
+      - **A running Godot has already `chdir`'d into its own project
+        directory**, and that is the fact the detection turns on. The first
+        version resolved `--path godot` against the process cwd and got
+        `<project>/godot/godot`, which does not exist — so every foreign Godot
+        came back unresolvable and the wrapper cheerfully started a second one
+        beside it. The cwd IS the answer; only an absolute `--path` is trusted
+        ahead of it, for the moment before the chdir lands.
+      - **The "is a person playing?" tell cannot be matched against the whole
+        command line.** CLAUDE.md names a `-zsh` parent as the signal, but the
+        Claude bash wrapper's own `shell-snapshots/snapshot-zsh-….sh` argument
+        contains that literal string, so every agent job was being reported as a
+        human. It reads the parent's `argv[0]` instead: a leading dash is a login
+        shell (a person — do not kill), a ` -c ` is a script/agent job (kill the
+        JOB, not the binary), anything else is unidentified.
+      - `--wait <seconds>` blocks instead of refusing; `--status` reports the
+        holder; `--no-lock` is the deliberate escape hatch for the **wifi
+        harness**, which is two instances of the same project on purpose. Import
+        once normally, then start both halves with `--no-lock`.
+      - Allowlisted in `.claude/settings.json` beside the raw binary. Same
+        prefix-matching limitation as that entry: `NS3_KIT=nova Tools/godot.sh …`
+        does not match, because the env var comes first.
+      - Still open: nothing forces its use. The wrapper only helps a caller who
+        reaches for it, and every `NS3_*` line in this file still shows the bare
+        binary.
 - [x] **Permission allowlist for the Godot binary** and read-only git, also in
       `.claude/settings.json`. One limitation worth knowing: prefix rules match
       from the start of the command, so the `NS3_KIT=nova … Godot …` form does

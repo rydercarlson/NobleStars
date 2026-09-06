@@ -17,6 +17,8 @@
   "permissions": {
     "allow": [
       "Bash(/Applications/Godot.app/Contents/MacOS/Godot *)",
+      "Bash(Tools/godot.sh *)",
+      "Bash(./Tools/godot.sh *)",
       "Bash(git status*)",
       "Bash(git diff*)",
       "Bash(git log*)",
