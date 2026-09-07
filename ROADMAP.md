@@ -435,9 +435,10 @@ Each one blocks something. Owner is who decides, not who implements.
 | **D10** | Is the party LAN-only, or online with accounts and invites? | Ryder | The size of two Phase-3 items |
 | **D11** | Three maps per mode — new layouts, or variants of the two that exist? | Ryder | Nine maps in Phase 3 |
 
-**D1 is answered, and the answer is a layout, not a restyle.** Jackson's idea,
-written down the day it was built: keep the programme page's material (Anton
-and Barlow, ink and gold, square corners) and change what goes where.
+**D1 is answered — a layout, and then a material.** Jackson's idea, written
+down the day it was built: keep the programme page's type (Anton and Barlow,
+ink and gold), put it in rounded cards on a painted stage lit in the fighter's
+own colour, and change what goes where.
 **Five zones.** Top-left is who you are — on home the avatar badge, name and
 trophies; on every pushed screen the back arrow in a small square, so the
 corner always means "up". Top-right is coins and gems as a compact readout
@@ -448,15 +449,15 @@ the nav — ROSTER, SEASON, SHOP, WIFI as picture-over-word tabs owned by the
 shell, on every screen, the current one lit gold. Bottom-right is the mode
 plate and PLAY, one gap apart, on the nav's baseline, PLAY the biggest thing on
 the screen. Under the fighter's feet, one hint; nothing else near him.
-**No rules.** Every hairline that underlined a section head or a stat row, or
-capped the top and bottom of home, is gone — on the phone they read as stray
-lines, not structure. Spacing does that job. **And the utility type went up to
-26–30 stage px**, which is `todo 1.3`: the tier moved as a tier, and the
-display tier moved with it where the two met. **The icon pack**
-(`assets/menu/profile/`) is used where a picture is faster than a word — the
-currencies, the nav, the identity badge — and nowhere decorative. What is
-deliberately NOT used: its painted stage backdrop, because the live 3D ground
-is the game's own look, and any face it invents.
+**Cards, bars and a lit stage** (the 6 Sep mockup). The flanks became rounded
+cards with a one-pixel edge: five stat bars filled against the roster's best,
+two ability cards with a glyph medallion each, a record card. The stage is the
+icon pack's painted hall, recoloured by its own light so every fighter stands
+in a pool of their kit colour — nine stages from one painting, and a kit may
+name its own. **No stray rules** — spacing separates blocks, and the only
+lines left are content (a threshold that turns gold, the rows of the record).
+**The utility type went up to 26–30 stage px**, which is `todo 1.3`. Not used
+from the pack: any face it invents.
 
 **D7 is the one that is easy to answer wrongly by not answering.** Voicelines
 need nine real people to physically show up, and that is a scheduling problem

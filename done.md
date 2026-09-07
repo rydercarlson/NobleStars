@@ -591,6 +591,42 @@ Newest work is roughly at the top of each section.
 
 ## Menu
 
+- [x] **The mockup pass: cards, bars, medallions, and a stage lit in the
+      fighter's colour** (6 Sep 2026, after the five-zone layout below).
+      Jackson's mockup set the material: rounded cards with a hairline edge,
+      coloured stat bars in glyph boxes, ability cards with a round medallion,
+      a record card, coins and gems with their names under the figures, three
+      bars over the word MENU, text nav tabs, and the fighter on a painted stage
+      under a spotlight with a ring at his feet.
+      - **One radius.** `MenuUI.RADIUS` = 12 on every box and button, 6 on
+        chips. The old system's thesis was zero; the mockup's is one number,
+        and the point survives — a second radius would still read as a second
+        system.
+      - **Nine stages from one painting.** "The backdrop should change
+        depending on character" arrived with one painting in hand, so the
+        stage is recoloured by its own luminance (`STAGE_TINT_SHADER`): the
+        hall keeps its navy where it is dark and the floor takes the kit colour
+        where it is lit, with the pool and rings following. A kit that names
+        `stage` art gets that file untinted, so real per-fighter paintings can
+        replace the tint one at a time.
+      - **The fighter renders on a transparent viewport** over the painting,
+        with no ground plane and no fog — the arena-floor set and the fog
+        constants that framed it are inert. `FILL` went 0.52 → 0.64 so he is the
+        size the mockup draws him; his feet land at `HomeScreen.FEET_Y` (900).
+      - **Ability medallions carry a glyph per kits.gd Style**, thirteen
+        script-drawn svgs (`svg/style_*.svg`) chosen through the `style` the
+        merge now carries, rather than one illustration per ability: nine kits
+        would need eighteen drawings, and a glyph per weapon *kind* is what the
+        match's own vocabulary already is. Real ability art can replace them
+        card by card.
+      - **Rejected:** the mockup's mountains (not in the painting, and a second
+        painted layer behind a painting is where the JPEG-era framing chain
+        came from); lighting ROSTER as the active tab on home the way the
+        mockup does (home is not the roster, and the tab would then do
+        nothing); a nav tab that is a label in a button (zero minimum width —
+        all four tabs collapsed onto one spot; a tab is now a text button that
+        sizes to its word, like `link`).
+
 - [x] **The five-zone layout, a nav that stays, and no lines** (6 Sep 2026,
       Jackson's redesign — ROADMAP **D1**, `todo 5.3`). Same material as the
       programme page (Anton and Barlow, ink and gold, square corners); what

@@ -6,11 +6,11 @@ extends Control
 ## device and widened (never letterboxed sideways) on taller phones, so a phone
 ## gains stage width instead of black bars.
 ##
-## The stage is one live 3D view of the selected fighter with flat 2D chrome
-## over it. There is no background image: MenuStage draws the arena's own ground
-## and takes it out to ink, which is why the framing constants that used to line
-## the 3D fighter's feet up with a painted floor (FLOOR_FRAC, BRAWLER_VIEW,
-## _place_brawler) are gone.
+## The stage is a painted hall (the icon pack's green-lit stage, STAGE_BACKDROP)
+## with the selected fighter rendered over it on a transparent viewport and a
+## lit ring under his feet, and flat 2D chrome over all of it. The fighter's
+## feet land at HomeScreen.FEET_Y because MenuStage frames him to the stage
+## height (FILL) about a fixed look point — there is no per-image floor line.
 
 const STAGE_H := 1080.0
 const STAGE_MIN_W := 1920.0
@@ -102,6 +102,24 @@ func _build_stage() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(bg)
 
+	# The painted stage from the icon pack: a dark hall with a green-lit floor.
+	# It is scaled to cover the stage, so on a wider phone it is cropped top and
+	# bottom rather than stretched. The fighter renders over it on a
+	# transparent viewport (see MenuStage), with a lit ring under his feet.
+	_backdrop = TextureRect.new()
+	_backdrop.texture = load(STAGE_BACKDROP)
+	_backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_stage_tint = ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = STAGE_TINT_SHADER
+	_stage_tint.shader = sh
+	_backdrop.material = _stage_tint
+	stage.add_child(_backdrop)
+	_build_floor_ring()
+
 	brawler_view = MenuStage.new()
 	brawler_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	stage.add_child(brawler_view)
@@ -151,13 +169,107 @@ func _build_stage() -> void:
 	_fit_stage()
 	select_brawler(SaveGame.selected_kit.to_lower(), false)
 
+const STAGE_BACKDROP := "res://assets/menu/background/stage.jpg"
+const RING_SIZE := Vector2(900, 300)
+
+var _backdrop: TextureRect
+var _stage_tint: ShaderMaterial
+var _glow: TextureRect
+var _ring: TextureRect
+
+## The stage is lit in the selected fighter's colour. One painting, recoloured
+## by its own light: where the hall is dark it stays the hall's navy, and where
+## the floor is lit the light takes the kit colour — so nine fighters get nine
+## stages without nine paintings. A kit that names its own `stage` art gets
+## that instead, untinted.
+const STAGE_TINT_SHADER := """
+shader_type canvas_item;
+uniform vec3 tint : source_color = vec3(0.34, 0.79, 0.42);
+uniform vec3 hall : source_color = vec3(0.10, 0.16, 0.24);
+uniform float strength = 1.0;
+void fragment() {
+	vec4 c = texture(TEXTURE, UV);
+	float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+	// The painting's hall reads about 0.15 in luminance and its lit floor
+	// about 0.44; everything between is the light's falloff.
+	float k = smoothstep(0.17, 0.42, lum);
+	vec3 dark = hall * (lum / 0.15);
+	vec3 lit = tint * (lum / 0.44) * 1.08;
+	vec3 col = mix(dark, lit, k);
+	COLOR = vec4(mix(c.rgb, col, strength), 1.0);
+}
+"""
+
+## Light the stage for a fighter: the floor, the pool and the rings all take
+## the kit colour, lifted a little toward white so a dark team colour still
+## reads as light on the floor.
+func _light_stage(b: Dictionary) -> void:
+	if _backdrop == null:
+		return
+	var art: String = str(b.get("stage", ""))
+	if art != "" and ResourceLoader.exists(art):
+		_backdrop.texture = load(art)
+		_stage_tint.set_shader_parameter("strength", 0.0)
+	else:
+		_backdrop.texture = load(STAGE_BACKDROP)
+		_stage_tint.set_shader_parameter("strength", 1.0)
+	var colour: Color = MenuUI.hex(b.get("color"), MenuUI.GREEN_HI).lerp(Color.WHITE, 0.12)
+	_stage_tint.set_shader_parameter("tint", Vector3(colour.r, colour.g, colour.b))
+	if _ring:
+		_ring.modulate = colour
+	if _glow:
+		var tex: GradientTexture2D = _glow.texture
+		tex.gradient.set_color(0, Color(colour.r, colour.g, colour.b, 0.42))
+		tex.gradient.set_color(1, Color(colour.r, colour.g, colour.b, 0.0))
+
+## A soft green pool and two rings where the fighter stands, centred under his
+## feet (HomeScreen.FEET_Y). Two 2D textures rather than a lit disc in the 3D
+## set: the floor is painted, so the light on it is painted too.
+func _build_floor_ring() -> void:
+	var glow := TextureRect.new()
+	var tex := GradientTexture2D.new()
+	var g := Gradient.new()
+	g.set_color(0, Color(0.34, 0.79, 0.42, 0.42))
+	g.set_color(1, Color(0.34, 0.79, 0.42, 0.0))
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 256
+	tex.height = 256
+	glow.texture = tex
+	glow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	glow.stretch_mode = TextureRect.STRETCH_SCALE
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_place_at_feet(glow, RING_SIZE * Vector2(1.25, 1.25))
+	stage.add_child(glow)
+	_glow = glow
+	var ring := TextureRect.new()
+	ring.texture = MenuUI.icon_texture("stage_ring")
+	ring.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	ring.stretch_mode = TextureRect.STRETCH_SCALE
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_place_at_feet(ring, RING_SIZE)
+	stage.add_child(ring)
+	_ring = ring
+
+func _place_at_feet(c: Control, size_px: Vector2) -> void:
+	c.anchor_left = 0.5
+	c.anchor_right = 0.5
+	c.anchor_top = 0.0
+	c.anchor_bottom = 0.0
+	c.offset_left = -size_px.x / 2.0
+	c.offset_right = size_px.x / 2.0
+	c.offset_top = HomeScreen.FEET_Y - size_px.y * 0.56
+	c.offset_bottom = c.offset_top + size_px.y
+
 func _build_nav() -> void:
-	nav_bar = MenuUI.hbox(8)
+	nav_bar = MenuUI.hbox(36)
 	nav_bar.alignment = BoxContainer.ALIGNMENT_BEGIN
 	nav_bar.anchor_top = 1.0
 	nav_bar.anchor_bottom = 1.0
-	nav_bar.offset_left = HomeScreen.MARGIN_X - 16
-	nav_bar.offset_right = HomeScreen.MARGIN_X - 16 + NAV_TABS.size() * (MenuUI.NAV_TAB_W + 8)
+	nav_bar.offset_left = HomeScreen.MARGIN_X - 8
+	nav_bar.offset_right = HomeScreen.MARGIN_X + 900
 	nav_bar.offset_top = -HomeScreen.BOTTOM_INSET - MenuUI.NAV_TAB_H
 	nav_bar.offset_bottom = -HomeScreen.BOTTOM_INSET
 	chrome.add_child(nav_bar)
@@ -349,14 +461,18 @@ func currency_pills() -> HBoxContainer:
 	return currency_readout()
 
 func _currency_figure(kind: String) -> Control:
-	var pair := MenuUI.hbox(8)
+	var pair := MenuUI.hbox(10)
 	pair.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var picture: TextureRect = MenuUI.pack_icon("gem" if kind == "gems" else "coin", 42)
+	var picture: TextureRect = MenuUI.pack_icon("gem" if kind == "gems" else "coin", 40)
 	picture.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	pair.add_child(picture)
-	var value: Label = MenuUI.display(MenuUI.fmt(currency(kind)), 36)
-	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pair.add_child(value)
+	var column := MenuUI.vbox(0)
+	column.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pair.add_child(column)
+	var value: Label = MenuUI.display(MenuUI.fmt(currency(kind)), 34)
+	column.add_child(value)
+	column.add_child(MenuUI.label(kind, 18, MenuUI.TEXT_FAINT))
 	_currency_labels.append({"label": value, "kind": kind})
 	return pair
 
@@ -411,6 +527,7 @@ func select_brawler(id: String, announce: bool = true) -> void:
 	var b: Dictionary = MenuData.brawler(id)
 	SaveGame.selected_kit = str(b.kit_name)
 	SaveGame.save()
+	_light_stage(b)
 	brawler_view.show_brawler(b)
 	if home:
 		home.refresh()

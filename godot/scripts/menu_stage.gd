@@ -21,7 +21,7 @@ const FOV := 22.0
 ## Fighter height as a fraction of the FULL stage height. The top and bottom
 ## bars take roughly 300 of 1080 stage pixels between them, so this keeps the
 ## figure inside the free band without it floating in the middle of it.
-const FILL := 0.52
+const FILL := 0.64
 ## Fighters are modelled at roughly this height in metres, and the match uses
 ## them at that scale (fighter.gd never rescales a GLB), so the menu frames them
 ## the same way rather than normalising — Meshy puts the scale in the skeleton,
@@ -89,7 +89,9 @@ func _ready() -> void:
 
 	_viewport = SubViewport.new()
 	_viewport.own_world_3d = true
-	_viewport.transparent_bg = false
+	# The set behind the fighter is a painting now (MenuShell.STAGE_BACKDROP),
+	# so the viewport clears to nothing and only he is drawn into it.
+	_viewport.transparent_bg = true
 	_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	_viewport.msaa_3d = Viewport.MSAA_2X
 	_container.add_child(_viewport)
@@ -124,23 +126,10 @@ func _build_set() -> void:
 	# the centre spot by definition: it came out as a bright band across the
 	# fighter's shins. There is no way to ask that function for the circle alone,
 	# and a second shader to get one is exactly the duplication above.
-	var floor_mesh := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(120, 120)
-	floor_mesh.mesh = plane
-	var mat := ShaderMaterial.new()
-	var shader := Shader.new()
-	shader.code = Arena.GROUND_SHADER
-	mat.shader = shader
-	mat.set_shader_parameter("grass_a", Arena.GRASS_A * GROUND_DIM)
-	mat.set_shader_parameter("grass_b", Arena.GRASS_B * GROUND_DIM)
-	mat.set_shader_parameter("seam_color", Arena.GRASS_SEAM * GROUND_DIM)
-	mat.set_shader_parameter("slab_color", Arena.SLAB_COLOR * GROUND_DIM)
-	mat.set_shader_parameter("tile_size", Kits.TILE)
-	mat.set_shader_parameter("slab_depth", Arena.SLAB_DEPTH)
-	mat.set_shader_parameter("pitch_lines", 0.0)
-	floor_mesh.material_override = mat
-	_viewport.add_child(floor_mesh)
+	# No ground here any more: the floor is painted into the backdrop and the
+	# light on it is a 2D ring (MenuShell._build_floor_ring). The arena shader
+	# floor this used to draw is what the fog constants above were tuned for;
+	# both stay in the file in case the painting is ever swapped for a set.
 
 	# The match's sun, so the fighter's shadow falls the way it will in a game.
 	# Its shadow range is the one thing that has to change: make_sun() sets 145 m
@@ -180,8 +169,9 @@ func _build_set() -> void:
 ## against a different background.
 func _make_environment() -> Environment:
 	var e: Environment = Arena.make_environment()
+	e.background_mode = Environment.BG_CLEAR_COLOR   # transparent: the painting shows through
 	e.background_color = MenuUI.INK
-	e.fog_enabled = true
+	e.fog_enabled = false   # there is no ground to take out to ink
 	e.fog_mode = Environment.FOG_MODE_DEPTH
 	e.fog_light_color = MenuUI.INK
 	e.fog_light_energy = 1.0

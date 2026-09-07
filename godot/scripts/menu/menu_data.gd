@@ -65,6 +65,9 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 		"unlock_hint": "" if hint_value == null else str(hint_value),
 		"color": kit.get("color", Color.WHITE),
 		"has_model": kit.has("model"),
+		# Optional per-fighter stage painting (`kits.gd` "stage"); without one
+		# the shared stage is lit in the kit colour (MenuShell._light_stage).
+		"stage": str(kit.get("stage", "")),
 		# Both forms of every stat. The tiered labels are what a card reads
 		# ("Very Fast"); the raw figures are what a stat column reads, where a
 		# word in a table of numerals breaks the column and says less — 3.4 m/s
@@ -98,15 +101,26 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 	out["attack"] = {
 		"name": str(atk.get("name", out.role if out.role != "" else "Attack")),
 		"text": str(atk.get("text", kit.get("desc", ""))),
+		# The kits.gd Style name in lower case ("slalom"), which is how the home
+		# screen picks the glyph on the ability's medallion (svg/style_*.svg).
+		"style": _style_name(weapon),
 	}
 	var sup: Dictionary = entry.get("super", {})
 	out["super"] = {
 		"name": str(sup.get("name", "Super")),
 		"text": str(sup.get("text", kit.get("super_desc", ""))),
+		"style": _style_name(kit.get("super", {})),
 	}
 	if out.unlock_hint == "" and not starting_brawlers().has(id):
 		out.unlock_hint = "Found in Brawler Drops"
 	return out
+
+static func _style_name(weapon: Dictionary) -> String:
+	var style: int = int(weapon.get("style", Kits.Style.PELLETS))
+	var names: Array = Kits.Style.keys()
+	if style < 0 or style >= names.size():
+		return "pellets"
+	return str(names[style]).to_lower()
 
 static func brawler(id: String) -> Dictionary:
 	ensure_loaded()

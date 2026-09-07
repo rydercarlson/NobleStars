@@ -324,8 +324,13 @@ What is left is the half that is a design decision rather than a bug.
       built: five zones, a shell-owned bottom nav with the active tab lit, the
       square back and menu buttons, compact currencies, the icon pack, no
       rules, utility type at 26–30 px.* What is still open:
-      - The ability-preview buttons under the two write-ups on home (the space
-        is reserved; the previews themselves are content).
+      - Ability art: the medallions carry a glyph per weapon kind
+        (`svg/style_*.svg`); an illustration per ability, as in the mockup, is
+        eighteen drawings and a medium call like 4.2.
+      - Per-fighter stage paintings: today one painting is lit in each kit's
+        colour; a kit's `stage` key takes a real one whenever there is one.
+      - The ability-preview buttons under the two cards on home (the previews
+        themselves are content).
       - The pushed screens got the new chrome and type but not a second look at
         their own layouts — Season's two rails and Shop's lists in particular
         are still the overhaul's, only bigger.

@@ -2,10 +2,10 @@ class_name MenuUI
 ## The menu's design system: a printed game program and a gym scoreboard.
 ##
 ## Everything is authored in "stage pixels" — a 1920x1080 coordinate space that
-## MenuShell scales to the device — and drawn with flat fills and hairline
-## rules. Nothing here paints a gradient, a bevel, a drop shadow or a rounded
-## corner, and that is the whole point: the previous system painted all four
-## onto every plate, which is the mobile-brawler house style and read as one.
+## MenuShell scales to the device — and drawn with flat fills inside rounded
+## cards with a one-pixel edge. Nothing here paints a gradient, a bevel or a
+## drop shadow: Jackson's 6 Sep mockup brought the rounded card (RADIUS) and the
+## coloured stat bar back into the system, and those two are the whole budget.
 ##
 ## The two references, and what each contributes:
 ##
@@ -19,8 +19,9 @@ class_name MenuUI
 ##
 ## Consequences worth knowing before editing:
 ##
-## - RADIUS IS ZERO EVERYWHERE. Not "small". A single rounded corner reads as a
-##   different design system, because nothing else here is round.
+## - RADIUS IS ONE NUMBER. Every card, box and button rounds by RADIUS (12) and
+##   the small chips by RADIUS_SMALL (6); a corner that rounds by anything else
+##   reads as a different design system.
 ## - DEPTH IS HAIRLINE RULES, and only hairline rules. No shadow, no bevel, no
 ##   inset highlight. Adding one shadow means adding it everywhere or the one
 ##   element that has it looks broken, and then this is the old system again.
@@ -202,16 +203,20 @@ static func rule(color: Color = RULE, vertical: bool = false) -> ColorRect:
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return r
 
-## Flat fill, square corners, optional hairline border. This is the only box in
-## the system — `plate_box` and `dark_box` below are both this with arguments.
+const RADIUS := 12
+const RADIUS_SMALL := 6
+
+## Flat fill, rounded by RADIUS, optional one-pixel edge. This is the only box
+## in the system — `plate_box`, `dark_box` and the card helpers below are all
+## this with arguments.
 static func flat_box(fill: Color, border: Color = Color(0, 0, 0, 0),
-		margin: int = 0) -> StyleBoxFlat:
-	var key: String = "%s|%s|%d" % [fill.to_html(), border.to_html(), margin]
+		margin: int = 0, radius: int = RADIUS) -> StyleBoxFlat:
+	var key: String = "%s|%s|%d|%d" % [fill.to_html(), border.to_html(), margin, radius]
 	if _boxes.has(key):
 		return _boxes[key]
 	var s := StyleBoxFlat.new()
 	s.bg_color = fill
-	s.set_corner_radius_all(0)
+	s.set_corner_radius_all(radius)
 	if border.a > 0.0:
 		s.set_border_width_all(1)
 		s.border_color = border
@@ -322,11 +327,23 @@ static func button(text: String, variant: String = "green", size: int = 34,
 	var fill: Color = fill_for(variant)
 	var border: Color = RULE_HI if variant in ["navy", "card", "dark", "ink"] else Color(0, 0, 0, 0)
 	for state in ["normal", "focus", "disabled"]:
-		b.add_theme_stylebox_override(state, flat_box(fill, border, 16))
-	b.add_theme_stylebox_override("hover", flat_box(fill.lerp(TEXT, 0.10), border, 16))
+		b.add_theme_stylebox_override(state, _keyed(flat_box(fill, border, 16), fill))
+	b.add_theme_stylebox_override("hover", _keyed(flat_box(fill.lerp(TEXT, 0.10), border, 16), fill))
 	b.add_theme_stylebox_override("pressed", flat_box(fill.lerp(INK, 0.28), border, 16))
 	press_feedback(b)
 	return b
+
+## A copy of a box with a darker bottom edge — the one concession to depth,
+## and only on pressables, so a button reads as a key rather than as a label.
+static func _keyed(base: StyleBoxFlat, fill: Color) -> StyleBoxFlat:
+	var key: String = "keyed|%s|%s" % [fill.to_html(), base.bg_color.to_html()]
+	if _boxes.has(key):
+		return _boxes[key]
+	var s: StyleBoxFlat = base.duplicate()
+	s.border_width_bottom = 4
+	s.border_color = fill.lerp(INK, 0.35)
+	_boxes[key] = s
+	return s
 
 static func small_button(text: String, variant: String = "grey") -> Button:
 	var b: Button = button(text, variant, 24)
@@ -405,11 +422,11 @@ static func press_feedback(c: BaseButton) -> void:
 ## gradient and no highlight cap, so it reads as lit rather than as glass.
 static func bar(height: float, fill: Color, _fill_hi: Color = Color.WHITE) -> Panel:
 	var track := Panel.new()
-	track.add_theme_stylebox_override("panel", flat_box(INK, RULE, 0))
+	track.add_theme_stylebox_override("panel", flat_box(RULE, Color(0, 0, 0, 0), 0, int(height / 2)))
 	track.custom_minimum_size = Vector2(0, height)
 	track.clip_contents = true
 	var fill_panel := Panel.new()
-	fill_panel.add_theme_stylebox_override("panel", flat_box(fill))
+	fill_panel.add_theme_stylebox_override("panel", flat_box(fill, Color(0, 0, 0, 0), 0, int(height / 2)))
 	fill_panel.set_anchors_and_offsets_preset(Control.PRESET_LEFT_WIDE)
 	fill_panel.anchor_right = 0.0
 	fill_panel.offset_right = 0.0
@@ -446,7 +463,7 @@ static func chip(text: String, icon_name: String, size: int = 20,
 ## A solid block of team colour — the program's position tag.
 static func tag(text: String, fill: Color, ink: Color = TEXT) -> PanelContainer:
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", flat_box(fill, Color(0, 0, 0, 0), 0))
+	p.add_theme_stylebox_override("panel", flat_box(fill, Color(0, 0, 0, 0), 0, RADIUS_SMALL))
 	var inner := MarginContainer.new()
 	inner.add_theme_constant_override("margin_left", 10)
 	inner.add_theme_constant_override("margin_right", 10)
@@ -519,10 +536,128 @@ const NAV_H := 150.0
 const NAV_TAB_W := 190.0
 const NAV_TAB_H := 100.0
 
-static func nav_tab(text: String, icon_name: String) -> Button:
+static func nav_tab(text: String, _icon_name: String = "") -> Button:
+	# Built like `link`: the button carries the word itself, so it sizes to it.
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(NAV_TAB_W, NAV_TAB_H)
-	var clear: StyleBoxFlat = flat_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0)
+	b.text = text.to_upper()
+	b.flat = true
+	b.custom_minimum_size = Vector2(0, NAV_TAB_H)
+	b.add_theme_font_override("font", _spaced(label_font(), 5))
+	b.add_theme_font_size_override("font_size", 30)
+	for state in ["font_color", "font_hover_color", "font_pressed_color",
+			"font_focus_color", "font_disabled_color"]:
+		b.add_theme_color_override(state, TEXT_DIM)
+	var clear: StyleBoxFlat = flat_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 8, 0)
+	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(state, clear)
+	var bar := ColorRect.new()
+	bar.color = GOLD
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.anchor_top = 1.0
+	bar.anchor_bottom = 1.0
+	bar.anchor_right = 1.0
+	bar.offset_left = 8
+	bar.offset_right = -8
+	bar.offset_top = -4
+	bar.offset_bottom = 0
+	bar.visible = false
+	b.add_child(bar)
+	b.set_meta("nav_bar", bar)
+	press_feedback(b)
+	return b
+
+static func set_nav_active(b: Button, active: bool) -> void:
+	var bar: ColorRect = b.get_meta("nav_bar")
+	for state in ["font_color", "font_hover_color", "font_focus_color"]:
+		b.add_theme_color_override(state, TEXT if active else TEXT_DIM)
+	bar.visible = active
+
+## A rounded card with a one-pixel edge: the ability write-ups, the record.
+static func card_box(fill: Color = PANEL, border: Color = RULE_HI, margin: int = 22) -> StyleBoxFlat:
+	return flat_box(fill, border, margin)
+
+## A small rounded square holding one glyph — the box beside each stat.
+static func icon_box(icon_name: String, size: float = 52.0, glyph: float = 0.55) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", flat_box(PANEL_HI, RULE_HI, 0, RADIUS_SMALL + 2))
+	p.custom_minimum_size = Vector2(size, size)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var t: TextureRect = icon(icon_name, size * glyph)
+	t.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	p.add_child(t)
+	return p
+
+## A round medallion: ink inside, a ring of the accent colour, a glyph in the
+## middle. The ability cards wear one each.
+static func medallion(icon_name: String, accent: Color, size: float = 110.0) -> PanelContainer:
+	var p := PanelContainer.new()
+	var box := StyleBoxFlat.new()
+	box.bg_color = INK
+	box.set_corner_radius_all(int(size / 2.0))
+	box.set_border_width_all(3)
+	box.border_color = accent
+	p.add_theme_stylebox_override("panel", box)
+	p.custom_minimum_size = Vector2(size, size)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var t: TextureRect = icon(icon_name, size * 0.52)
+	t.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	p.add_child(t)
+	return p
+
+## The stat row from the mockup: glyph box, name over a coloured bar, figure.
+## `ratio` is the bar's fill against the roster's best, so a column of them
+## reads as a comparison and not as five decorations.
+static func stat_bar_row(icon_name: String, key: String, value: String, unit: String,
+		ratio: float, color: Color, bar_width: float = 264.0) -> HBoxContainer:
+	var row := hbox(18)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box: PanelContainer = icon_box(icon_name)
+	box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(box)
+	var middle := vbox(8)
+	middle.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	middle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(middle)
+	middle.add_child(label(key, 24, TEXT_SOFT))
+	var track: Panel = bar(8.0, color)
+	track.custom_minimum_size = Vector2(bar_width, 8)
+	middle.add_child(track)
+	set_bar(track, ratio, false)
+	row.add_child(spacer())
+	var figure: Label = display(value, 40, TEXT)
+	figure.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(figure)
+	if unit != "":
+		var u: Label = label(unit, 20, TEXT_FAINT)
+		u.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(u)
+	return row
+
+## A row inside the record card: gold glyph, name, figure.
+static func record_row(icon_name: String, key: String, value: String,
+		accent: Color = TEXT) -> HBoxContainer:
+	var row := hbox(16)
+	row.custom_minimum_size = Vector2(0, 54)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var t: TextureRect = pack_icon(icon_name, 34)
+	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(t)
+	var k: Label = label(key, 24, TEXT_SOFT)
+	k.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(k)
+	row.add_child(spacer())
+	var v: Label = display(value, 38, accent)
+	v.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(v)
+	return row
+
+## The menu control from the mockup: three bars over the word, no box.
+static func menu_button() -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(72, 72)
+	var clear: StyleBoxFlat = flat_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 0)
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 		b.add_theme_stylebox_override(state, clear)
 	var column := vbox(2)
@@ -530,38 +665,14 @@ static func nav_tab(text: String, icon_name: String) -> Button:
 	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(column)
-	var picture: TextureRect = pack_icon(icon_name, 48)
-	picture.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	column.add_child(picture)
-	var word: Label = label(text, 26, TEXT_DIM)
+	var bars: TextureRect = icon("menu", 36)
+	bars.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(bars)
+	var word: Label = label("MENU", 18, TEXT_DIM)
 	word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(word)
-	var bar := ColorRect.new()
-	bar.color = GOLD
-	bar.custom_minimum_size = Vector2(0, 5)
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.anchor_top = 1.0
-	bar.anchor_bottom = 1.0
-	bar.anchor_right = 1.0
-	bar.offset_left = 22
-	bar.offset_right = -22
-	bar.offset_top = -5
-	bar.offset_bottom = 0
-	bar.visible = false
-	b.add_child(bar)
-	b.set_meta("nav_word", word)
-	b.set_meta("nav_picture", picture)
-	b.set_meta("nav_bar", bar)
 	press_feedback(b)
 	return b
-
-static func set_nav_active(b: Button, active: bool) -> void:
-	var word: Label = b.get_meta("nav_word")
-	var picture: TextureRect = b.get_meta("nav_picture")
-	var bar: ColorRect = b.get_meta("nav_bar")
-	word.add_theme_color_override("font_color", GOLD if active else TEXT_DIM)
-	picture.modulate = Color.WHITE if active else Color(0.72, 0.74, 0.8)
-	bar.visible = active
 
 static func icon(icon_name: String, size: float) -> TextureRect:
 	var t := TextureRect.new()
