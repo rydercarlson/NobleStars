@@ -591,6 +591,16 @@ Newest work is roughly at the top of each section.
 
 ## Menu
 
+- [x] **The stage covers a 16:10 display** (6 Sep 2026). In fullscreen on the
+      MacBook the menu came up "cropped weirdly": `_fit_stage` kept the stage
+      1080 tall on any display, so on a 16:10 screen the picture was a 16:9
+      band with ink bars, and the chrome — anchored to the display through the
+      safe rect, not to the band — sat in the bars. The stage now grows in
+      whichever direction the display exceeds 16:9, so it covers it either way;
+      the ring, pool and hint under the fighter are placed by proportion of the
+      stage height (`HomeScreen.FEET_FRAC`) because he is framed to it.
+      Verified at 1280x832, 1280x720 and 1560x720.
+
 - [x] **The mockup pass: cards, bars, medallions, and a stage lit in the
       fighter's colour** (6 Sep 2026, after the five-zone layout below).
       Jackson's mockup set the material: rounded cards with a hairline edge,

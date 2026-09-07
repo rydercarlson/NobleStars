@@ -3,8 +3,8 @@ extends Control
 ## The Nobles Brawl menu.
 ##
 ## Layout is authored in "stage pixels": a 1920x1080 stage that is scaled to the
-## device and widened (never letterboxed sideways) on taller phones, so a phone
-## gains stage width instead of black bars.
+## device and grown — never letterboxed — to cover it: a phone gains stage
+## width, a 16:10 laptop in fullscreen gains stage height.
 ##
 ## The stage is a painted hall (the icon pack's green-lit stage, STAGE_BACKDROP)
 ## with the selected fighter rendered over it on a transparent viewport and a
@@ -253,14 +253,17 @@ func _build_floor_ring() -> void:
 	stage.add_child(ring)
 	_ring = ring
 
+## Centred under the feet by PROPORTION of the stage (HomeScreen.FEET_FRAC),
+## not by a pixel row: MenuStage frames the fighter to the stage height, so on
+## a taller stage his feet move down with it and the ring has to follow.
 func _place_at_feet(c: Control, size_px: Vector2) -> void:
 	c.anchor_left = 0.5
 	c.anchor_right = 0.5
-	c.anchor_top = 0.0
-	c.anchor_bottom = 0.0
+	c.anchor_top = HomeScreen.FEET_FRAC
+	c.anchor_bottom = HomeScreen.FEET_FRAC
 	c.offset_left = -size_px.x / 2.0
 	c.offset_right = size_px.x / 2.0
-	c.offset_top = HomeScreen.FEET_Y - size_px.y * 0.56
+	c.offset_top = -size_px.y * 0.56
 	c.offset_bottom = c.offset_top + size_px.y
 
 func _build_nav() -> void:
@@ -322,9 +325,15 @@ func _fit_stage() -> void:
 		return
 	var view := Rect2(Vector2.ZERO, get_viewport().get_visible_rect().size)
 	var scale_factor: float = minf(view.size.x / STAGE_MIN_W, view.size.y / STAGE_H)
+	# The stage COVERS the display: wider than 16:9 (a phone) it gains width,
+	# narrower (a 16:10 laptop in fullscreen) it gains height. The first
+	# version kept the height at 1080 whatever the display, which on a 16:10
+	# screen left the picture a letterboxed band with the chrome — anchored to
+	# the display, not the band — sitting in the bars above and below it.
 	var stage_w: float = maxf(STAGE_MIN_W, view.size.x / scale_factor)
+	var stage_h: float = maxf(STAGE_H, view.size.y / scale_factor)
 	stage.scale = Vector2(scale_factor, scale_factor)
-	stage.size = Vector2(stage_w, STAGE_H)
+	stage.size = Vector2(stage_w, stage_h)
 	stage.position = view.position + (view.size - stage.size * scale_factor) / 2.0
 	# The safe rect arrives in viewport pixels and `chrome` is a child of the
 	# scaled stage, so it is divided back into stage pixels — and offset by the

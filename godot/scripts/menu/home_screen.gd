@@ -37,8 +37,10 @@ const PLAY_SIZE := Vector2(340, 108)
 const MODE_SIZE := Vector2(310, 108)
 const PLAY_GAP := 8.0
 const PLAY_RIGHT_INSET := MARGIN_X - 12.0
-## Where the fighter's feet meet the stage, for the hint under them.
-const FEET_Y := 900.0
+## Where the fighter's feet meet the stage, as a fraction of its height —
+## MenuStage frames him to the stage height, so this holds on a taller stage.
+## (900 of 1080 on a 16:9 display.)
+const FEET_FRAC := 900.0 / 1080.0
 
 ## Stat bars: the glyph, the colour, and whether a lower figure is the better
 ## one (reload), in which case the bar shows quickness rather than the number.
@@ -327,10 +329,12 @@ func _build_hint() -> void:
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.anchor_left = 0.5
 	_hint.anchor_right = 0.5
+	_hint.anchor_top = FEET_FRAC
+	_hint.anchor_bottom = FEET_FRAC
 	_hint.offset_left = -320
 	_hint.offset_right = 320
-	_hint.offset_top = FEET_Y + 36
-	_hint.offset_bottom = FEET_Y + 70
+	_hint.offset_top = 36
+	_hint.offset_bottom = 70
 	_hint.modulate.a = 0.0
 	add_child(_hint)
 
