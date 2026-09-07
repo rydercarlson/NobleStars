@@ -96,7 +96,7 @@ func _mode_card(mode: Dictionary) -> Control:
 	titles.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(titles)
-	titles.add_child(MenuUI.label("%s   ·   %s" % [str(mode.sub), str(mode.players)], 22,
+	titles.add_child(MenuUI.label("%s   ·   %s" % [str(mode.sub), str(mode.players)], 26,
 			MenuUI.TEXT_DIM))
 	var name_label: Label = MenuUI.display(str(mode.name).to_upper(), 62)
 	name_label.clip_text = true
@@ -107,7 +107,7 @@ func _mode_card(mode: Dictionary) -> Control:
 	# is no map icon in the set — `stage_ring` at 22px reads as a smudge, and
 	# the colour already says "this is the place".
 	text.add_child(MenuUI.gap(10, true))
-	text.add_child(MenuUI.label(str(mode.map), 24, MenuUI.GOLD))
+	text.add_child(MenuUI.label(str(mode.map), 26, MenuUI.GOLD))
 	text.add_child(MenuUI.gap(16, true))
 	text.add_child(MenuUI.wrap(MenuUI.body(str(mode.text), 26, MenuUI.TEXT_SOFT)))
 	text.add_child(MenuUI.spacer())
@@ -152,7 +152,7 @@ func _planned_card(mode: Dictionary) -> Control:
 	name_label.clip_text = true
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	column.add_child(name_label)
-	var sub: Label = MenuUI.wrap(MenuUI.label("%s · %s" % [str(mode.sub), str(mode.map)], 20,
+	var sub: Label = MenuUI.wrap(MenuUI.label("%s · %s" % [str(mode.sub), str(mode.map)], 26,
 			MenuUI.TEXT_FAINT))
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(sub)

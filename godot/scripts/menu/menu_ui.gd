@@ -25,6 +25,15 @@ class_name MenuUI
 ## - DEPTH IS HAIRLINE RULES, and only hairline rules. No shadow, no bevel, no
 ##   inset highlight. Adding one shadow means adding it everywhere or the one
 ##   element that has it looks broken, and then this is the old system again.
+## - NOTHING IN THE UTILITY TIER CLEARS APPLE'S 11 pt FLOOR, and that is
+##   measured rather than feared: stage px convert at x0.364 on an iPhone 15 in
+##   landscape, so 11 pt is 30.2 stage px and this tier's own ceiling is 30. All
+##   39 sized utility labels were under it on 7 Sep. Roster, Shop and Events
+##   hold the 26 floor below; Season and Home do not, and Season cannot without
+##   showing fewer Pass tiers at once, because its page is a fixed 816 px that
+##   does not scroll. That is todo 1.3, the last open P0, and it is a redesign
+##   of the hole below rather than a multiply — do not fix it by bumping sizes
+##   one screen at a time.
 ## - THE TYPE SCALE HAS A HOLE IN IT ON PURPOSE. Utility labels sit at 26-30 and
 ##   display sits at 44+, with almost nothing between. Filling the middle is
 ##   what makes an interface read as evenly loud. The utility tier used to be

@@ -1,7 +1,7 @@
 # Noble Stars — TODO
 
 Open work on the Godot 3D game (`godot/`). **Finished work moved to
-[`done.md`](done.md)** — 70 entries recording what was measured, what was tried
+[`done.md`](done.md)** — 71 entries recording what was measured, what was tried
 and rejected, and why things are the shape they are. Read it before reopening
 anything here; several items on this list have a rejected first attempt on
 record.
@@ -100,6 +100,24 @@ What is left is the half that is a design decision rather than a bug.
         half of it. Still to do: shoot it on the handset and judge whether the
         display tier (which moved with it where the two met) still reads as a
         separate tier there.
+      - **Counted 7 Sep, every screen: 39 of 39 utility labels are under 11 pt.**
+        Not most of them — all of them, because the floor needs **30.2 stage px**
+        and the tier's own ceiling is 30. So "at the floor" was generous; the
+        top of the tier misses by 1% and the bottom by a third. Screens that now
+        hold the system's own 26 floor: **roster, shop, modes** (conformed 7 Sep,
+        and it cost nothing but one measurement — seven rarity chips could not
+        hold "LEGENDARY" at 26 until the copy beside them gave up 80 px).
+        Screens that do not: **season** (10 labels) and **home** (7), plus five
+        in the shell and popups.
+      - **Season is the case that proves this is a redesign, not a multiply.**
+        Its page does not scroll: header + Trophy Road + Nobles Pass + gaps have
+        to total 816 stage px, and every one of those heights was solved against
+        Anton's 1.64x line box and Barlow's 1.2x. A pass cell's name at 26
+        instead of 20 adds ~10 px, twice per tier column, and there is nothing
+        left to take it from — the last pass already cut the block padding and
+        the head type to make it fit at all. Getting that grid to 30 px means
+        **fewer tiers visible at once**, which is a design decision about what
+        the Pass is for, not a number to bump.
       - *Kept for the record — the analysis this was done against:* the menu's
         utility tier was the whole remaining problem, at roughly
         *half* the readable floor. Clearing 11 pt means about 30 stage px, which

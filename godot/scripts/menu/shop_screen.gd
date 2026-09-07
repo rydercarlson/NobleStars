@@ -106,7 +106,7 @@ func _power_card(b: Dictionary) -> Control:
 	name_label.clip_text = true
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	who.add_child(name_label)
-	who.add_child(MenuUI.label("POWER %d" % power, 22, MenuUI.TEXT_DIM))
+	who.add_child(MenuUI.label("POWER %d" % power, 26, MenuUI.TEXT_DIM))
 
 	var foot := MenuUI.hbox(8)
 	column.add_child(foot)
@@ -180,7 +180,11 @@ const TREAT_PRICE := 1000
 func _treat_block() -> Control:
 	var row := MenuUI.hbox(28)
 	var left := MenuUI.hbox(18)
-	left.custom_minimum_size = Vector2(620, 0)
+	# 540, not 620: seven rarity chips share whatever the copy leaves, and at
+	# the 26px utility tier "LEGENDARY" plus its tracking needs ~135px of text
+	# inside a chip. At 620 the chips came out 151 wide and broke the word
+	# across two lines mid-letter.
+	left.custom_minimum_size = Vector2(540, 0)
 	row.add_child(left)
 	var bone: TextureRect = MenuUI.icon("dawg_treat", 96)
 	bone.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -214,7 +218,7 @@ func _treat_block() -> Control:
 	odds.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	odds.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(odds)
-	odds.add_child(MenuUI.label("ODDS", 22, MenuUI.TEXT_FAINT))
+	odds.add_child(MenuUI.label("ODDS", 26, MenuUI.TEXT_FAINT))
 	var chips := MenuUI.hbox(8)
 	chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	odds.add_child(chips)
@@ -228,7 +232,7 @@ func _odds_chip(tier: Dictionary) -> Control:
 	var accent: Color = MenuUI.hex(tier.color)
 	var chip := PanelContainer.new()
 	chip.add_theme_stylebox_override("panel",
-			MenuUI.flat_box(MenuUI.INK, MenuUI.RULE, 10))
+			MenuUI.flat_box(MenuUI.INK, MenuUI.RULE, 8))
 	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var column := MenuUI.vbox(6)
@@ -242,7 +246,7 @@ func _odds_chip(tier: Dictionary) -> Control:
 	var pct: Label = MenuUI.display("%.1f%%" % (float(tier.p) * 100.0), 28, accent)
 	pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(pct)
-	var name_label: Label = MenuUI.wrap(MenuUI.label(str(tier.label), 20,
+	var name_label: Label = MenuUI.wrap(MenuUI.label(str(tier.label), 26,
 			MenuUI.TEXT_DIM))
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(name_label)
@@ -300,7 +304,7 @@ func _deal_card(item: Dictionary) -> Control:
 	column.add_child(name_label)
 	if str(item.get("brawler", "")) != "":
 		var who: Label = MenuUI.label(
-				str(MenuData.brawler(str(item.brawler)).get("name", "")), 20,
+				str(MenuData.brawler(str(item.brawler)).get("name", "")), 26,
 				MenuUI.TEXT_FAINT)
 		who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		column.add_child(who)
@@ -313,7 +317,7 @@ func _deal_card(item: Dictionary) -> Control:
 		var tick: TextureRect = MenuUI.icon("check", 24)
 		tick.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		done.add_child(tick)
-		var word: Label = MenuUI.label("TAKEN", 22, MenuUI.GREEN_HI)
+		var word: Label = MenuUI.label("TAKEN", 26, MenuUI.GREEN_HI)
 		word.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		done.add_child(word)
 		column.add_child(done)
@@ -483,7 +487,7 @@ static func open_dawg_treat(shell: MenuShell) -> void:
 			headline = "+%s" % MenuUI.fmt(amount)
 			caption = str(kind).replace("_", " ").to_upper()
 		SaveGame.save()
-		var caption_label: Label = MenuUI.label(caption, 20, MenuUI.GOLD_INK)
+		var caption_label: Label = MenuUI.label(caption, 26, MenuUI.GOLD_INK)
 		caption_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		prize.add_child(caption_label)
 		var headline_label: Label = MenuUI.display(headline, 76, MenuUI.INK)

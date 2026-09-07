@@ -781,6 +781,30 @@ Newest work is roughly at the top of each section.
         minimum width of zero, so a name column that does not expand gets only
         what "POWER 1" needs and KOVACS comes out "KOVAC".
 
+- [x] **Counted the type against Apple's floor on every screen, and
+      conformed the three that could be** (7 Sep 2026, part of `todo 1.3`).
+      The 6 Sep pass moved the utility tier to 26–30 stage px and recorded that
+      as "9.5–10.9 pt, at the floor rather than half of it". Counting it
+      properly says something sharper: the floor needs **30.2 stage px** and
+      the tier's ceiling is 30, so **all 39 sized utility labels in the menu
+      were under 11 pt** — the top of the tier by 1%, the bottom by a third.
+      - Roster, Shop and Events were carrying labels at 20–24, below the
+        system's *own* documented floor of 26, which is a bug against the
+        system rather than a design question. Raised, and it cost one
+        measurement: seven rarity chips in Shop could not hold "LEGENDARY" at
+        26 with its tracking until the copy beside them gave up 80 px, and at
+        620 the word broke across two lines mid-letter.
+      - **Season and Home were left, deliberately.** Season's page does not
+        scroll — header plus both blocks plus gaps must total 816 stage px, and
+        those heights were already solved against Anton's 1.64x line box with
+        the block padding and head type cut to make them fit. A pass cell's
+        name at 26 rather than 20 adds ~10 px, twice per tier column, and there
+        is nothing left to take it from. Getting that grid to 30 means **fewer
+        tiers visible at once**, which is a decision about what the Pass is
+        for. That is the shape of the whole remaining P0: a redesign of the
+        hole in the scale, not a multiply, exactly as the item has said since
+        it was measured.
+
 - [x] **A third of game.json was data for screens that do not exist**
       (7 Sep 2026, half of `todo 5.6`). `news`, `friends`, `club` and `inbox`
       lost their screens in the 4 Sep overhaul; `upcoming`, `quests`,

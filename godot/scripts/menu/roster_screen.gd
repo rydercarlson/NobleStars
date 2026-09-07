@@ -142,7 +142,7 @@ func _face(b: Dictionary, index: int, color: Color, unlocked: bool,
 	MenuUI.pin(number, false, false, 12.0)
 	ground.add_child(number)
 	if selected:
-		var mark: Label = MenuUI.label("SELECTED", 22, MenuUI.GOLD)
+		var mark: Label = MenuUI.label("SELECTED", 26, MenuUI.GOLD)
 		MenuUI.pin(mark, true, false, 12.0)
 		ground.add_child(mark)
 	elif not unlocked:
@@ -174,12 +174,12 @@ func _footer(b: Dictionary, id: String, unlocked: bool, selected: bool) -> Contr
 	name_label.clip_text = true
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	column.add_child(name_label)
-	column.add_child(MenuUI.label(str(b.get("role", "")), 22,
+	column.add_child(MenuUI.label(str(b.get("role", "")), 26,
 			MenuUI.TEXT_DIM if unlocked else MenuUI.TEXT_FAINT))
 	column.add_child(MenuUI.gap(6, true))
 
 	if not unlocked:
-		var hint: Label = MenuUI.wrap(MenuUI.label(str(b.get("unlock_hint", "Locked")), 22,
+		var hint: Label = MenuUI.wrap(MenuUI.label(str(b.get("unlock_hint", "Locked")), 26,
 				MenuUI.TEXT_FAINT))
 		column.add_child(hint)
 		return plate
@@ -195,7 +195,7 @@ func _footer(b: Dictionary, id: String, unlocked: bool, selected: bool) -> Contr
 	trophies.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	figures.add_child(trophies)
 	figures.add_child(MenuUI.spacer())
-	var power_word: Label = MenuUI.label("PWR", 22, MenuUI.TEXT_FAINT)
+	var power_word: Label = MenuUI.label("PWR", 26, MenuUI.TEXT_FAINT)
 	power_word.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	figures.add_child(power_word)
 	var power: Label = MenuUI.display(str(SaveGame.brawler_power(id)), 30, MenuUI.TEXT)
