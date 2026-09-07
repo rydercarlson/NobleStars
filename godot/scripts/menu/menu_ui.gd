@@ -790,11 +790,20 @@ static func hex(value: Variant, fallback: Color = Color.WHITE) -> Color:
 
 static func pop_in(c: Control, delay: float = 0.0) -> void:
 	c.modulate.a = 0.0
-	var home: float = c.position.y
-	c.position.y = home + 10.0
 	var tw := c.create_tween()
 	tw.set_parallel()
 	tw.tween_property(c, "modulate:a", 1.0, 0.16).set_delay(delay)
+	# The rise is only safe on a control that owns its own position. A Container
+	# OWNS its children's, and it sorts them in a DEFERRED call — so `home` read
+	# before that lands is 0 for every child, and the tween then animates the
+	# whole list into one stack where only the last row drawn is visible. That
+	# is not a rule to remember at the call sites; it is refused here, and the
+	# stagger stays legible because the fade is the part you actually read.
+	# main.gd:_fade_in_rows is the same rule, arrived at the same way.
+	if c.get_parent() is Container:
+		return
+	var home: float = c.position.y
+	c.position.y = home + 10.0
 	tw.tween_property(c, "position:y", home, 0.20).set_delay(delay) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 

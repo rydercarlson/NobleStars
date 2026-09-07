@@ -3,14 +3,29 @@
 
 The map is a Brawl Stars Showdown map rescaled to Noble Stars' fighters.
 Theirs is 60x60 tiles with a brawler about one tile wide, so it is 60
-body-widths across. Ours is N tiles of 2 m against a fighter of
-2*Kits.FIGHTER_RADIUS, so N = 60 * FIGHTER_RADIUS: at 0.65 that is 39.
-Keep N in step with FIGHTER_RADIUS — if the fighter is rescaled and this is
-not, the arena silently changes size in the only unit that matters.
+body-widths across. Since Kits.TILE == 2*Kits.FIGHTER_RADIUS, one tile IS one
+body-width and N is simply 60 — except that N MUST BE ODD (see below), so it
+is 61. Keep N in step with TILE: if the tile is rescaled and this is not, the
+arena silently changes size in the only unit that matters.
+
+N MUST BE ODD. rot() rotates about (N-1)/2 while pol()/at() measure from
+C = N//2, and those coincide only at odd N. At an even N the two disagree by
+half a tile and the map comes out NOT 4-fold symmetric — and the symmetry
+check at the bottom is a print, not an assert, so the run completes anyway
+and every "no spawn has a better draw" guarantee is quietly void. This was
+measured: N=60 prints False, N=59 and N=61 print True.
 
 Terrain is authored in DESIGN UNITS on the original 33-tile grid and scaled
 by S = N/33 at emit time, so the layout is resolution-independent: rings stay
 proportionally placed and the annular bands keep their share of the area.
+
+Anything counted in TILES rather than design units has to be scaled too, or
+it shrinks relative to a growing field. W is that factor — clump sizes, the
+centre keep and the spawn ring were all hand-tuned on the 39-grid, so W is
+1.0 there by construction and nothing moves when N is unchanged. LOOT IS THE
+DELIBERATE EXCEPTION: cube count is per FIGHTER, not per area (Brawl Stars
+ships 16-20 for ten of them on their 60x60), so it stays at 17 however big
+the field gets.
 Terrain is authored in one quadrant and rotated four ways,
 which makes the draw identical from every spawn; the clump angles are chiral
 rather than mirrored so it reads as a pinwheel, not a kaleidoscope.
@@ -61,9 +76,11 @@ def render(path, out, px=14):
     print('wrote', out, W, 'x', H)
 
 
-N = 39                       # 60 body-widths at FIGHTER_RADIUS 0.65
+N = 61                       # 60 body-widths, rounded up to the nearest ODD
 C = N // 2
 S = N / 33.0                 # design units -> tiles; radii below are design units
+W = S / (39 / 33.0)          # tile-counted sizes -> tiles; 1.0 on the 39-grid
+def wscale(n): return max(1, int(round(n * W)))
 def rot(x, y): return (N - 1 - y, x)
 grid = [['.'] * N for _ in range(N)]
 def put(x, y, ch):
@@ -79,7 +96,10 @@ def pol(x, y):
 def at(r, a): return (int(round(C + r*S*math.cos(math.radians(a)))),
                       int(round(C + r*S*math.sin(math.radians(a)))))
 def clump(r, a, w, h, ch):
+    # w/h are authored as tile counts on the 39-grid, so they scale by W —
+    # otherwise the field grows by S^2 while the cover on it does not.
     x0, y0 = at(r, a)
+    w, h = wscale(w), wscale(h)
     for dy in range(h):
         for dx in range(w):
             sym_put(x0 + dx - w//2, y0 + dy - h//2, ch)
@@ -98,14 +118,18 @@ for i in range(N):
 arc(7.0,  8.5, [(12, 76)],           'b')   # inner ring, open at the four cardinals
 arc(11.8, 13.3, [(0, 38), (58, 90)], 'b')   # outer ring, open on the four diagonals
 arc(17.9, 19.1, [(28, 62)],          'b')   # corner thickets
-arc(9.4,  11.4, [(0, 17), (73, 90)], '~')   # ponds sitting in the cardinal lanes
-arc(15.0, 16.8, [(33, 57)],          '~')   # corner pools
+# Water is laid BEFORE the wall clumps and only fills tiles that are still
+# floor, so a resize that fattens the clumps eats into it: at N=61 with the
+# 39-grid bands, water came out at 3.4% against the ~7% these aim at (5.6% on
+# the 39-grid). Widened to compensate, which is the same treatment the wall
+# clump list already got when the grid went 33 -> 39. Re-check on any resize.
+arc(9.2,  12.2, [(0, 17), (73, 90)], '~')   # ponds sitting in the cardinal lanes
+arc(14.8, 17.8, [(33, 57)],          '~')   # corner pools
 
 # --- wall clumps on chiral angles: rotational symmetry, no mirror --------
-# A wall tile is 2 m against a 1.10 m fighter, so one tile of cover is already
-# 1.8 body-widths — where Brawl Stars' cover block is exactly one. Chunky blocks
-# would break sightlines far more coarsely than theirs, so most of the cover is
-# singles and pairs and only a few clumps are 2x2 or bigger.
+# One tile of cover is now exactly one body-width, as it is in Brawl Stars, so
+# these read as they do there: mostly singles and pairs with a few 2x2s. Sizes
+# are authored against the 39-grid and scaled by W inside clump().
 for r, a, w, h in [(5.8, 15, 2, 2), (5.8, 63, 2, 2), (9.7, 34, 2, 3),
                    (10.6, 81, 2, 2), (13.2,  7, 2, 2), (14.2, 52, 2, 2),
                    (16.4, 27, 2, 2), (18.2, 68, 2, 2),
@@ -128,15 +152,21 @@ for r, a, w, h in [(5.8, 15, 2, 2), (5.8, 63, 2, 2), (9.7, 34, 2, 3),
     clump(r, a, w, h, '#')
 
 # --- centre keep --------------------------------------------------------
-for dy in range(-3, 4):
-    for dx in range(-3, 4):
+# Half-width and gate scale with W, so the keep keeps its share of the field
+# instead of shrinking into a dot. At K=3, G=1 this is byte-identical to the
+# hand-authored 7x7 it generalises. Box count is unchanged at any K — four
+# corners plus the centre — because loot is per fighter, not per area.
+K, G = wscale(3), wscale(1)
+for dy in range(-K, K+1):
+    for dx in range(-K, K+1):
         cheb, x, y = max(abs(dx), abs(dy)), C+dx, C+dy
-        if cheb == 3:
-            gate = (abs(dx) <= 1 and abs(dy) == 3) or (abs(dy) <= 1 and abs(dx) == 3)
+        if cheb == K:
+            gate = (abs(dx) <= G and abs(dy) == K) or (abs(dy) <= G and abs(dx) == K)
             put(x, y, '.' if gate else '#')
-        elif cheb == 2: put(x, y, 'X' if abs(dx) == 2 and abs(dy) == 2 else '.')
-        elif cheb == 1: put(x, y, '~' if abs(dx) == 1 and abs(dy) == 1 else '.')
-        else:           put(x, y, 'X')
+        elif cheb == K-1: put(x, y, 'X' if abs(dx) == K-1 and abs(dy) == K-1 else '.')
+        elif cheb == 1:   put(x, y, '~' if abs(dx) == 1 and abs(dy) == 1 else '.')
+        elif cheb == 0:   put(x, y, 'X')
+        else:             put(x, y, '.')
 
 # --- loot: 5 in the keep, 12 on the field --------------------------------
 for r, a in [(7.7, 44), (12.4, 22), (15.0, 62)]:
@@ -255,17 +285,26 @@ for _ in range(40):
 
 
 # --- spawns: ten evenly round the ring, snapped to open ground -----------
-RING = [(8,2),(16,2),(24,2),(30,10),(30,22),(24,30),(16,30),(8,30),(2,22),(2,10)]
+# These seeds are DESIGN UNITS on the 33-grid (they centre on 16, and 33/2 is
+# 16.5), so they scale by S like every other authored position. Left raw they
+# span only 2..30 of whatever N is, which on a 61-grid bunches all ten into
+# one corner — and the `ic['S'] == 10` assert still passes, because each seed
+# is snapped to the nearest legal tile rather than rejected.
+RING = [(int(round(x*S)), int(round(y*S))) for x, y in
+        [(8,2),(16,2),(24,2),(30,10),(30,22),(24,30),(16,30),(8,30),(2,22),(2,10)]]
+ROOM_R = wscale(2)                       # clearance window half-width, in tiles
+ROOM_MIN = int(round(0.64 * (2*ROOM_R + 1) ** 2))   # 16 of 25 on the 39-grid
+SPAWN_GAP2 = wscale(6) ** 2              # min separation between two spawns
 placed = []
 for sx, sy in RING:
     best = None
     for ry in range(1, N-1):
         for rx in range(1, N-1):
             if get(rx, ry) not in '.b': continue
-            room = sum(1 for dy in range(-2, 3) for dx in range(-2, 3)
+            room = sum(1 for dy in range(-ROOM_R, ROOM_R+1) for dx in range(-ROOM_R, ROOM_R+1)
                        if 0 <= rx+dx < N and 0 <= ry+dy < N and walkable(get(rx+dx, ry+dy)))
-            if room < 16: continue
-            if any((rx-px)**2 + (ry-py)**2 < 36 for px, py in placed): continue
+            if room < ROOM_MIN: continue
+            if any((rx-px)**2 + (ry-py)**2 < SPAWN_GAP2 for px, py in placed): continue
             d2 = (rx-sx)**2 + (ry-sy)**2
             if best is None or d2 < best[0]: best = (d2, rx, ry)
     put(best[1], best[2], 'S'); placed.append((best[1], best[2]))
@@ -308,6 +347,10 @@ if '--write' in sys.argv:
     import re
     path = os.path.join(os.path.dirname(__file__), '..', 'godot', 'scripts', 'arena.gd')
     src = open(path).read()
-    old = re.search(r'const MAP := """\n.*?"""', src, re.S).group(0)
-    open(path, 'w').write(src.replace(old, 'const MAP := """\n%s\n"""' % ASCII))
+    # The const is SHOWDOWN_MAP, not MAP — this searched for the wrong name for
+    # long enough that --write raised AttributeError on None for every run.
+    m = re.search(r'const SHOWDOWN_MAP := """\n.*?"""', src, re.S)
+    assert m, 'could not find `const SHOWDOWN_MAP := """` in arena.gd'
+    open(path, 'w').write(src.replace(m.group(0),
+                                      'const SHOWDOWN_MAP := """\n%s\n"""' % ASCII))
     print('wrote', os.path.normpath(path))

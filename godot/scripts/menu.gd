@@ -15,6 +15,12 @@ extends Control
 const STAGE_H := 1080.0
 const STAGE_MIN_W := 1920.0
 
+## How long a pushed screen takes to leave. Home and the 3D stage wait it out
+## before coming back, so the two never print over each other — see pop_screen.
+const SCREEN_EXIT := 0.24
+## Home's own way back in, once the screen on top of it has gone.
+const HOME_FADE := 0.16
+
 signal currency_changed
 signal brawler_changed
 signal mode_changed
@@ -358,6 +364,13 @@ func push_screen(screen: MenuScreen) -> MenuScreen:
 	# them visible reads as two screens printed on top of each other.
 	if not _stack.is_empty() and not screen.is_popup:
 		_stack[-1].visible = false
+	# A screen playing its exit is already OUT of `_stack`, so the guard above
+	# cannot see it — and the nav bar pops and pushes in the same press. Without
+	# this the outgoing and the incoming screen are both drawn for the length of
+	# the fade, which is the thing that guard exists to prevent: two sets of
+	# titles, currency figures and roster names printed over each other.
+	if not screen.is_popup:
+		_drop_closing()
 	screens_root.add_child(screen)
 	_stack.append(screen)
 	_update_stage_dim()
@@ -376,18 +389,39 @@ func pop_screen(screen: MenuScreen) -> void:
 	tw.set_parallel()
 	tw.tween_property(screen, "modulate:a", 0.0, 0.2)
 	if not screen.is_popup:
-		tw.tween_property(screen, "position:x", 80.0, 0.24)
+		tw.tween_property(screen, "position:x", 80.0, SCREEN_EXIT)
 	else:
 		tw.tween_property(screen, "scale", Vector2(0.9, 0.9), 0.2)
 	tw.chain().tween_callback(screen.queue_free)
 	if not _stack.is_empty():
 		_stack[-1].visible = true
-	_update_stage_dim()
+		_update_stage_dim()
+	else:
+		# Home and the 3D stage come back when the screen has actually GONE, not
+		# when it leaves `_stack` — the exit runs for another SCREEN_EXIT, and
+		# revealing them at the top of it cross-dissolves two text layouts: the
+		# roster's nine names over home's flanks, both currency readouts, both
+		# titles. A tree timer rather than a chained callback, because the tween
+		# belongs to the screen and dies with it when a push drops it early.
+		get_tree().create_timer(SCREEN_EXIT).timeout.connect(_update_stage_dim)
 	_refresh_nav()
 
 func pop_all() -> void:
 	for screen in _stack.duplicate():
 		pop_screen(screen)
+
+## Screens still playing their exit animation: out of `_stack` and logically
+## gone, so anything arriving on top of them may drop them outright. Going back
+## to home keeps the animation — there the stage is what is being revealed, and
+## nothing is drawn over it.
+func _drop_closing() -> void:
+	for child in screens_root.get_children():
+		if child is MenuScreen and not _stack.has(child):
+			# Hidden as well as freed: queue_free lands at the END of the frame,
+			# and one frame of the old screen at full alpha under an incoming one
+			# still at zero reads as a flicker back to where you just were.
+			child.hide()
+			child.queue_free()
 
 func screen_depth() -> int:
 	return _stack.size()
@@ -432,7 +466,15 @@ func _update_stage_dim() -> void:
 	# screen renders the whole set every frame for nobody.
 	var dim: bool = not _stack.is_empty()
 	brawler_view.visible = not dim
+	var returning: bool = not dim and not home.visible
 	home.visible = not dim
+	if returning:
+		# Both now arrive on a bare stage rather than being uncovered by the
+		# screen dissolving off them, so they bring themselves in; without this
+		# the flanks and the fighter hard-cut into place.
+		for c: Control in [home, brawler_view]:
+			c.modulate.a = 0.0
+			c.create_tween().tween_property(c, "modulate:a", 1.0, HOME_FADE)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") and not _stack.is_empty():
@@ -690,11 +732,40 @@ func _wire_debug_screenshot() -> void:
 	# instead exercises the whole menu -> loading -> match handoff.
 	if start == "loading":
 		start_match.call_deferred()
+	# NS3_MENU_SWITCH=<screen> navigates a SECOND time once the first screen has
+	# settled — through the nav bar's own button where the target is a tab, so
+	# the harness takes the route a thumb takes rather than a copy of it. The
+	# hand-off between two screens is otherwise unshootable, and it is where an
+	# outgoing screen and an incoming one can end up drawn on top of each other.
+	# NS3_MENU_SWITCH_AT=<sec> is when to shoot, measured from the switch, and
+	# defaults to inside the 0.24s exit rather than after it.
+	# NS3_MENU_SWITCH_EVERY=<sec> spaces the hops. The default lets each screen
+	# settle; anything under SCREEN_EXIT lands the next press INSIDE the previous
+	# transition, which is what a thumb does and is where the races live.
+	var settle: float = 1.2
+	var every: String = OS.get_environment("NS3_MENU_SWITCH_EVERY")
+	if every != "":
+		settle = maxf(0.02, every.to_float())
+	var switch_to: String = OS.get_environment("NS3_MENU_SWITCH")
+	var hops: PackedStringArray = switch_to.split(",", false)
+	for h in hops.size():
+		var target: String = hops[h].strip_edges()
+		# Each hop gets its own settle, so a sequence is a run of separate
+		# navigations rather than a burst inside one transition.
+		get_tree().create_timer(settle * float(h + 1)).timeout.connect(func() -> void:
+			if _nav_buttons.has(target):
+				_nav_buttons[target].pressed.emit()
+			else:
+				pop_all()
+				show_screen(target))
 	var shot: String = OS.get_environment("NS3_MENU_SHOT")
 	if shot == "":
 		return
 	# Deliberately inside LoadingScreen.MIN_SHOW, or the match is already up.
 	var delay: float = 0.55 if start == "loading" else 2.0
+	if not hops.is_empty():
+		var at: String = OS.get_environment("NS3_MENU_SWITCH_AT")
+		delay = settle * float(hops.size()) + (at.to_float() if at != "" else 0.1)
 	get_tree().create_timer(delay).timeout.connect(func() -> void:
 		var out: String = Session.shot_path(shot)
 		if not DisplayServer.window_can_draw():   # occluded windows are not drawn; see main.gd:_shot_check

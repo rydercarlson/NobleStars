@@ -20,21 +20,60 @@ const CARRY_AHEAD := 0.85
 const CARRY_MIN := 0.15
 const CARRY_STEP := 0.05
 const LOOSE_HEIGHT := RADIUS
-## A kick leaves at KICK_SPEED and decays as v *= e^(-DRAG*t), so it runs out
-## after (KICK_SPEED - STOP_SPEED) / DRAG metres: about 15 m, seven and a half
-## tiles.
+## A kick leaves at KICK_SPEED and decays as v *= e^(-DRAG*t) until it drops
+## under STOP_SPEED, so it runs (KICK_SPEED - STOP_SPEED) / DRAG metres.
 ##
-## This is halfway between the original 21 m/s launch and the slower 7 m/s
-## tuning, keeping the ball readable without making every kick feel sluggish.
-const KICK_SPEED := 14.0
-const DRAG := 0.875
+## THE TEST THAT MATTERS IS WHETHER THE BALL BEATS A RUNNER. A pass that a
+## defender can simply jog after is not a pass, and for the whole life of this
+## project it could: every tuning ever shipped, the pre-rescale one included,
+## averaged 0.62-0.76x a fighter's run over the length of a kick. It launched
+## fast and then TRICKLED — exponential decay spends most of its time in the
+## tail — so "kick still too slow" was correct and had nothing to do with the
+## launch speed it was blamed on twice.
+##
+## STOP_SPEED is the fix, not KICK_SPEED. Ending the roll at 0.42x a run rather
+## than 0.11x cuts the tail off, and an 8-tile kick lands in 2.0 s instead of
+## 4.6 while covering the same ground: 1.45x a run on average, so the ball wins.
+## If it ever feels sluggish again, check the AVERAGE against a runner before
+## touching the launch — `dist / time` versus Kits.SPEED_NORMAL.
+##
+## A KICK IS A PASS, NOT A SHOT FROM ANYWHERE. It runs 10.4 m — 8 tiles, and
+## since a tile is a fighter, eight body-widths. Both edges have been felt:
+## 11.8 tiles played as "way too far", 6.0 as "too little".
+##
+## It now reaches FURTHER than any weapon — the range cap came down to 5.5 tiles
+## on 7 Sep 2026, because a shot fired up the screen was leaving the frame. That
+## is not the old "a kick must stay inside the weapon cap" rule being broken: a
+## kick hits nobody, it moves the ball, and **the constraint that actually
+## matters for scoring is CupMode.SHOT_RANGE**, which decides how close you must
+## be before a tap shoots at goal instead of passing. A pass that travels
+## further than you can shoot is football.
+##
+## It ran 15.3 m the whole time CLAUDE.md described it as "~7 m, a pass, not a
+## shot from anywhere". Nothing caught the 2.2x gap because the Cup camera only
+## ever showed two thirds of the pitch width; locking that camera on 7 Sep 2026
+## made the whole pitch visible and it was called out from play inside one
+## match. **A number nobody can see is a number nobody can check.**
+##
+## ALL THREE CONSTANTS DERIVE FROM Kits.SPEED_NORMAL, which is what makes the
+## game's one feel dial reach the ball too. They scale together, so this is a
+## pure TIME DILATION and **the dial CANCELS out of kick_range()**: changing
+## SPEED_NORMAL changes how long a kick takes and never how far it goes. Retune
+## the DISTANCE by moving DRAG against KICK_SPEED, and the PACE by moving
+## STOP_SPEED.
+##
+## The ball dilates because it is TRAVEL. A knockback does not, because it is an
+## impact with a fixed decay — see Fighter.IMPULSE_TRAVEL.
+const KICK_SPEED: float = Kits.SPEED_NORMAL * 3.5
+const DRAG: float = Kits.SPEED_NORMAL * 0.2964
 
 ## The Super Shot. Brawl Ball's rule is that spending your Super on the ball
 ## "shoots it further and faster", and because drag is constant, one multiplier
 ## on the launch speed gives both at once: twice as fast, and twice as far —
-## about 31 m, or fifteen and a half tiles.
+## about 22 m, or 17 tiles, against a normal kick's 8 — half the pitch. That is
+## a shot from midfield, which is the point.
 const SUPER_KICK_MULT := 2.0
-const STOP_SPEED := 0.6
+const STOP_SPEED: float = Kits.SPEED_NORMAL * 0.41667
 ## Walls take the sting out of a rebound rather than returning it.
 const BOUNCE := 0.62
 ## How close a fighter must be to scoop up a loose ball.

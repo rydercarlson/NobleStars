@@ -210,8 +210,7 @@ func _ready() -> void:
 	col.position.y = 0.8
 	add_child(col)
 
-	if team >= 0:
-		_setup_team_ring()
+	_setup_hitbox_ring()
 	if kit.has("model"):
 		_setup_model()
 	else:
@@ -538,18 +537,33 @@ func gear_global_position() -> Vector3:
 		return global_position
 	return _gear_pieces[0].global_position
 
-## Nobles Cup team marker: a flat ring on the ground under the fighter. It has
-## to sit outside the body rather than tint it, because five of eight kits wear
-## a GLB whose materials are the character's own and must not be recoloured.
-func _setup_team_ring() -> void:
+## The ring at a fighter's feet, in EVERY mode. It is the hitbox: the torus
+## straddles Kits.FIGHTER_RADIUS, so its mid-line is 1.40 m across against a
+## 1.30 m tile — literally Brawl Stars' own description, "a Brawler's hitbox is
+## slightly larger than a single tile of cover... shown by the ring around their
+## feet, not the Brawler themselves".
+##
+## That sentence is why this exists. Since Kits.TILE == 2 * FIGHTER_RADIUS the
+## grid, the cover and the fighter are all one unit, and the ring is the only
+## thing that makes that legible while playing rather than only in a
+## spreadsheet — the models are roughly half the capsule's width, so without it
+## you cannot see what you are actually shooting at.
+##
+## It also has to sit outside the body rather than tint it, because eight of
+## nine kits wear a GLB whose materials are the character's own and must not be
+## recoloured. Colour is the mode's: team in Nobles Cup, the kit's own in
+## Showdown, which is the split fighter_bars.gd already makes for health bars.
+func _setup_hitbox_ring() -> void:
 	var ring := MeshInstance3D.new()
 	var torus := TorusMesh.new()
 	torus.inner_radius = Kits.FIGHTER_RADIUS * 0.92
 	torus.outer_radius = Kits.FIGHTER_RADIUS * 1.24
+	var tint: Color = Arena.TEAM_COLORS[team] if team >= 0 \
+			else kit.get("color", Color.WHITE)
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Arena.TEAM_COLORS[team]
+	mat.albedo_color = tint
 	mat.emission_enabled = true
-	mat.emission = Arena.TEAM_COLORS[team]
+	mat.emission = tint
 	mat.emission_energy_multiplier = 0.6
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	torus.material = mat
@@ -701,6 +715,13 @@ func _turn_to_travel(stick: Vector3) -> void:
 	facing = facing.rotated(Vector3.UP, clampf(swing, -limit, limit)).normalized()
 	rotation.y = atan2(-facing.x, -facing.z)
 
+## Seconds a leap is airborne, DERIVED from the speed dial (0.48 s at the 5.60
+## m/s the leap was tuned at). Dilating it keeps a leap the same MULTIPLE of a
+## run — 2.7x — rather than becoming a better escape every time the game slows
+## down. BotBrain.LEAP_FLIGHT reads this: JUMP_SMASH has no projectile speed, so
+## it is how a bot times its aim.
+const LEAP_SECONDS: float = 2.688 / Kits.SPEED_NORMAL
+
 ## Distance a knockback impulse of strength 1.0 actually travels. The decay is
 ## `v *= 0.0001 ** delta`, i.e. v(t) = v0 * e^(-9.21t), so the integral is
 ## v0 / 9.21. Converting the other way lets a lunge be authored in metres.
@@ -767,7 +788,7 @@ func begin_leap(weapon: Dictionary, direction: Vector3, distance: float) -> void
 		var stop: Vector3 = blocked.position - Vector3(0, 0.8, 0) - dir * 0.6
 		landing = stop if stop.distance_to(global_position) > 0.3 else global_position
 	leap = {"weapon": weapon, "start": global_position, "landing": landing, "elapsed": 0.0,
-			"duration": 0.48}
+			"duration": LEAP_SECONDS}
 	face_direction(direction)
 
 ## Spends one ammo pip if the fighter has one AND the attack cooldown has
@@ -1185,10 +1206,13 @@ func _popup(text: String, color: Color) -> void:
 	label.no_depth_test = true
 	label.font_size = 64
 	label.pixel_size = 0.012
-	label.position = Vector3(randf_range(-0.3, 0.3), 2.6, 0)
+	# Starts just above the tallest head and rises, derived from Kits.MODEL_TOP
+	# for the same reason fighter_bars.HEAD_OFFSET is — a hand-set height ends up
+	# inside the model the next time MODEL_SCALE moves.
+	label.position = Vector3(randf_range(-0.3, 0.3), Kits.MODEL_TOP + 0.2, 0)
 	add_child(label)
 	var tw := create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(label, "position:y", 3.4, 0.7)
+	tw.tween_property(label, "position:y", Kits.MODEL_TOP + 1.0, 0.7)
 	tw.tween_property(label, "modulate:a", 0.0, 0.7).set_delay(0.25)
 	tw.chain().tween_callback(label.queue_free)

@@ -4,17 +4,17 @@ extends Node3D
 ## the ASCII art is the map's -Z (far) edge, which is the top of the screen.
 ##
 ## Two maps live here, picked by `map_mode` before the node enters the tree:
-## the 39x39 Showdown arena and the 15x23 Nobles Cup pitch. Legend: `#` wall
+## the 61x61 Showdown arena and the 21x33 Nobles Cup pitch. Legend: `#` wall
 ## (breakable unless it is on the border), `=` wall that never breaks, `~`
 ## water, `b` bush, `S` spawn, `X` loot box, `0`/`1` the goal mouth team 0 and
 ## team 1 respectively DEFEND.
 ##
-## The map is 39x39 — a Brawl Stars Showdown map rescaled to our fighters.
-## Theirs is 60x60 tiles with a brawler about a tile wide; ours is 39x39 with a
-## 1.30 m fighter on 2 m tiles, so both arenas are 60 body-widths across.
-## N tracks Kits.FIGHTER_RADIUS as N = 60 * FIGHTER_RADIUS — rescale the fighter
-## without rescaling this and the arena silently changes size in the only unit
-## that matters.
+## The map is 61x61 — a Brawl Stars Showdown map on the same unit they use.
+## Since Kits.TILE == 2 * Kits.FIGHTER_RADIUS, one tile IS one body-width, so
+## their 60x60 is simply ours; 61 rather than 60 because the generator's
+## rotational symmetry only closes on an ODD N (see Tools/gen_showdown_map.py,
+## which measures it). N tracks Kits.TILE — rescale the tile without rescaling
+## this and the arena silently changes size in the only unit that matters.
 ##
 ## Terrain has exact 4-fold rotational symmetry about the centre tile: features
 ## are authored in one quadrant and rotated, so no spawn has a better draw than
@@ -22,8 +22,10 @@ extends Node3D
 ## pinwheel instead of a kaleidoscope. Concentric bush rings break line of
 ## sight, their gaps offset ring to ring; ponds sit in the four cardinal lanes
 ## so the straight run at the centre keep costs you a detour. The keep itself
-## is a walled 7x7 with four 3-tile gates holding five of the seventeen power
-## cubes, and the gas ring closes onto it.
+## is a walled 11x11 with four 5-tile gates holding five of the seventeen power
+## cubes, and the gas ring closes onto it. Keep size scales with the grid; the
+## cube COUNT deliberately does not, because loot is per fighter rather than
+## per area (Brawl Stars ships 16-20 for ten of them).
 ##
 ## Every gap is sized for a 1.30 m fighter (Kits.FIGHTER_RADIUS) and the
 ## generator refuses to emit a map with a cul-de-sac or a pocket sealed behind
@@ -32,90 +34,130 @@ extends Node3D
 ## regenerate with `python3 Tools/gen_showdown_map.py --write`.
 
 const SHOWDOWN_MAP := """
-#######################################
-#...#.bb.##.....#..............bb.....#
-#...#bb.........#.......S..##...#b....#
-#...bb.S~##X...##S.....##..#.....bb...#
-#..bb.#~~......###bb##b##.....~~~.bb###
-#.bb.~#~....bbbbbbbb.#bbXbb...~~~~.bb.#
-#b#.~~#...#bbb##~~~...~..bbb....###.bb#
-#b..~~...##.#.##~##...###..bb#...~~..b#
-#...~~..........~##...~...........~~..#
-#......#................###....#...#.##
-#.#S...b.......###...bbb###...S##..#.##
-#.##..bb....#bbbb.....b#bb......b..X..#
-#....bb..##.#bb.....##.#bX##...#bb....#
-#....bb..##bXb..##..##.##bbb....bb....#
-#..##X.#.##bb#..##........bb...##b....#
-#..##b.#..b###.............b#..##b##..#
-#...bb~#~.bb....##...##.##.b#.~~~b#####
-#...##....b.##..#X...X#.##..#.##~b#...#
-#...#.......##....~.~.........##~bb...#
-#...bb.............X.............bb...#
-#...bb~##.........~.~....##.......#...#
-#..S#b~##.#..##.#X...X#..##.b.S..##...#
-#####b~~~.#b.##.##...##....bb.~#~bb...#
-#..##b##..#b.............###b..#.b##..#
-#....b##...bb........##..#bb##.#.X##..#
-#....bb....bbb##.##..##..bXb##..bb....#
-#....bb#...##Xb#.##.....bb#.##..bb....#
-#..X..b......bb#b.....bbbb#....bb..##.#
-##.#..##....###bbb...###.......b....#.#
-##.#...#....###.S.......S......#......#
-#..~~...S.......~...##~..........~~...#
-#b..~~...#bb..###...##~##.#.##...~~..b#
-#bb.###....bbb..~...~~~##bbb#...#~~.#b#
-#.bb.~~~~...bbXbb#.bbbbbbbb....~#~.bb.#
-###bb.~~~.....##b##bb###......~~#.bb..#
-#...bb.....#..##......##...X##~..bb...#
-#....b#...##..........#.........bb#...#
-#.....bb..............#.....##.bb.#...#
-#######################################
+#############################################################
+#.....##..bbbbb..........##...................bb##b.........#
+#.....##.bbbb#.#.........##................###..#.bb........#
+#.....##bbb..........................###...###.....#b.......#
+#......bbb~....S......###.....S......###...###.~...#bb......#
+#.....bbb~~~..........###.......###..###....S..~...~bbb.....#
+#....bbb~##~.....X....###bbbbbbb###b..........~~...~~bbb.####
+#...bbb~~##...........bbbbbb##bb###bbbb......~~~...~~~bbb####
+#..bbb~~~##....#....bbbbbbbb##bbbbbbbbbbb......~~...~~~bbb..#
+#.b##~~~......##..bbbb###~~~~~.~~~~~bbbXbbb.....~...###~bbb.#
+#bb...........##..bbbb###~###...~......bbbbbb.......###~~bbb#
+##.................##.###~###.........##.bbbb.........~~..bb#
+###.....~~.........##....~###...~....###...b##............bb#
+#b..~~~~~................~~~~....##~........##............#b#
+#b....~~..............................#####.......##.......b#
+#.###..~....##............b...##..b...#####.......###.....#.#
+#.###.....bb##......##.###b##....bbbbb#####.................#
+#.###.....bbb.......##b###b##....bb##bb...............X.....#
+#...S....bbb..###...##bbbb.........##bbbb.........bb...S....#
+#........bbb..###..bbbbb###.....#####bbbbb......##bb........#
+#.......bbb...###.bbXb..###.....###..###Xb###...##bbb.......#
+#..###..bXb##.###.bb##..###.....###..###bb###.....bbb.......#
+#..###.bbb.##.###bbb##...................bbb.....###bb###...#
+#..###.bbb..#...bbbb##...................bb##....###bb###...#
+#......bbb......b###...................###b##....###bb###...#
+#.....bbb~...~..b###.....###.....###...###b##..~~~~~bbb...###
+#....###b~...#.bbb.###...#X.......X#...###.bbb.~###~bbb...###
+#....###b~...#..bb.###...#.........#.......##..~###~bbb.....#
+#....###b~~.~......###.....................##..~###~##b.....#
+#.....bbb~.....#.............~.~...................~##b.....#
+#.....bbb......#..............X..............#......bbb.....#
+#.....b##~...................~.~.............#.....~bbb.....#
+#.....b##~###~..##.....................###......~.~~b###....#
+#.....bbb~###~..##.......#.........#...###.bb..#...~b###....#
+###...bbb~###~.bbb.###...#X.......X#...###.bbb.#...~b###....#
+###...bbb~~~~~..##b###...###.....###.....###b..~...~bbb.....#
+#...###bb###....##b###...................###b......bbb......#
+#...###bb###....##bb...................##bbbb...#..bbb.###..#
+#...###bb###.....bbb...................##bbb###.##.bbb.###..#
+#.......bbb.....###bb###..###.....###..##bb.###.##bXb..###..#
+#.......bbb##...###bX###..###.....###..bXbb.###...bbb.......#
+#...S....bb##......bbbbb#####.....###bbbbb..###..bbb...S....#
+#........bb.........bbbb##.........bbbb##...###..bbb........#
+#.....X...............bb##bb....##b###b##.......bbb.....###.#
+#.................#####bbbbb....##b###.##......##bb.....###.#
+#.#.....###.......#####...b..##...b............##....~..###.#
+#b.......##.......#####..............................~~....b#
+#b#............##........~##....~~~~................~~~~~..b#
+#bb............##b...###....~...###~....##.........~~.....###
+#bb..~~.........bbbb.##.........###~###.##.................##
+#bbb~~###.......bbbbbb......~...###~###bbbb..##...........bb#
+#.bbb~###...~.....bbbXbbb~~~~~.~~~~~###bbbb..##......~~~##b.#
+#..bbb~~~...~~......bbbbbbbbbbb##bbbbbbbb....#....##~~~bbb..#
+####bbb~~~...~~~......bbbb###bb##bbbbbb...........##~~bbb...#
+####.bbb~~...~~S.........b###bbbbbbb###....X.....~##~bbb....#
+#.....bbb~...~.......###..###.S.....###.....S....~~~bbb.....#
+#......bb#...~.###...###............###...........~bbb......#
+#.......b#.....###...###..........................bbb##.....#
+#........bb.#..###................##.........#.#bbbb.##.....#
+#.........b##bb...................##..........bbbbb..##.....#
+#############################################################
 """
 
-## Nobles Cup pitch: 15x23 tiles (30 x 46 m), a little under half the Showdown
-## arena's width and about eight seconds' run end to end. Mirrored left-to-right
+## Nobles Cup pitch: 21x33 tiles (27.3 x 42.9 m) — Brawl Stars' own 3v3 map
+## size, now that a tile is a body-width. A little over a third of the Showdown
+## arena's width and about fourteen seconds' run end to end at the Normal speed
+## tier. Mirrored left-to-right
 ## AND top-to-bottom, so neither team nor either wing has a better draw, and
 ## every row is a palindrome — keep it that way when retuning.
 ##
 ## The goal is recessed a row behind the back wall with unbreakable `=` posts,
-## so a shot has to arrive through the three-tile mouth rather than anywhere
-## along the end line. Two tiles out sits the goal wall, which leaves one
-## one-tile lane straight at the mouth and otherwise forces the attack around
-## the outside — that wall, not a goalkeeper, is what makes scoring work for.
+## so a shot has to arrive through the five-tile mouth rather than anywhere
+## along the end line. Three rows out sits the goal wall, seven tiles of it,
+## which COVERS the mouth completely and forces the attack around the outside —
+## that wall, not a goalkeeper, is what makes scoring work for. (The comment
+## here used to claim it left "one one-tile lane straight at the mouth". It
+## never did on the 15x23 pitch either: the wall spanned cols 5-9 against a
+## mouth at 6-8. Struck 7 Sep 2026.)
 ## It is ordinary breakable `#`, so overtime levels it along with everything
 ## else and the last minute opens both goals right up.
 ##
-## Both teams spawn on the middle third, six metres either side of the centre
-## spot, so a kickoff is a race for a loose ball rather than a march upfield.
-## The three tiles of a spawn row sit two tiles apart, close enough that the
-## whole team is on screen together when the match starts.
+## Both teams spawn on the middle third, about six and a half metres either
+## side of the centre spot, so a kickoff is a race for a loose ball rather than
+## a march upfield. The three tiles of a spawn row sit four tiles apart, close
+## enough that the whole team is on screen together when the match starts.
+## The two spawn rows MUST straddle row_count / 2 (integer division, so 16 on
+## a 33-row pitch) — `_build` assigns team by that test alone, and a pitch
+## whose spawn rows land on one side of it puts both teams in one half.
 ## Deaths do NOT come back here — CupMode respawns a fighter inside its own
 ## goal mouth, which is what puts a body in front of the net.
 const PITCH_MAP := """
-===============
-======111======
-#.............#
-#....#####....#
-#.#.........#.#
-#...bb...bb...#
-#.##.......##.#
-#.............#
-#....S.S.S....#
-#..bb.....bb..#
-#.............#
-#..##.....##..#
-#.............#
-#..bb.....bb..#
-#....S.S.S....#
-#.............#
-#.##.......##.#
-#...bb...bb...#
-#.#.........#.#
-#....#####....#
-#.............#
-======000======
-===============
+=====================
+========11111========
+#...................#
+#...................#
+#......#######......#
+#..#.............#..#
+#..#.............#..#
+#....bbbb...bbbb....#
+#..###.........###..#
+#..###.........###..#
+#...................#
+#.....S...S...S.....#
+#...................#
+#..bbbb.......bbbb..#
+#...................#
+#..###.........###..#
+#...###.......###...#
+#..###.........###..#
+#...................#
+#..bbbb.......bbbb..#
+#...................#
+#.....S...S...S.....#
+#...................#
+#..###.........###..#
+#..###.........###..#
+#....bbbb...bbbb....#
+#..#.............#..#
+#..#.............#..#
+#......#######......#
+#...................#
+#...................#
+========00000========
+=====================
 """
 
 ## Blue defends the near (+Z) goal, red the far one — the player is team 0, so
@@ -143,7 +185,7 @@ var _fields_stale := true
 
 ## How far down the route to look before steering. One tile at a time reads as
 ## a robot hugging every corner; this straightens the run out.
-const LOOKAHEAD_TILES := 5
+const LOOKAHEAD_TILES := 8
 
 ## Only meaningful while the map is square (Showdown); the pitch is not, so
 ## prefer map_width/map_depth and centre() everywhere new.
@@ -323,6 +365,33 @@ func _tile_index(pos: Vector3) -> int:
 ## same way without importing main.gd — which does not compile outside a game
 ## run, since it reaches for the Net autoload.
 const MATCH_CAM_OFFSET := Vector3(0, 91.4, 52.8)
+## Nobles Cup pulls the camera back so the WHOLE PITCH WIDTH is on screen, which
+## is what Brawl Ball does and Showdown does not need. The pitch is 21 tiles
+## across; the base rig shows 17.7 at 16:9, so 21/17.7 = 1.19.
+##
+## It costs the two things todo.md 2.1 is about, in the wrong direction: a
+## fighter drops from 5.0% of screen width to 4.2%, and weapon range from 48%
+## of the view to 40%. Being able to see both touchlines is worth more than
+## either — a pitch that scrolls sideways reads as a corridor, not a pitch —
+## and Kits.MODEL_SCALE 2.0 more than pays the fighter back.
+const CUP_CAM_PULLBACK := 1.19
+
+## The framing this map wants. Read this, never MATCH_CAM_OFFSET directly, or
+## Cup silently gets Showdown's camera — that is why it is a method and not a
+## second const sitting next to the first.
+func cam_offset() -> Vector3:
+	return MATCH_CAM_OFFSET * (CUP_CAM_PULLBACK if map_mode == "cup" else 1.0)
+
+## Where the camera is allowed to look. **Nobles Cup LOCKS THE X AXIS to the
+## centre of the pitch**, so the camera only ever scrolls up and down the field
+## and BOTH TOUCHLINES ARE ALWAYS ON SCREEN — which is what Brawl Ball does, and
+## the reason the pull-back above exists at all. Pulling back without locking
+## just slides a wider window sideways: you still lose a touchline, you have
+## merely lost it more slowly. Showdown follows freely, as its own mode does.
+func cam_anchor(follow: Vector3) -> Vector3:
+	if map_mode != "cup":
+		return follow
+	return Vector3(centre().x, follow.y, follow.z)
 const MATCH_CAM_FOV := 7.0
 
 # MARK: match lighting
@@ -399,12 +468,34 @@ const WALL_SIDE := Color(0.47, 0.33, 0.22)
 const WALL_EDGE := Color(0.24, 0.15, 0.09)
 ## `=` walls: goal frames and the pitch end line. Cool and pale, so a wall that
 ## can never be shot out never reads like one that can.
-## Bright white blew out: the pitch's end rows are 30 tiles of `=` between
+## Bright white blew out: the pitch's end rows are 42 tiles of `=` between
 ## them, so whatever colour this is, there is a lot of it directly behind the
 ## goal a player is shooting at.
 const STRUCT_TOP := Color(0.79, 0.82, 0.88)
 const STRUCT_SIDE := Color(0.51, 0.54, 0.61)
 const STRUCT_EDGE := Color(0.25, 0.28, 0.34)
+## Terrain collision is inset this far inside the tile it is drawn on, and it
+## is what makes a ONE-TILE CORRIDOR PASSABLE.
+##
+## Since Kits.TILE == 2 * Kits.FIGHTER_RADIUS, a fighter is exactly as wide as
+## a tile — so a gap one tile across has literally ZERO clearance and a fighter
+## walking into it jams against both sides at once. (On the old 2 m grid the
+## same gap gave 0.70 m of slack, which is why this never came up.) Brawl Stars
+## has the same relationship and squeezes brawlers through one-tile gaps
+## anyway, because its movement collider is smaller than the hitbox ring.
+##
+## Doing it here rather than by shrinking the fighter is deliberate: the
+## fighter's capsule is ALSO its hurtbox (projectile.gd sweeps against it), so
+## narrowing the fighter would shrink `hit_width` and silently retune every
+## lead/hit figure in SHOT_FEEL.md — and make the feet ring a lie. Insetting
+## the wall instead leaves the hitbox at exactly one tile, which is the whole
+## point of the unit. The two are geometrically identical from the outside: a
+## fighter ends up the same distance into the wall's drawn box either way, and
+## the models are narrower than the capsule so nothing new pokes through.
+##
+## 0.75 leaves 0.33 m of slack in a one-tile corridor, a quarter of a fighter.
+const TILE_COLLISION_SHRINK := 0.75
+
 const WALL_HEIGHT := 1.5
 
 const WATER_DEEP := Color(0.10, 0.30, 0.60)
@@ -469,7 +560,7 @@ void fragment() {
 
 ## The floor. One plane, one draw call: the tile checker, the per-tile mottle
 ## and the seam all come out of the world position rather than out of geometry,
-## so a 39x39 arena costs exactly what a 1x1 one would.
+## so a 61x61 arena costs exactly what a 1x1 one would.
 ##
 ## Every terrain shader here splits its top face from its sides on a
 ## model-space normal carried down as a varying — `NORMAL` is view space by the
@@ -774,7 +865,8 @@ func _build() -> void:
 				"#":
 					var is_border := row == 0 or col == 0 or row == row_count - 1 or col == columns - 1
 					var wall := _shaded_box(c + Vector3(0, WALL_HEIGHT / 2.0, 0),
-										   Vector3(ts, WALL_HEIGHT, ts), _wall_mat, 1)
+										   Vector3(ts, WALL_HEIGHT, ts), _wall_mat, 1,
+										   TILE_COLLISION_SHRINK)
 					_wall_meshes[Vector2i(col, row)] = _mesh_of(wall)
 					if not is_border:
 						wall.add_to_group("breakable")
@@ -784,13 +876,15 @@ func _build() -> void:
 					# Structural: goal posts and the pitch's end walls. Never
 					# joins "breakable", so overtime cannot open the goal up.
 					var s := _shaded_box(c + Vector3(0, WALL_HEIGHT / 2.0, 0),
-										Vector3(ts, WALL_HEIGHT, ts), _struct_mat, 1)
+										Vector3(ts, WALL_HEIGHT, ts), _struct_mat, 1,
+										TILE_COLLISION_SHRINK)
 					_wall_meshes[Vector2i(col, row)] = _mesh_of(s)
 				"0", "1":
 					goal_mouths[int(ch)].append(c)
 				"~":
 					var w := _shaded_box(c + Vector3(0, WATER_TOP / 2.0, 0),
-										Vector3(ts, WATER_TOP, ts), _water_mat, 2)
+										Vector3(ts, WATER_TOP, ts), _water_mat, 2,
+										TILE_COLLISION_SHRINK)
 					w.add_to_group("water")
 					_mesh_of(w).set_instance_shader_parameter(
 							"open_edges", _open_sides(Vector2i(col, row), "~"))
@@ -814,7 +908,7 @@ func _build() -> void:
 	_finish_goals()
 	_build_bushes()
 
-## Built once and shared. A 39x39 arena has ~400 walls; giving each its own
+## Built once and shared. A 61x61 arena has ~1000 walls; giving each its own
 ## material would be 400 shader compiles' worth of pipeline state for a look
 ## that differs only by which sides get an outline.
 func _build_terrain_materials() -> void:
@@ -1253,7 +1347,10 @@ func _static_box(pos: Vector3, size: Vector3, color: Color, layer: int) -> Stati
 ## A solid box wearing `mat`. The mesh is named so callers that need to reach
 ## it for an instance uniform can (`_mesh_of`); the material is shared, so the
 ## per-tile part of the look has to ride on the instance rather than on a copy.
-func _shaded_box(pos: Vector3, size: Vector3, mat: Material, layer: int) -> StaticBody3D:
+## `shrink` insets the COLLISION box in X/Z while the drawn box keeps its full
+## size. See TILE_COLLISION_SHRINK for why terrain uses it.
+func _shaded_box(pos: Vector3, size: Vector3, mat: Material, layer: int,
+				 shrink := 1.0) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.position = pos
 	body.collision_layer = 1 << (layer - 1)
@@ -1269,7 +1366,7 @@ func _shaded_box(pos: Vector3, size: Vector3, mat: Material, layer: int) -> Stat
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = size
+	shape.size = Vector3(size.x * shrink, size.y, size.z * shrink)
 	col.shape = shape
 	body.add_child(col)
 

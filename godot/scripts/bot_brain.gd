@@ -42,11 +42,24 @@ var _think_interval := randf_range(0.15, 0.25)
 ## shockwave) never miss, so a no-lead sim measures "is this weapon hitscan"
 ## rather than whether the kit is balanced. Sim bots therefore aim well; match
 ## bots lead badly on purpose, so shots read as aimed without being hard to
-## walk out of. The player's tap-fire leads fully — see main.gd `_aim_lead`.
+## walk out of.
+##
+## The band came DOWN to 0.00-0.40 on 7 Sep 2026, when the player's tap-fire
+## stopped leading at all (main.gd:_tap_plan). It was 0.15-0.45, tuned against
+## 0.38s flights that are now much longer, so a match bot was leading 30-90% of
+## the correct amount — better than the player's own aim assist, which is the
+## original fairness complaint with the sign flipped. Starting at 0.00 means a
+## real share of the roster aims where you actually are. Bots keep SOME lead
+## because the honest comparison is bot-aim against the player's DRAG, not
+## against their tap: a bot has no tap, `_aim_point` IS its manual aim.
+##
+## LEAD_SIM MUST NOT MOVE. The balance sim wants bots that connect, so that the
+## `hits/atk` column measures the weapon and not the bot — it is what
+## CHARACTER_BUILDING.md bands the damage formula's `A` off.
 const LEAD_SIM := 0.85
-const LEAD_MATCH_MIN := 0.15
-const LEAD_MATCH_MAX := 0.45
-const LEAP_FLIGHT := 0.48   # Fighter.begin_leap duration; JUMP_SMASH has no speed
+const LEAD_MATCH_MIN := 0.00
+const LEAD_MATCH_MAX := 0.40
+const LEAP_FLIGHT: float = Fighter.LEAP_SECONDS  # JUMP_SMASH has no projectile speed
 
 var _lead_skill := randf_range(LEAD_MATCH_MIN, LEAD_MATCH_MAX)
 
@@ -85,17 +98,17 @@ var _aim_error_sim := randf_range(AIM_ERROR_SIM_MIN, AIM_ERROR_SIM_MAX)
 ## How far out, in tiles, a bot looks for cover and for a bush. Four tiles is
 ## about two seconds of walking at 4 m/s — far enough to find a wall on an open
 ## map, near enough that the walk itself is not the thing that kills you.
-const COVER_SCAN := 4
-const BUSH_SCAN := 5
+const COVER_SCAN := 6
+const BUSH_SCAN := 8
 ## Ignore candidates we are already standing on: a "cover" tile half a metre
 ## away is the tile we are being shot on.
-const COVER_MIN_TILES := 1.0
+const COVER_MIN_TILES := 1.54
 ## Below this the search is not worth running: there is no line to break with
 ## someone standing on top of you, and walking to a wall past them is strictly
 ## worse than the strafe the caller already falls back to. Measured — a bot at
 ## point-blank was re-scanning the whole window every COVER_HOLD and finding
 ## nothing, every time.
-const COVER_MIN_ENEMY := Kits.TILE * 1.5
+const COVER_MIN_ENEMY := Kits.TILE * 2.31
 ## How long a chosen cover tile is kept before it is re-scored. Re-picking every
 ## think tick made bots oscillate between two equally good walls.
 const COVER_HOLD := 1.2
@@ -138,7 +151,7 @@ var _lurk_since := -1.0
 ## How far out, in tiles, a bot looks for a flanking tile or for a covered step
 ## on the way in. Deliberately the same window as COVER_SCAN, so all three
 ## searches cost one understood amount rather than three separate ones.
-const FLANK_SCAN := 4
+const FLANK_SCAN := 6
 ## How far behind on health, as a fraction of max, before a bot resets a fight
 ## by breaking sight instead of standing in it. About one exchange — under this
 ## every engagement would reset on the first hit taken and nobody would trade.
@@ -159,11 +172,11 @@ const FLANK_REST := 6.0
 const APPROACH_HOLD := 1.0
 ## How much nearer the target a covered step has to get us to be worth taking.
 ## Under a tile it is a sidestep that spends the walk and arrives nowhere.
-const APPROACH_GAIN := Kits.TILE
+const APPROACH_GAIN := Kits.TILE * 1.54
 ## How close to the gas edge a target has to be before a bot takes the inside
 ## line on it. Past three tiles the ring is not something it can be herded into
 ## yet, and the plain strafe reads better than a bot circling for no reason.
-const GAS_PRESSURE_DEPTH := Kits.TILE * 3.0
+const GAS_PRESSURE_DEPTH := Kits.TILE * 4.62
 
 ## How long a target is remembered once it goes out of sight, and the longer
 ## grace that applies while WE are the ones who broke the sight. A flank or a
@@ -339,8 +352,8 @@ func _cup_move(game) -> Vector3:
 		# A team-mate has it: get up the pitch and off their line, so there is
 		# someone to pass to rather than a queue behind the ball.
 		var lane := (their_goal - ball.carrier.global_position).normalized()
-		var across := Vector3(-lane.z, 0, lane.x) * _support_side * Kits.TILE * 3.0
-		return _dir_to(ball.carrier.global_position + lane * Kits.TILE * 4.0 + across)
+		var across := Vector3(-lane.z, 0, lane.x) * _support_side * Kits.TILE * 4.62
+		return _dir_to(ball.carrier.global_position + lane * Kits.TILE * 6.15 + across)
 	if _closest_to_ball(game, 1):
 		return _dir_to(ball.position)
 	# Someone else is closer: show for the pass up the pitch rather than
@@ -379,7 +392,7 @@ func _cup_kick(now: float, game, d: Dictionary) -> void:
 	var reach: float = CupMode.SHOT_RANGE * (Ball.SUPER_KICK_MULT if powerful else 1.0)
 	var in_range: bool = to_goal <= reach \
 			and game.has_line_of_sight(fighter.global_position, goal)
-	var pressured: bool = game.nearest_visible_enemy(fighter, Kits.TILE * 1.4, true) != null
+	var pressured: bool = game.nearest_visible_enemy(fighter, Kits.TILE * 2.15, true) != null
 	if in_range or pressured:
 		d.kick_dir = cup.kick_aim(fighter, powerful and in_range)
 		# Never on a panic clearance: a Super spent hoofing the ball clear is a
@@ -390,7 +403,7 @@ func _pick_move(now: float, game) -> Vector3:
 	var pos := fighter.global_position
 	if not game.gas_contains(pos):
 		_fleeing_gas = true
-	elif _fleeing_gas and game.gas_depth(pos) > Kits.TILE * 1.5:
+	elif _fleeing_gas and game.gas_depth(pos) > Kits.TILE * 2.31:
 		_fleeing_gas = false
 	if _fleeing_gas:
 		return _dir_to(game.gas_safe_center())
@@ -404,7 +417,7 @@ func _pick_move(now: float, game) -> Vector3:
 		if spot != Vector3.ZERO:
 			# Standing in it already — hold, rather than jittering on the tile.
 			# Reloading behind a wall is the whole point of having walked here.
-			if pos.distance_to(spot) <= Kits.TILE * 0.5:
+			if pos.distance_to(spot) <= Kits.TILE * 0.77:
 				return Vector3.ZERO
 			return _dir_to(spot)
 	if hurt:
@@ -422,7 +435,7 @@ func _pick_move(now: float, game) -> Vector3:
 		# pellets have already fanned wider than a fighter, so only the centre
 		# one lands. Those kits set their own ideal_range_mult (Nova: 0.30).
 		var mult: float = fighter.kit.get("ideal_range_mult", 0.7)
-		var ideal: float = max(Kits.TILE * 0.9, fighter.kit.weapon.range * mult)
+		var ideal: float = max(Kits.TILE * 1.38, fighter.kit.weapon.range * mult)
 		# Unseen in a bush: let them walk onto us instead of breaking cover to
 		# meet them in the open. Holding still is the ambush.
 		if _should_lurk(now, game, pos, dist, ideal):
@@ -432,7 +445,7 @@ func _pick_move(now: float, game) -> Vector3:
 		if _losing_trade(game, enemy):
 			var around := _flank_spot(now, game, enemy, ideal)
 			if around != Vector3.ZERO:
-				if pos.distance_to(around) <= Kits.TILE * 0.5:
+				if pos.distance_to(around) <= Kits.TILE * 0.77:
 					return Vector3.ZERO   # arrived: reload out of their sight
 				return _dir_to(around)
 		var toward := _dir_to(enemy.global_position)
@@ -447,7 +460,7 @@ func _pick_move(now: float, game) -> Vector3:
 		# At fighting distance the only question left is which side of them to
 		# stand on, and near a closing ring there is a right answer: the inside.
 		var press := _gas_pressure_point(game, enemy, ideal)
-		if press != Vector3.ZERO and pos.distance_to(press) > Kits.TILE * 0.6:
+		if press != Vector3.ZERO and pos.distance_to(press) > Kits.TILE * 0.92:
 			return _dir_to(press)
 		return Vector3(-toward.z, 0, toward.x) * 0.6
 
@@ -459,11 +472,11 @@ func _pick_move(now: float, game) -> Vector3:
 	# beats a good hiding place.
 	var lurk := _ambush_spot(now, game, pos)
 	if lurk != Vector3.ZERO:
-		if pos.distance_to(lurk) <= Kits.TILE * 0.5:
+		if pos.distance_to(lurk) <= Kits.TILE * 0.77:
 			return Vector3.ZERO
 		return _dir_to(lurk)
 	if _wander_target == Vector3.ZERO or now >= _repick_at \
-			or pos.distance_to(_wander_target) < Kits.TILE:
+			or pos.distance_to(_wander_target) < Kits.TILE * 1.54:
 		_wander_target = game.random_wander_point(pos)
 		_repick_at = now + randf_range(2.5, 4.5)
 	return _dir_to(_wander_target)
@@ -739,7 +752,7 @@ func _approach_spot(now: float, game, enemy: Fighter) -> Vector3:
 		if _approach_point == Vector3.ZERO:
 			return Vector3.ZERO
 		# Arrived, or it stopped being cover: fall through and re-score.
-		if fighter.global_position.distance_to(_approach_point) > Kits.TILE * 0.5 \
+		if fighter.global_position.distance_to(_approach_point) > Kits.TILE * 0.77 \
 				and _wall_between(arena, _approach_point, eye):
 			return _approach_point
 	_approach_point = _find_approach(game, arena, fighter.global_position, eye)

@@ -5,7 +5,7 @@ extends Node3D
 
 const FIRST_SHRINK_DELAY := 18.0
 const SHRINK_INTERVAL := 12.0
-const TILES_PER_SHRINK := 2
+const TILES_PER_SHRINK := 3
 const TICK_INTERVAL := 1.0
 
 ## How long one step spends in motion. The cadence above is untouched — the ring
@@ -40,7 +40,7 @@ const TICKS_TO_KILL := 6.0
 ## Tiles eaten off each side. Eased, so it is fractional for SHRINK_EASE seconds
 ## after every step. Named `inset` because main.gd and the net snapshot read it.
 var inset := 0.0
-var map_tiles := 39
+var map_tiles := 61
 ## Where the current step is heading. The cadence is scheduled off this rather
 ## than off `inset`, so a step is never booked twice because the ease is behind.
 var _target_inset := 0.0
@@ -60,7 +60,7 @@ func start(now: float, tiles: int) -> void:
 	_running = true
 
 ## Now that `inset` eases, this turns true partway through the LAST step rather
-## than on it — about a third of a second early on a 39-tile map. Everyone is
+## than on it — about a third of a second early on a 61-tile map. Everyone is
 ## standing in gas by then either way.
 func is_fully_closed() -> bool:
 	return inset * 2.0 >= float(map_tiles)
@@ -195,7 +195,7 @@ uniform float front_width = 0.7; // the bright lip right on the front
 uniform float front_gain = 0.85;
 uniform float coarse = 0.055;
 uniform float fine = 0.21;
-uniform float drift = 0.10;      // metres per second the pattern crawls
+uniform float drift = 0.064;     // metres per second the pattern crawls
 uniform float wisps = 0.18;      // on the ALPHA: 0 is one sheet, 1 is separate puffs
 uniform float billow = 0.55;     // on the COLOUR, which at this alpha is where the structure has to live
 
@@ -315,7 +315,7 @@ func _build_fill() -> void:
 	_haze_material.set_shader_parameter("wobble", 4.2)
 	_haze_material.set_shader_parameter("coarse", 0.048)
 	_haze_material.set_shader_parameter("fine", 0.135)
-	_haze_material.set_shader_parameter("drift", 0.19)
+	_haze_material.set_shader_parameter("drift", 0.122)
 	_haze_material.set_shader_parameter("front_gain", 0.30)
 	_haze_material.set_shader_parameter("wisps", 0.85)
 	_haze_material.set_shader_parameter("billow", 0.85)
@@ -463,7 +463,7 @@ func _sync_overlay() -> void:
 	# 78 m edge's worth of clouds up from zero puts a line of ten-pixel specks
 	# along the border, which reads as confetti, so the bank arrives at just over
 	# half size and grows the rest of the way.
-	var closing := clampf((hi - lo) / (Kits.TILE * 2.0), 0.0, 1.0)
+	var closing := clampf((hi - lo) / (Kits.TILE * 3.08), 0.0, 1.0)
 	_clouds.visible = on > 0.05 and closing > 0.001
 	if not _clouds.visible:
 		return

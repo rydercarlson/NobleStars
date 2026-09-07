@@ -37,6 +37,9 @@ const GOAL_CAMERA_INSET := 0.3
 ## merely reachable turns every clearance into a shot on target — the first
 ## build ran a whole match out in thirteen seconds that way. A shot has to be
 ## carried into range; anything longer comes out as a pass instead.
+## 6 m is 4.6 tiles on the 21x33 pitch, about a seventh of its length — the
+## same share it was before the tile rescale (3 tiles of 2 m on a 23-row
+## pitch), so this did not need retuning when the unit changed.
 const SHOT_RANGE := 6.0
 
 ## A Super's knock this hard or harder shakes the ball loose. It is a floor, not
@@ -47,12 +50,18 @@ const KNOCK_DROP_SPEED := 3.0
 ## keeps some of the shove so it reads as knocked away rather than put down, but
 ## it is capped well inside a kick, because a ball that outran a kick would make
 ## "have a team-mate hit you" the fastest way up the pitch. The hardest Super in
-## the roster (Anders, 14) gets KNOCK_BALL_MAX, which coasts about 6 m against a
-## normal kick's 15 — so a strip can never be a shot from anywhere a kick could
-## not already have been taken.
-const KNOCK_BALL_PER_STRENGTH := 0.5
-const KNOCK_BALL_MIN := 2.0
-const KNOCK_BALL_MAX := 6.0
+## the roster (Anders, 14) gets KNOCK_BALL_MAX, which coasts about 6 m (4.6
+## tiles) against a normal kick's 15 m (11.8 tiles) — so a strip can never be a
+## shot from anywhere a kick could not already have been taken.
+## Derived from the same dial as Ball's own constants, so a strip still coasts
+## ~6 m at any speed setting.
+## Re-tuned alongside Ball.STOP_SPEED: these are LAUNCH speeds fed into the same
+## drag, so raising the speed the ball stops at shortens every one of them. Set
+## so the hardest Super in the roster (Anders, 14) clamps at MAX and coasts ~3.5
+## tiles, against a kick's 8 — knocked away, never a shot.
+const KNOCK_BALL_PER_STRENGTH: float = Kits.SPEED_NORMAL * 0.15
+const KNOCK_BALL_MIN: float = Kits.SPEED_NORMAL * 0.802
+const KNOCK_BALL_MAX: float = Kits.SPEED_NORMAL * 1.765
 ## How long the ball cannot be picked up after it is shaken loose. Long enough
 ## that the shove actually separates the carrier from it.
 const KNOCK_BALL_HOLD := 0.35
@@ -525,7 +534,10 @@ func _pickup_check(now: float) -> void:
 ## defender scooping a shot off their own line. Thresholds are set just above a
 ## ball that is merely trickling (Ball.STOP_SPEED is 0.6) rather than tuned for
 ## frequency, so re-measure before moving them.
-const SAVE_SPEED := 2.5
+## A ball still travelling with purpose — about 31% of a kick's launch speed.
+## Raised with Ball.STOP_SPEED, which the ball now stops at 0.42x a run: a
+## threshold below that would have counted every dribble as a save.
+const SAVE_SPEED: float = Kits.SPEED_NORMAL * 1.1
 const SAVE_DOT := 0.35
 
 func _is_save(catcher: Fighter) -> bool:
@@ -603,7 +615,7 @@ func _free_spot(origin: Vector3) -> Vector3:
 	if not game.arena.blocks_movement(origin):
 		return origin
 	for ang in [0.0, PI * 0.5, PI, PI * 1.5, PI * 0.25, PI * 0.75, PI * 1.25, PI * 1.75]:
-		var p := origin + Vector3(cos(ang), 0, sin(ang)) * Kits.TILE
+		var p := origin + Vector3(cos(ang), 0, sin(ang)) * Kits.TILE * 1.54
 		if not game.arena.blocks_movement(p):
 			return p
 	return game.arena.centre()
@@ -770,7 +782,17 @@ func kick(f: Fighter, dir: Vector3, now: float, use_super := false) -> bool:
 ##
 ## `kind` is "shot", "pass" or "clear". A clearance is aimed at the goal like a
 ## shot but by definition cannot reach it, which is why it is named separately.
-func kick_plan(f: Fighter, powerful := false) -> Dictionary:
+## `allow_pass` is FALSE for the player's own tap and true for bots. A tapped
+## kick used to hunt for the team-mate nearest the goal and lock onto them,
+## which is a lock-on: it picks a receiver for you, and the ball leaves in a
+## direction you did not choose and cannot read off your own facing. It is the
+## same objection CLAUDE.md already records against the attack indicator
+## previewing auto-aim's pick — aiming is meant to be the thing you get good at.
+## So the player gets exactly two outcomes: **in range of the goal it locks onto
+## the goal, and otherwise it goes where you are facing.** Bots keep the pass
+## search, because a bot has no drag to fall back on and a 3v3 where nobody
+## passes is not the mode.
+func kick_plan(f: Fighter, powerful := false, allow_pass := true) -> Dictionary:
 	var goal: Vector3 = game.arena.goal_centers[1 - f.team]
 	var to_goal: float = f.global_position.distance_to(goal)
 	# SHOT_RANGE, not the ball's full coast: the two have to agree, or a bot
@@ -779,6 +801,10 @@ func kick_plan(f: Fighter, powerful := false) -> Dictionary:
 	var reach: float = SHOT_RANGE * (Ball.SUPER_KICK_MULT if powerful else 1.0)
 	if to_goal <= reach and game.has_line_of_sight(f.global_position, goal):
 		return {"kind": "shot", "at": goal, "dir": goal - f.global_position}
+	# Everything past here is the pass search, which the player's tap skips.
+	if not allow_pass:
+		return {"kind": "clear", "at": f.global_position + f.facing * Ball.kick_range(
+				Ball.SUPER_KICK_MULT if powerful else 1.0), "dir": f.facing}
 	var best: Fighter = null
 	var best_d := to_goal
 	for mate: Fighter in game.fighters:
@@ -794,5 +820,5 @@ func kick_plan(f: Fighter, powerful := false) -> Dictionary:
 	return {"kind": "clear", "at": goal, "dir": goal - f.global_position}
 
 ## The direction half of kick_plan, for the callers that only kick with it.
-func kick_aim(f: Fighter, powerful := false) -> Vector3:
-	return kick_plan(f, powerful).dir
+func kick_aim(f: Fighter, powerful := false, allow_pass := true) -> Vector3:
+	return kick_plan(f, powerful, allow_pass).dir

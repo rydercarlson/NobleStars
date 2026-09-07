@@ -16,6 +16,278 @@ Newest work is roughly at the top of each section.
 
 ---
 
+## The rescale (7 Sep 2026) — one tile is one fighter
+
+- [x] **`Kits.TILE` 2.0 m -> 1.30 m, so a tile is exactly a fighter.** Brawl
+      Stars' numbers are legible because one unit does all the work — hitbox,
+      cover tile and grid are the same size, and everything they publish (range
+      8.33, movement 2.40/s, projectile 12.0/s) is denominated in it. Ours was
+      1 tile = 1.54 fighters, so every figure of theirs needed converting and
+      cover was coarser than the thing hiding behind it. `SHOT_FEEL.md` §5.5 had
+      flagged it since the first draft; §9.5 deferred it as "not worth an arena
+      re-author on its own". This was the re-author.
+      - Tile counts grew so the world stayed the same physical size: Showdown
+        39x39 -> **61x61** (79.3 m, was 78), Cup 15x23 -> **21x33**. Every
+        `X * TILE` was multiplied by 1.54, so **nothing moved in metres**.
+      - **The range re-tier fell out as arithmetic, not taste.** Converting
+        today's reach into body-widths *is* the Brawl Stars band: Sanjit 2.15
+        (their very short 2-3), Nova 6.62 (medium 6-8), Hammy 8.46 (long
+        8.7-10). Every kit landed in a named tier of theirs with no judgement.
+      - **N must be ODD.** The generator's `rot()` turns about `(N-1)/2` while
+        `pol()`/`at()` measure from `N//2`; they coincide only at odd N. At 60
+        the 4-fold symmetry read-out prints False — and it is a `print`, not an
+        `assert`, so the run completes and every "no spawn has a better draw"
+        guarantee is silently void. **61.**
+      - Three more generator traps, all measured rather than guessed: wall
+        density collapses 20.2% -> 7.6% at the bigger grid because clumps are a
+        fixed tile count while area grows by S²; all ten spawns land in one
+        corner because `RING` was hardcoded on the old 33-grid and never scaled
+        (and `assert ic['S'] == 10` still passes, because seeds get snapped);
+        and `--write` had been broken for who knows how long, searching for
+        `const MAP` where `arena.gd` says `SHOWDOWN_MAP`. Everything the
+        generator counts in tiles now scales by `W`, which is 1.0 on the
+        39-grid — verified by regenerating at N=39 and diffing byte-for-byte
+        against the shipped map. **Loot deliberately does NOT scale: cube count
+        is per fighter, not per area.**
+
+- [x] **A fighter is exactly as wide as a tile, so one-tile corridors had ZERO
+      clearance and you jammed.** The old 2 m tile gave 0.70 m of slack.
+      Measured after the fact: **849 of 2625 open tiles could not fit a fighter
+      at all** — a third of the map. Fixed with
+      `Arena.TILE_COLLISION_SHRINK` (0.75), which insets terrain *collision*
+      inside the tile it is *drawn* on.
+      - **Rejected: shrinking the fighter.** The capsule is also the hurtbox
+        (`projectile.gd` sweeps it), so narrowing it shrinks `hit_width`,
+        silently retunes every `lead/hit` figure in SHOT_FEEL, and makes the new
+        feet ring a lie. Insetting the wall is geometrically identical from the
+        outside — the fighter ends up the same distance into the wall's drawn
+        box either way — and leaves the hitbox at exactly one tile.
+      - **`NS3_SIM` cannot see this class of bug and did not.** Bots path on the
+        ASCII grid and slide along walls, so they route *around* gaps they
+        cannot fit through; no match ever ended on gas closure and the table
+        looked healthy. A person driving a stick straight at a gap found it in
+        one session. What the sim *did* show, once there was a baseline to
+        compare against, was the second-order damage: `hits/atk` down for all
+        nine kits, `atk/spawn` **down** (fewer chances to shoot) and scenery
+        hits **up** (Hammy 47% -> 67%).
+      - **Two wrong explanations were tested and discarded first**, both worth
+        not repeating: point-ray blocking old vs new was identical (75.1% vs
+        75.8%), and so was swept-sphere blocking at a real projectile radius
+        (85.2% vs 85.1%). The map was never the cause.
+      - `tools/fit_probe.gd` is the instrument, and **it was validated by
+        reintroducing the bug** — 849 unfittable tiles at shrink 1.0, zero at
+        0.75. Its own first version reported the entire map unwalkable, because
+        the ground slab is on the walls layer with its top at exactly the height
+        a capsule bottoms out.
+
+- [x] **Speed went to Brawl Stars parity, then came back up.** `SPEED_NORMAL`
+      5.60 -> 3.12 (2.40 tiles/s, exact parity) -> **3.60** (2.77 tiles/s,
+      1.15x theirs). Parity came back from play as "genuinely moving in slow
+      motion". The other four tiers now derive from it, so there is one dial.
+      - **Some of "slow motion" was not speed at all** — see the model entry
+        below. The two compound, and they were reported together.
+      - The floor is the run clips, not the feel: stride is
+        `velocity / RUN_CLIP_SPEED` clamped at 0.35, and at exact parity
+        `SPEED_VERY_SLOW` landed at 0.357. One step from skating feet.
+
+- [x] **`Kits.MODEL_SCALE` 1.44 -> 2.0 -> 1.40.** **The 2.0 was wrong and the
+      reason it was wrong is the entry worth keeping.** It was chosen so a
+      fighter's silhouette filled its hitbox ring (~1.61 m against a 1.61 m
+      ring) — a target you can check in one screenshot. That optimises WIDTH,
+      and our models are humanoid at ~1:2 width:height against Brawl Stars'
+      1:1.2 chibi, so sizing on width blew the height out to 2.5 tiles against
+      their 1.5-2.0. Reported from play as "characters feel utterly massive".
+      **Match height against the grid, not width against the ring.**
+      - It also read as *slow*, because perceived pace is body-LENGTHS per
+        second: an oversized model reads as slow motion at a movement speed that
+        is numerically correct.
+      - **The grid had already done the work.** The same model went from 1.18
+        tiles tall to 1.85 when `TILE` shrank, with no scale change at all.
+        Raising it on top was multiplying a fix that had already happened.
+      - `fighter_bars.HEAD_OFFSET` and the damage popup now DERIVE from
+        `Kits.MODEL_TOP` instead of being hand-set, because they had to be
+        re-tuned by hand twice in one session.
+
+- [x] **Every fighter wears a hitbox ring, in every mode.** The ring already
+      existed for Nobles Cup teams; it was behind `if team >= 0`, so Showdown
+      had none. The geometry needed no change at all — the torus mid-line is
+      1.40 m against a 1.30 m tile, which is literally the wiki's "slightly
+      larger than a single tile of cover". Kit-coloured where there is no team,
+      matching the split `fighter_bars.gd` already makes. No net work: `team`
+      travels in the roster and the ring inherits a transform that is already
+      predicted on a client.
+
+- [x] **The player's tap-fire stopped leading.** Reverses the change recorded in
+      `SHOT_FEEL.md` §7.1 on purpose. Leading fixed a fairness bug (bots led,
+      the player did not) and created a worse design one: **a tap that leads is
+      strictly better than aiming**, so drawing a lane with the stick became the
+      slow way to do what the button did for free. Brawl Stars' auto-aim fires
+      at the current position, which is exactly why drag-aim is the skill there.
+      It is also the rule already written down about the aim indicator — a
+      leading tap was that same lock-on, moved into the shot. Bots came down to
+      0.00-0.40 of a correct lead with it; `LEAD_SIM` stayed at 0.85, because
+      the sim wants bots that connect so `hits/atk` measures the weapon.
+
+## Balance, after the rescale (7 Sep 2026)
+
+- [x] **Ranges came back down: the cap is the SHORTEST visible direction.** The
+      rescale had adopted Brawl Stars' 6-10 tile band, and `CHARACTER_BUILDING`
+      §4 capped weapons at the **wide axis** (8.5 tiles). Wrong axis — a weapon
+      fires every way, and the camera shows only **5.54 tiles up-screen**, so a
+      long shot left the frame the first time anyone fired upward.
+      - **"No shot may leave the frame" is too strong, and Brawl Stars does not
+        obey it either.** Range ÷ vertical-half is 1.43 for them against 1.53
+        for us — a Piper shot up the screen leaves their frame too. What
+        actually differs is that **our camera shows ~82% of the ground theirs
+        does**. The defensible rule is symmetric and about incoming fire: *you
+        should not be hit by someone you cannot see.* Same number, honest
+        reasoning. If their ranges are wanted, the lever is the camera.
+      - **Rejected: cutting every range by the same factor.** The first pass did,
+        melee included, and the sim caught it in one run — Sanjit 11.3% -> 2.9%,
+        Henry 10.0% -> 3.1%, because a 1.4-body-width reach means a melee kit is
+        nearly overlapping before it can swing. Melee was never a visibility
+        problem. **Cap what pokes out; leave the rest alone.**
+      - **AOE is measured against a BODY, range against the SCREEN.** Blast radii
+        and `BUSH_REVEAL` kept their metres while ranges came down 35%.
+
+- [x] **Tony fixed — and a range cut alone was not what fixed him.** He measured
+      26.6% wins against an 11.1% baseline. Cutting his range 8.46 -> 4.6 tiles
+      (Long -> Medium, roughly half) moved him to **27.3%: nothing.**
+      - **Because the formula pays a range cut back in damage.** `G` 0.85 -> 1.00
+        is +18%, and that exchange rate exactly cancelled the nerf. A range cut
+        is not a Tony nerf.
+      - Holding his damage at 1459 instead — **a deliberate deviation from the
+        formula** — took him to **9.1%, inside the noise band.** Justified the way
+        §3's sanity checks are: measurement overrules the band, and +4.2 sigma
+        across two runs at two different ranges is as clear as evidence gets.
+      - Roster spread 25.2 -> 18.1 points, stdev 6.95 -> 5.23, seven of nine kits
+        now within 2 sigma of baseline.
+
+- [x] **Read the noise floor before reading the table.** At 60 matches each kit
+      gets ~65 spawns, so on a 1-in-9 roster **1 sigma is 3.9 points and anything
+      between 3.3% and 18.9% is noise.** Three mid-table "swings" between
+      consecutive runs in this session were entirely inside that band and were
+      briefly taken for signal. Compute it before comparing two sims.
+
+---
+
+## Nobles Cup, from play (7 Sep 2026)
+
+- [x] **The Cup camera locks horizontally.** Brawl Ball never scrolls sideways;
+      both touchlines are always visible. Ours followed the player in X on a
+      pitch wider than the view, so you could never see both. Two things were
+      needed and the first alone was not enough:
+      - `Arena.CUP_CAM_PULLBACK` (1.19x) so 21 tiles fit the frame at 16:9.
+      - `Arena.cam_anchor()` locking X to the pitch centre. **Pulling back
+        without locking just slides a wider window sideways** — you still lose a
+        touchline, only more slowly.
+      - **It then rendered the pitch visibly TILTED**, reported as "the field is
+        at an angle and is very odd". `look_at` was still targeting the player
+        while the position was locked to the pitch centre, so the camera yawed
+        to face them — and rotation is fixed at match start, so the skew held
+        for the whole match. Position and look target must come from the same
+        anchor.
+
+- [x] **A kick ran 15.3 m the entire time CLAUDE.md described it as "~7 m, a
+      pass, not a shot from anywhere".** A 2.2x gap between the documented
+      intent and the code, and **nothing caught it because the Cup camera only
+      ever showed two thirds of the pitch width.** Locking the camera exposed it
+      inside one match. Settled at **8 tiles** after feeling both edges: 11.8
+      played as "way too far", 6.0 as "too little". A number nobody can see is a
+      number nobody can check.
+
+- [x] **The ball was slower than a runner, and always had been.** Reported as
+      "kick still too slow" after the launch speed had already been cut twice
+      for it. **The launch was never the problem.** Every tuning ever shipped —
+      the pre-rescale one included — averaged **0.62-0.76x a fighter's run**
+      over the length of a kick: it launched fast and then trickled, because
+      exponential decay spends most of its time in the tail, so a defender could
+      jog after any pass.
+      - `STOP_SPEED` was the fix, not `KICK_SPEED`. Ending the roll at 0.42x a
+        run instead of 0.11x cuts the tail: an 8-tile kick lands in **2.0 s
+        instead of 4.6** over the same ground, averaging 1.45x a run.
+      - **The test to use is whether the ball beats a runner** — `dist / time`
+        against `SPEED_NORMAL` — not how fast it leaves the boot.
+      - All three ball constants derive from `Kits.SPEED_NORMAL`, and it cancels
+        out of `kick_range()`: the speed dial changes how long a kick takes and
+        never how far it goes.
+
+- [x] **A tapped kick no longer locks onto a team-mate.** It hunted for the ally
+      nearest the goal, so the ball left in a direction the player did not pick
+      and could not read off their own facing — the same objection already on
+      record against the attack indicator previewing auto-aim's pick. The tap
+      now has exactly two outcomes: **in range of the goal it locks onto the
+      goal, otherwise it goes where you are facing.** The indicator gained a
+      marker at the point the ball STOPS ROLLING, drawn always, because a kick
+      is the one aim whose useful quantity is a distance and a lane that fades
+      out does not answer it; it is deliberately smaller than the goal ring so a
+      read-out never reads as a target. **Bots keep the pass search** — a bot has
+      no drag to fall back on, and a 3v3 where nobody passes is not the mode.
+
+---
+
+## Menu transitions (7 Sep 2026)
+
+- [x] **A screen on its way out is still on screen, and the shell counted it as
+      gone.** Reported off the roster as "all of the names sometimes overlap".
+      Both halves of it are the same mistake: `pop_screen` updates the shell's
+      state the instant a screen leaves `_stack`, while the screen itself stays
+      on the glass for another 0.24s playing its exit. So for a quarter of a
+      second two text layouts are printed over each other — two titles, two
+      currency readouts in the same corner, and the roster's nine names over
+      whatever is behind them. It is brief, which is what makes it "sometimes"
+      rather than "always".
+      - **Route one, the nav bar.** `push_screen` already guards against this —
+        "Only the top screen draws: the ones below are opaque enough that
+        leaving them visible reads as two screens printed on top of each other"
+        — but it guards by hiding `_stack[-1]`, and a screen mid-exit is not in
+        `_stack` any more. The nav tab pops and pushes in one press, so the
+        outgoing screen was invisible to the very guard written for it.
+        `_drop_closing()` sweeps `screens_root` for any `MenuScreen` no longer
+        in the stack and drops it. It hides as well as frees, because
+        `queue_free` lands at the END of the frame and one frame of the old
+        screen at full alpha under an incoming one still at zero reads as a
+        flicker back to where you just came from.
+      - **Route two, back to home, and this is the one you hit constantly** —
+        picking a fighter closes the roster, so it is on the end of every visit.
+        `_update_stage_dim` already hides `home` under a pushed screen; it was
+        called at the TOP of the exit, so home and the 3D fighter were restored
+        at full opacity and the roster then dissolved across them. Revealing
+        them when the screen has actually gone makes the exit fade over the
+        painted stage instead, which has no text on it — the same thing the
+        ENTRANCE has always done, so the two directions now match.
+      - **Rejected: sliding the outgoing screen fully off instead of fading
+        it.** It removes the overlap for free and it is louder than this menu's
+        motion budget allows ("things arrive by rising a few pixels as they fade
+        in… nothing scales, and nothing overshoots"). Also rejected: shortening
+        the fade until the doubling is too brief to read, which leaves the
+        artifact and only makes it a flicker.
+      - **Home needed its own fade in (`HOME_FADE`) once it stopped being
+        uncovered by the screen dissolving off it.** Revealing it at the end of
+        the exit with no fade is a hard cut of the whole flank layout. The 3D
+        stage fades with it — `brawler_view` is a sibling of `home`, not a
+        child, so home's `modulate` does not reach it and the fighter otherwise
+        popped in at full opacity against fading text.
+      - **The obvious suspect was measured and was NOT the cause — do not go
+        back to it.** CLAUDE.md carries a rule that `MenuUI.stagger` must not be
+        used on rows in a container, because `pop_in` tweens `position:y` and a
+        `VBoxContainer` owns its children's positions; `roster_screen.gd:37`
+        staggers exactly such a VBox, and "all the names overlap" is precisely
+        what that failure looks like. It is not what was happening here.
+        `MenuScreen.stagger_children` awaits a frame before staggering, and
+        instrumenting it printed row homes of 0, 84, 168 … 672 on every run and
+        the same values again after everything had settled. The roster's rows
+        were never the problem.
+      - **`NS3_MENU_SWITCH=<screen>` + `NS3_MENU_SWITCH_AT=<sec>`** were added to
+        find it and are worth keeping: the hand-off between two screens lasts a
+        quarter second and was unshootable, which is the same reason `NS3_END`
+        and `NS3_KILL` exist. It navigates a second time through the nav bar's
+        own button, so the harness takes a thumb's route rather than a copy of
+        it — the first version called `pop_all()` + `show_screen()` by hand,
+        which is NOT what the nav does and quietly reproduced nothing.
+
+---
+
 ## The P1 sweep (6 Sep 2026) — controls, wifi feedback, and the icon
 
 - [x] **3.1 — A drawn shot can be called off.** Drag the aim stick out, change

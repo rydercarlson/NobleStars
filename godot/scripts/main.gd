@@ -61,6 +61,9 @@ var aim_mesh: MeshInstance3D
 # The steep, low-distortion 2.5D framing. Defined on Arena (MATCH_CAM_OFFSET /
 # MATCH_CAM_FOV, with the reasoning) so tools/render_map.gd can shoot the arena
 # through the same lens without importing this script.
+## The base rig; the framing actually used is `arena.cam_offset()`, which pulls
+## back in Nobles Cup so the whole pitch width fits. Go through `_cam_offset()`
+## rather than reading this directly, or Cup silently gets Showdown's framing.
 const CAMERA_OFFSET := Arena.MATCH_CAM_OFFSET
 const CAMERA_FOV := Arena.MATCH_CAM_FOV
 const TAP_THRESHOLD := 0.3
@@ -199,7 +202,7 @@ const NET_CUP_BYTES := 11
 ## Fixed-point divisor for the gas inset in a snapshot. The inset is in TILES and
 ## eases fractionally between steps, so it cannot ride as the plain integer it
 ## once was. 1/256th of a tile is far finer than the ~2 cm a pixel covers at the
-## match camera, and the widest ring this game builds (half of a 39-tile map)
+## match camera, and the widest ring this game builds (half of a 61-tile map)
 ## comes to 2560 — an order of magnitude inside the s16 it is packed into.
 const NET_INSET_SCALE := 256.0
 
@@ -983,8 +986,8 @@ func start_match() -> void:
 		add_child(gas)
 		gas.start(now, arena.columns)
 	_update_players_label()
-	cam.position = player.position + CAMERA_OFFSET
-	cam.look_at(player.position, Vector3.UP)
+	cam.position = _cam_target(player.position)
+	cam.look_at(_cam_look(player.position), Vector3.UP)
 	# Fighters were teleported to spawns; don't interpolate from old spots.
 	for f in fighters:
 		f.reset_physics_interpolation()
@@ -1400,7 +1403,12 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			lob.weapon = weapon
 			lob.damage = int(weapon.damage * f.damage_multiplier())
 			lob.owner_fighter = f
-			lob.start_pos = f.global_position + Vector3(0, 0.5, 0)
+			# LEAVES FROM OVER HIS HEAD, not his knees. At 0.5 m the shell
+			# appeared at the thrower's feet and the arc read as a ground skim
+			# that happened to rise; starting above him makes it read as
+			# something lobbed UP and OUT, which is what an arcing weapon is.
+			# Derived from Kits.MODEL_TOP so it tracks the model scale.
+			lob.start_pos = f.global_position + Vector3(0, Kits.MODEL_TOP * 0.8, 0)
 			lob.target_pos = f.global_position + unit * throw_dist
 			lob.on_land = _on_lob_land
 			add_child(lob)
@@ -1492,7 +1500,7 @@ func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -
 			controller.weapon = weapon
 			controller.damage = int(weapon.damage * f.damage_multiplier())
 			controller.owner_fighter = f
-			controller.start_pos = f.global_position + Vector3(0, 0.5, 0)
+			controller.start_pos = f.global_position + Vector3(0, Kits.MODEL_TOP * 0.8, 0)
 			controller.target_pos = f.global_position + unit * throw_dist
 			controller.is_controller = true
 			controller.on_land = _disconnect_lob_land
@@ -1654,6 +1662,24 @@ func _on_projectile_hit(body: Node3D, proj: Projectile) -> void:
 		return
 	if body is Fighter:
 		if body == proj.owner_fighter or body.is_dead() or proj.already_hit.has(body):
+			return
+		# A TEAM-MATE IS NOT COVER. `deal_damage` has always refused friendly
+		# fire, so this looked handled — but the shot was still being STOPPED by
+		# an ally's body, and two things rode along with that: it set
+		# `hit_fighter`, which is what advances Hammy's heat streak (so walking
+		# a team-mate through your own line lit you On Fire), and it counted a
+		# `p_fighter` in the sim's projectile-fate table, which quietly flattered
+		# every delivery measurement taken in Nobles Cup.
+		#
+		# Recording them in `already_hit` rather than just returning is the load-
+		# bearing half: that array feeds `Projectile._sweep.exclude`, so from the
+		# next frame the swept query passes straight through them instead of
+		# re-reporting the same body every frame and pinning the shot in place.
+		#
+		# Showdown is unaffected either way — `Fighter.is_ally` is false for
+		# everyone at `team == -1`.
+		if is_instance_valid(proj.owner_fighter) and proj.owner_fighter.is_ally(body):
+			proj.already_hit.append(body)
 			return
 		proj.already_hit.append(body)
 		proj.hit_fighter = true
@@ -2070,7 +2096,7 @@ func _update_dashes(delta: float) -> void:
 			continue
 		if d.remaining <= 0.0 and not over_water:
 			f.end_dash()
-		elif d.remaining < -4.0 * Kits.TILE:
+		elif d.remaining < -6.15 * Kits.TILE:
 			f.end_dash()
 
 ## Which way a Downhill victim gets thrown. "Pushes them aside", not "punts them
@@ -2123,6 +2149,24 @@ func _update_leaps(delta: float) -> void:
 				_ground_smash(f, leap.weapon, f.global_position)
 
 # MARK: senses
+
+## Per-mode camera offset, falling back to the base rig before the arena exists.
+func _cam_offset() -> Vector3:
+	return arena.cam_offset() if is_instance_valid(arena) else CAMERA_OFFSET
+
+## What the camera POINTS AT. Must be the same anchor `_cam_target` is built
+## from, or the two disagree and the camera yaws: in Nobles Cup the position is
+## locked to the pitch centre while the player is off to one side, so aiming at
+## the player instead skews the view — and since rotation is fixed at match
+## start, that skew is frozen for the whole match and the pitch renders visibly
+## TILTED. Reported from play as "the field is at an angle and is very odd".
+func _cam_look(anchor: Vector3) -> Vector3:
+	return arena.cam_anchor(anchor) if is_instance_valid(arena) else anchor
+
+## Where the camera SITS to look at `anchor`. Goes through Arena.cam_anchor, so
+## Nobles Cup keeps both touchlines on screen instead of scrolling sideways.
+func _cam_target(anchor: Vector3) -> Vector3:
+	return _cam_look(anchor) + _cam_offset()
 
 func has_line_of_sight(from: Vector3, to: Vector3) -> bool:
 	var q := PhysicsRayQueryParameters3D.create(
@@ -2204,7 +2248,7 @@ func _super_target(weapon: Dictionary) -> Fighter:
 
 func nearest_loot(pos: Vector3):
 	var best = null
-	var best_d := Kits.TILE * 9.0
+	var best_d := Kits.TILE * 13.85
 	for n in get_tree().get_nodes_in_group("lootbox") + get_tree().get_nodes_in_group("cube"):
 		var d: float = pos.distance_to(n.global_position)
 		if d < best_d and gas_contains(n.global_position):
@@ -2215,7 +2259,7 @@ func nearest_loot(pos: Vector3):
 func random_wander_point(origin: Vector3) -> Vector3:
 	for i in 8:
 		var ang := randf() * TAU
-		var r := randf_range(3.0, 6.0) * Kits.TILE
+		var r := randf_range(4.62, 9.23) * Kits.TILE
 		var p := origin + Vector3(cos(ang) * r, 0, sin(ang) * r)
 		if not arena.blocks_movement(p) and gas_contains(p):
 			return p
@@ -2847,7 +2891,7 @@ func _draw_weapon_aim(im: ImmediateMesh, stick_value: Vector2, use_super: bool) 
 func _draw_kick_aim(im: ImmediateMesh, stick_value: Vector2, use_super: bool,
 		dragging: bool) -> void:
 	var powerful := use_super and player.is_super_ready()
-	var plan: Dictionary = cup.kick_plan(player, powerful)
+	var plan: Dictionary = cup.kick_plan(player, powerful, false)
 	var kick_dir: Vector3 = Vector3(stick_value.x, 0, stick_value.y).normalized() if dragging \
 			else (plan.dir as Vector3).normalized()
 	if kick_dir == Vector3.ZERO:
@@ -2856,10 +2900,19 @@ func _draw_kick_aim(im: ImmediateMesh, stick_value: Vector2, use_super: bool,
 	var tint: Color = SUPER_KICK_AIM_COLOR if powerful else KICK_AIM_COLOR
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	im.surface_set_color(tint)
+	var stops_at := from
 	for segment in _aim_bounce_segments(from, kick_dir,
 			Ball.kick_range(Ball.SUPER_KICK_MULT if powerful else 1.0), 2, Ball.BOUNCE):
 		_aim_add_segment(im, segment[0], segment[1], Ball.RADIUS, tint)
-	if not dragging and String(plan.kind) != "clear":
+		stops_at = segment[1]
+	# WHERE IT STOPS ROLLING, always. A kick is the one aim in the game whose
+	# useful quantity is a DISTANCE — how far up the pitch this puts the ball —
+	# and a lane that simply fades out does not answer that. This is not a
+	# lock-on: it marks the end of a path you chose, not a target picked for you.
+	_aim_add_ring(im, Vector3(stops_at.x, 0.09, stops_at.z),
+			STOP_MARK_RADIUS, MARK_WIDTH, tint)
+	# The goal ring is the ONLY thing the tap still locks onto.
+	if not dragging and String(plan.kind) == "shot":
 		var at: Vector3 = plan.at
 		_aim_add_ring(im, Vector3(at.x, 0.09, at.z), MARK_RADIUS, MARK_WIDTH, tint)
 	im.surface_end()
@@ -2869,6 +2922,9 @@ func _draw_kick_aim(im: ImmediateMesh, stick_value: Vector2, use_super: bool,
 ## a marker any smaller than a fighter is a handful of pixels.
 const MARK_RADIUS := 1.15
 const MARK_WIDTH := 0.22
+## Smaller than MARK_RADIUS on purpose: the goal ring is a target and this one
+## is a distance read-out, so they must not read as the same thing.
+const STOP_MARK_RADIUS := 0.8
 
 func _aim_add_ring(im: ImmediateMesh, center: Vector3, radius: float,
 		width: float, color: Color) -> void:
@@ -3225,32 +3281,6 @@ func _release_fire(stick_value: Vector2, use_super: bool, peak: float) -> void:
 	else:
 		_auto_aim_fire(weapon, use_super)
 
-## Where to aim so a shot MEETS a moving target rather than arriving where it
-## used to be. Brawl Stars' tap-to-shoot leads; ours did not, so at range a tap
-## could not hit a strafing enemy at all — the shot was off by roughly twice the
-## target's own width — while bots, which have led since `bot_brain._aim_point`,
-## could. Full lead, because this is the player's aim assist rather than a
-## deliberately sloppy bot. Instant-hit styles (melee, shockwave) have no speed,
-## fall through to a zero flight time, and aim where the target stands.
-func _aim_lead(shooter: Fighter, target: Fighter, weapon: Dictionary) -> Vector3:
-	var speed: float = Kits.aim_speed(weapon,
-			shooter.global_position.distance_to(target.global_position))
-	var flight := 0.0
-	if int(weapon.style) == Kits.Style.JUMP_SMASH:
-		flight = BotBrain.LEAP_FLIGHT      # a leap, not a projectile: fixed airtime
-	elif speed > 0.1:
-		flight = shooter.global_position.distance_to(target.global_position) / speed
-	if flight <= 0.0:
-		return target.global_position
-	var travel := Vector3(target.velocity.x, 0.0, target.velocity.z)
-	var aim := target.global_position + travel * flight
-	# One refinement pass: leading moves the aim point, which changes how long
-	# the shot is airborne, which moves the aim point again.
-	if speed > 0.1:
-		flight = shooter.global_position.distance_to(aim) / speed
-		aim = target.global_position + travel * flight
-	return aim
-
 ## Holding the ball swaps the attack for a kick: dragged, it goes where you
 ## point; tapped, CupMode picks the shot or the pass. Spending the Super here is
 ## the Super Shot — twice as fast and twice as far — so a charged Super while
@@ -3260,7 +3290,7 @@ func _kick_instead(stick_value: Vector2, use_super: bool) -> bool:
 		return false
 	var powerful := use_super and player.is_super_ready()
 	var dir: Vector3 = Vector3(stick_value.x, 0, stick_value.y) \
-			if stick_value.length() >= TAP_THRESHOLD else cup.kick_aim(player, powerful)
+			if stick_value.length() >= TAP_THRESHOLD else cup.kick_aim(player, powerful, false)
 	# Routed through _fire_player rather than straight into cup.kick, because
 	# _fire_player is where "am I a client?" lives — and this, not that, is the
 	# function a tap or a stick release actually reaches. Calling cup.kick here
@@ -3302,9 +3332,26 @@ func _tap_plan(weapon: Dictionary, use_super: bool) -> Dictionary:
 	var target: Node3D = _super_target(weapon) if use_super \
 			else auto_aim_target(player, weapon)
 	if target != null:
-		var aim: Vector3 = _aim_lead(player, target as Fighter, weapon) if target is Fighter \
-				else target.global_position
-		return {"kind": "target", "dir": aim - player.global_position, "target": target}
+		# AIM AT WHERE THEY ARE, NEVER WHERE THEY WILL BE. This used to lead the
+		# target perfectly (main.gd:_aim_lead, now gone), which fixed a fairness
+		# bug — bots led and the player did not — and created a worse design one:
+		# a tap that leads is strictly BETTER than aiming, so drawing a lane with
+		# the stick became the slow way to do what the button did for free.
+		# Brawl Stars' auto-aim fires at the target's current position, which is
+		# exactly why auto-aiming a moving target at range misses and why
+		# drag-aim is the skill. It is also the rule already written down one
+		# screen over, about the aim indicator: a preview that hands you the
+		# target "makes tapping the obvious play, when aiming is meant to be the
+		# thing you get good at". A leading tap was that same lock-on, moved out
+		# of the preview and into the shot.
+		#
+		# What it costs is exactly SHOT_FEEL.md's lead/hit column: a tap misses a
+		# full-speed strafing target by that many body-widths at full range, and
+		# the error is linear in range, so a tap still lands up close. Tap to
+		# brawl, aim to snipe. Bots keep a partial lead (BotBrain.LEAD_MATCH_*);
+		# the honest comparison is bot-lead against player-DRAG, not player-tap.
+		return {"kind": "target", "dir": target.global_position - player.global_position,
+				"target": target}
 	# Downhill is travel as much as damage, so with nobody in reach a tap sets
 	# off down the hill — rotating, or leaving a fight — rather than firing at
 	# the wall in front of you.
@@ -3366,7 +3413,7 @@ func _process(_delta: float) -> void:
 	# Translate only — rotation is fixed at match start. Re-aiming at the
 	# player every frame yaws/rolls the world whenever the camera lags a
 	# strafing player.
-	var target := anchor + CAMERA_OFFSET
+	var target := _cam_target(anchor)
 	cam.global_position = cam.global_position.lerp(target,
 			CAM_PAN if now < _cam_focus_until else CAM_FOLLOW)
 
@@ -3717,8 +3764,8 @@ func _start_from_roster(room_mode: String, roster: Array) -> void:
 	results.visible = false
 	_update_players_label()
 	_show_versus()
-	cam.position = player.position + CAMERA_OFFSET
-	cam.look_at(player.position, Vector3.UP)
+	cam.position = _cam_target(player.position)
+	cam.look_at(_cam_look(player.position), Vector3.UP)
 	for f in fighters:
 		f.reset_physics_interpolation()
 	cam.reset_physics_interpolation()

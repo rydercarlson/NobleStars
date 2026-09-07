@@ -352,12 +352,29 @@ three new kits plus a progression system plus the scale decision each move the
 baseline it measures against. Running it before those land means running it
 twice.
 
-**Speed, camera framing and model scale are one decision, not three items.**
-Every number is already measured — a fighter is 5% of screen width against Brawl
-Stars' 8-10%, zooming in is blocked by the 5.5-tile range cap, and every model is
-half its capsule's width and 1.5x its height. What is missing is a taste call,
-and it should be made once with all three in view. It is in Phase 4 because
-making it before the roster is complete means making it again.
+**~~Speed, camera framing and model scale are one decision, not three items.~~
+ANSWERED 7 Sep 2026 — made together, from play.** The taste call this was
+waiting on got made in one session against a real build, and all three moved:
+`SPEED_NORMAL` to 3.60 m/s (2.77 tiles/s, 1.15x Brawl Stars), `MODEL_SCALE` to
+1.40, and the camera per-mode with Nobles Cup locked horizontally. It was right
+that they are one decision — **exact speed parity read as "slow motion" mostly
+because the models were oversized**, and the two were reported in the same
+breath. What made it decidable ahead of Phase 4, against the note below, was
+that the tile rescale forced the question anyway. See `SHOT_FEEL.md` §10 and
+`done.md`.
+
+**The fourth axis, also settled: the camera became per-mode.**
+`SHOT_FEEL.md` §9.6 measured the Nobles Cup pitch at 15 tiles against a view
+11.5 tiles wide at 16:9 and 14.0 on the phone — **the pitch is wider than the
+screen on every display**, so both touchlines are never visible, where Brawl
+Ball always shows the full width. Fitting it is a 1.31x pull-back, which shrinks
+a fighter from 5% of screen width to 3.8% and drops weapon range from 48% of the
+view to 37%. So it pulls the *same two levers this decision is about*, in the
+opposite direction, for one mode only — which is exactly why it belonged in
+here. **Pulling back was not enough on its own**: the camera also had to lock to
+the pitch centre, because a wider window that still follows the player sideways
+loses a touchline just the same. Stadium stands are still open — the pull-back
+spends its new width on flat green surround plane, and that is now visible.
 
 **Unlocks grow with the roster.** Four fighters have no named unlock today; three
 new ones make seven. Whether they arrive on Trophy Road, through the pass, or

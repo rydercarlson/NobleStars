@@ -7,43 +7,99 @@ class_name Kits
 ## formula there rather than picking it by taste. The tier comment above each kit
 ## is the record of that choice — keep it in sync when you retune.
 
-const TILE := 2.0
+## ONE TILE IS ONE FIGHTER. TILE == 2 * FIGHTER_RADIUS deliberately, which is
+## the single most load-bearing relationship in the project: it makes "tiles"
+## and "body-widths" the same unit, exactly as Brawl Stars does ("A Brawler's
+## hitbox is slightly larger than a single tile of cover"). Every figure they
+## publish — range 8.33, movement 2.40/s, projectile 12.0/s — is denominated in
+## it, so ours can be compared to theirs by reading rather than converting.
+##
+## CHANGING THIS MEANS CHANGING EVERY `X * TILE` IN THE PROJECT, because such a
+## value keeps its number and silently changes its meaning. It also means
+## regenerating the Showdown map (Tools/gen_showdown_map.py, N tracks TILE) and
+## re-authoring the Cup pitch. Move FIGHTER_RADIUS with it or the identity that
+## makes the whole scheme work is quietly gone.
+const TILE := 1.30
 
 ## How far you can see into a bush, and how far a bush field opens up around
 ## you. main.gd:can_see hides anyone standing on a bush tile beyond this, and
 ## arena.gd fades the canopy inside it so the radius is something you can see
 ## rather than something you have to learn.
-const BUSH_REVEAL := TILE * 2.0
+const BUSH_REVEAL := TILE * 3.08
 
-## Fighter width — the unit every "body-width" figure in SHOT_FEEL.md is in.
-## 1.30 m across. The match camera shows 23 m, so that is 17.7 fighters wide
-## against the ~21 brawlers Brawl Stars fits on screen: deliberately chunkier,
-## which is what lets fighters move faster than Brawl Stars without shots
-## becoming impossible to aim. Grow this and every range gets shorter in the
-## units that actually decide whether a shot lands.
+## Fighter width — the unit every "body-width" figure in SHOT_FEEL.md is in,
+## and now also the tile (see TILE above: TILE == 2 * FIGHTER_RADIUS). 1.30 m
+## across. The match camera shows 23 m, so that is 17.7 fighters wide against
+## the ~21 brawlers Brawl Stars fits on screen. Grow this WITHOUT growing TILE
+## and the tile-is-a-fighter identity breaks; grow both and every range gets
+## shorter in the units that actually decide whether a shot lands.
 const FIGHTER_RADIUS := 0.65
-## Models are authored against the old 0.45 capsule; keep them in step with it.
-const MODEL_SCALE := 1.44
+## Visual scale of a kit's GLB. It is VISUAL ONLY — nothing mechanical reads it
+## (fighter.gd:_setup_model is the one runtime consumer), so it cannot change
+## balance.
+##
+## MATCH HEIGHT AGAINST THE GRID, NOT WIDTH AGAINST THE RING. A Brawl Stars
+## brawler stands about 1.5-2 tiles tall; 1.40 puts ours at 2.28 m = 1.75 tiles,
+## mid-band.
+##
+## This was briefly 2.0, chosen so the silhouette filled the hitbox ring
+## (~1.61 m against a 1.61 m ring). **That was wrong and was reported from play
+## as "characters feel utterly massive"**: our models are humanoid at roughly
+## 1:2 width:height against Brawl Stars' 1:1.2 chibi, so sizing on WIDTH blows
+## the height out to 2.5 tiles. Height is what you perceive at a 60-degree
+## camera, and it also drives how fast the game feels, because perceived speed
+## is body-LENGTHS per second — an oversized model reads as slow motion at a
+## movement speed that is numerically correct.
+##
+## Note the grid already did most of the work: the same model went from 1.18
+## tiles tall to 1.85 when TILE shrank, with no scale change at all. Raising it
+## on top of that was multiplying a fix that had already happened.
+##
+## RAISING THIS MEANS RAISING TWO OTHERS or they draw inside the model:
+## fighter_bars.gd HEAD_OFFSET, and the damage popup's y in fighter.gd. Nova is
+## unaffected either way — she is the last capsule kit and her capsule is drawn
+## at FIGHTER_RADIUS, so she stays fighter-sized until todo.md 4.1 gives her a
+## model.
+const MODEL_SCALE := 1.40
+## Height of a rigged model at MODEL_SCALE 1.0, measured off the bone extents by
+## tools/size_probe.gd. Everything that has to clear a fighter's head derives
+## from this, so raising MODEL_SCALE can never again paint the health bars
+## through somebody's face.
+const MODEL_TOP_PER_SCALE := 1.667
+## Where the top of the tallest head is, in metres.
+const MODEL_TOP := MODEL_TOP_PER_SCALE * MODEL_SCALE
 
-# Speed tiers (m/s). Normal is 2.8 tiles/second = 4.31 body-widths/second.
-# THIS IS THE FEEL DIAL — see SHOT_FEEL.md §6.
+# Speed tiers (m/s). THIS IS THE FEEL DIAL — see SHOT_FEEL.md §6.
+#
+# 3.60 m/s is 2.77 tiles/second — 1.15x Brawl Stars' 2.40 median, crossing the
+# visible width in about 7.6 s against their 8.7. It was 5.60 (4.31 tiles/s,
+# 1.8x theirs) until 7 Sep 2026, then briefly 3.12 (exact parity), which came
+# back from play as "genuinely moving in slow motion". Some of that was the
+# oversized models rather than the speed — perceived pace is body-LENGTHS per
+# second, so a model 40% too tall reads as slow at a correct m/s — but not all
+# of it, so this sits slightly above parity on purpose. Judge the two together;
+# they compound.
 #
 # Judge it in body-widths per second, never in m/s: perceived speed tracks
 # body-lengths, so widening the fighter SLOWS the game down at a fixed m/s.
-# The original game was 7.0 m/s on a 0.90 m fighter = 7.78 body-widths/s; this
-# is 55% of that feel, where the raw m/s number alone reads like 80%.
 #
-# Every projectile speed below is a multiple of one of these constants, so
-# raising a tier speeds its shots up with it and aiming difficulty (lead/hit)
-# stays put. What moves is the player's reaction window: dodge = lead/hit x
-# hit_width / move - 0.25s, so going faster has to be paid for with fatter
-# projectiles. Below ~0.15s of window a shot stops reading as a travelling
-# object and reads as hitscan — that was "Hammy beams people".
-const SPEED_VERY_SLOW := 4.48
-const SPEED_SLOW := 5.04
-const SPEED_NORMAL := 5.60
-const SPEED_FAST := 6.16
-const SPEED_VERY_FAST := 6.72
+# TUNE THIS ONE CONSTANT. The other four tiers derive from it, and every
+# projectile speed below is a multiple of one of the five, so raising it speeds
+# shots up with it and aiming difficulty (lead/hit) does not move at all —
+# lead/hit has no move-speed term. What moves is the player's reaction window:
+# dodge = lead/hit x hit_width / move - 0.25s, so going FASTER has to be paid
+# for with fatter projectiles, while going slower is free. Below ~0.15s of
+# window a shot stops reading as a travelling object and reads as hitscan —
+# that was "Hammy beams people".
+#
+# The floor is the run clips, not the feel: fighter.gd scales stride by
+# velocity / RUN_CLIP_SPEED and clamps at 0.35, and SPEED_VERY_SLOW already
+# lands at 2.50 / 7.0 = 0.357. Slow down much past here and feet start skating.
+const SPEED_NORMAL := 3.60
+const SPEED_VERY_SLOW := SPEED_NORMAL * 0.80
+const SPEED_SLOW := SPEED_NORMAL * 0.90
+const SPEED_FAST := SPEED_NORMAL * 1.10
+const SPEED_VERY_FAST := SPEED_NORMAL * 1.20
 
 ## Ground speed the Meshy run clips were tuned against. Stride is scaled
 ## against THIS, not against SPEED_NORMAL — the clips were matched when a
@@ -78,13 +134,27 @@ const HEALTH_PER_CUBE := 550                   # 11% of base health
 const DAMAGE_BONUS_PER_CUBE := 0.10
 const MOVE_SPEED := SPEED_NORMAL               # default; kits override via "move_speed"
 
-# Weapons cap at 5.5 tiles and Supers at 6.0 — past that a fighter is shooting
-# at something off the player's screen. See CHARACTER_BUILDING.md section 4.
-# 5.5 tiles is 11 m = 8.5 body-widths against Brawl Stars' longest at 10.0, so
-# the cap did not need to move once fighters grew — growing them is what pulled
-# every range in, in the units that decide whether a shot lands.
-const MAX_WEAPON_RANGE_TILES := 5.5
-const MAX_SUPER_RANGE_TILES := 6.0
+# THE SNIPER'S CEILING, NOT A TARGET. Most kits should sit a fair bit under
+# these: the longest weapon after Hammy is Leon at 5.3 tiles. See
+# CHARACTER_BUILDING.md section 4 for how the number is derived.
+#
+# The camera shows **5.54 tiles up-screen**, which is the shortest of its four
+# directions and therefore the one that binds — a weapon fires every way. But
+# "nothing may leave the frame" is too strict, and Brawl Stars does not obey it
+# either: their range runs about **1.43x** their own vertical half-view, so a
+# Piper shot up the screen leaves their frame too. 6.5 tiles is 1.17x ours, so
+# even the sniper is more conservative than they are.
+#
+# THE SUPER CAP IS DELIBERATELY GENEROUS, at 1.44x the visible radius. Hammy's
+# is a BANK SHOT — `bounces: 3` — and `range` is total PATH length, not
+# displacement, so a shot that banks off a wall spends its reach on the detour.
+# It is supposed to be able to carom somewhat off screen and come back; that is
+# the trick the Super exists for.
+#
+# Neither constant is read by any code — they are what the NEXT kit gets statted
+# against, so keep them honest.
+const MAX_WEAPON_RANGE_TILES := 6.5
+const MAX_SUPER_RANGE_TILES := 8.0
 
 ## Direct-fire projectiles travel this many times the firer's move speed. Brawl
 ## Stars sits near 4.9; we sit near 3.1 because our fighters move roughly 1.7x
@@ -194,9 +264,13 @@ static func named(kit_name: String) -> Dictionary:
 ## The reference kit: Normal in all four tiers, so her only modifier is A=1.15
 ## for a shotgun that has to close distance to land the full burst. Every other
 ## fighter reads as a deviation from Nova.
-## A=1.00 measured: her pellets now land 69% of the time, up from the 47% that
-## justified 1.15, because the fighter got wider and the pellets got fatter.
-## 1250 × 1.000(R) × 1.00(G) × 1.00(M) × 1.00(S) × 1.00(A) = 1250 → 5 × 250
+## A=1.15 measured (7 Sep 2026, 60 matches): her pellets land 49.8%, back down
+## from the 69% that justified 1.00. The rescale is why — the fighter and the
+## pellets kept their size in metres while the RANGE they cross grew from 4.3
+## tiles to 6.6 of them, so a spread weapon has proportionally further to throw
+## a fan that did not widen. eDPS 799 against the 820 ceiling and 3.5 hits to
+## kill: in band, applied.
+## 1250 × 1.000(R) × 1.00(G) × 1.00(M) × 1.00(S) × 1.15(A) = 1438 → 5 × 288
 static func nova() -> Dictionary:
 	return {
 		"name": "Nova", "color": Color(0.25, 0.75, 0.95),
@@ -210,15 +284,15 @@ static func nova() -> Dictionary:
 		# the default 0.7 standoff — at 0.7 x range only the centre pellet hits.
 		"ideal_range_mult": 0.30,
 		"weapon": {
-			"style": Style.PELLETS, "pellets": 5, "spread_deg": 22.0, "damage": 250,
-			"range": 4.3 * TILE, "speed": SPEED_NORMAL * 3.05, "radius": 0.44,
+			"style": Style.PELLETS, "pellets": 5, "spread_deg": 22.0, "damage": 288,
+			"range": 4.8 * TILE, "speed": SPEED_NORMAL * 3.05, "radius": 0.44,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
 		# 2.4x total, spread over 9 pellets that rarely all connect.
 		"super": {
 			"style": Style.PELLETS, "pellets": 9, "spread_deg": 34.0, "damage": 333,
-			"range": 5.0 * TILE, "speed": SPEED_NORMAL * 3.30, "radius": 0.52,
+			"range": 5.4 * TILE, "speed": SPEED_NORMAL * 3.30, "radius": 0.52,
 			"destroys_walls": true, "knockback": 12.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
@@ -227,9 +301,38 @@ static func nova() -> Dictionary:
 ## Health Low · Speed Slow · Reload Slow · Range Long 5.5
 ## Artillery: the longest weapon range in the game and an AOE that arcs over
 ## walls with no line-of-sight check, paid for with the squishiest slow body.
-## A=1.00 measured (74%), not the 0.85 a lob's AOE implies: the blast only
-## forgives a miss if the shell ARRIVES near the target, and an arc long enough
-## to clear a wall gives the target time to leave. Forgiving was aspirational.
+## A=1.00 measured (74%, and 63% again on 7 Sep 2026 — same band), not the 0.85
+## a lob's AOE implies: the blast only forgives a miss if the shell ARRIVES near
+## the target, and an arc long enough to clear a wall gives the target time to
+## leave. Forgiving was aspirational.
+##
+## **DAMAGE IS HELD AT 1459, DEVIATING FROM THE FORMULA ON PURPOSE.** His range
+## was cut 8.46 -> 4.6 tiles on 7 Sep 2026 (Long -> Medium), and G going 0.85 ->
+## 1.00 would raise him to 1716 — **the formula pays a range cut back in damage,
+## so applying it cancels the nerf.** Measured: he won 26.6% before the cut and
+## 27.3% after it with the compensation applied, on ~65 spawns each. A range cut
+## is not a Tony nerf.
+##
+## The deviation is justified the way CHARACTER_BUILDING section 3 justifies its
+## sanity checks — measurement overrules the band. +4.2 sigma above a 1-in-9
+## baseline across two runs at two different ranges is the strongest evidence
+## available that the formula misprices him, and the misprice is structural:
+## G buys back range in damage at a rate that is simply wrong for a weapon whose
+## AOE means it barely needed the range.
+##
+## **AND IT WORKED: 26.6% -> 9.1% wins, back inside the noise band.** He had
+## measured 26.6% against a 1-in-9 baseline of 11.1%, placing 3.72 where the
+## field averages 5.5 and dealing 20.6k damage per spawn against a roster median
+## near 9k — while measuring a perfectly ordinary 63% delivery, so every input to
+## `damage_per_attack` said he was correctly priced. The range cut alone changed
+## nothing (27.3%); **the cut plus refusing the formula's damage compensation is
+## what moved him.**
+##
+## The mechanism that made him strong generalises, and is worth keeping in mind
+## for the next kit: **a slower game has longer flight times and therefore wider
+## dodge windows, which penalises every kit that needs a direct hit and does
+## nothing at all to an AOE that forgives a near miss.** The roster's spread went
+## 17 -> 25 points across the slowdown and back to 18 after this.
 ## 1250 × 1.222(R) × 0.85(G) × 1.06(M) × 1.06(S) × 1.00(A) = 1459
 static func tony() -> Dictionary:
 	return {
@@ -253,14 +356,14 @@ static func tony() -> Dictionary:
 			# what it covered before the retune. See CHARACTER_BUILDING.md:
 			# "An arcing attack has to be timed against how fast people move."
 			"style": Style.LOB, "pellets": 1, "spread_deg": 0.0, "damage": 1459,
-			"range": 5.5 * TILE, "speed": SPEED_SLOW * 3.00, "radius": 0.42,
+			"range": 4.6 * TILE, "speed": SPEED_SLOW * 3.00, "radius": 0.42,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
-			"aoe": 0.7 * TILE, "water_mult": 1.0,
+			"aoe": 1.08 * TILE, "water_mult": 1.0,
 		},
 		# 1.8x for one reliable piercing hit.
 		"super": {
 			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 2626,
-			"range": 6.0 * TILE, "speed": SPEED_SLOW * 3.90, "radius": 0.56,
+			"range": 5.0 * TILE, "speed": SPEED_SLOW * 3.90, "radius": 0.56,
 			"destroys_walls": true, "knockback": 10.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
@@ -320,7 +423,7 @@ static func sanjit() -> Dictionary:
 		"reload": RELOAD_VERY_FAST,
 		"weapon": {
 			"style": Style.MELEE, "pellets": 2, "spread_deg": 70.0, "damage": 440,
-			"range": 1.4 * TILE, "speed": 0.0, "radius": 0.0,
+			"range": 2.15 * TILE, "speed": 0.0, "radius": 0.0,
 			# metres carried forward per strike; see the note above.
 			"lunge": 0.8,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
@@ -329,7 +432,7 @@ static func sanjit() -> Dictionary:
 		# 2.4x total split across the two passes -> 1.2x per pass.
 		"super": {
 			"style": Style.BOOMERANG, "pellets": 1, "spread_deg": 0.0, "damage": 1056,
-			"range": 5.0 * TILE, "speed": SPEED_VERY_FAST * 2.85, "radius": 0.64,
+			"range": 5.4 * TILE, "speed": SPEED_VERY_FAST * 2.85, "radius": 0.64,
 			"destroys_walls": false, "knockback": 4.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
@@ -353,7 +456,7 @@ static func henry() -> Dictionary:
 		"reload": RELOAD_SLOW,
 		"weapon": {
 			"style": Style.MELEE, "pellets": 1, "spread_deg": 110.0, "damage": 1620,
-			"range": 1.5 * TILE, "speed": 0.0, "radius": 0.0,
+			"range": 2.3 * TILE, "speed": 0.0, "radius": 0.0,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 		},
@@ -362,7 +465,7 @@ static func henry() -> Dictionary:
 		# a bigger base number here would one-shot most of the roster.
 		"super": {
 			"style": Style.DASH, "pellets": 1, "spread_deg": 0.0, "damage": 2270,
-			"range": 3.4 * TILE, "speed": SPEED_SLOW * 3.20, "radius": 0.0,
+			"range": 5.2 * TILE, "speed": SPEED_SLOW * 3.20, "radius": 0.0,
 			"destroys_walls": false, "knockback": 9.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 2.0,
 		},
@@ -391,16 +494,16 @@ static func kovacs() -> Dictionary:
 		"reload": RELOAD_NORMAL,
 		"weapon": {
 			"style": Style.SHOCKWAVE, "pellets": 1, "spread_deg": 78.0, "damage": 1200,
-			"range": 2.4 * TILE, "speed": 0.0, "radius": 0.0,
+			"range": 3.7 * TILE, "speed": 0.0, "radius": 0.0,
 			"destroys_walls": false, "knockback": 4.0, "pierces": true,
 			"aoe": 0.0, "water_mult": 1.0, "delay": 0.23,
 		},
 		# 1.4x: the leap is a gap-closer and an escape on top of the damage.
 		"super": {
 			"style": Style.JUMP_SMASH, "pellets": 1, "spread_deg": 360.0, "damage": 1680,
-			"range": 3.6 * TILE, "speed": 0.0, "radius": 0.0,
+			"range": 5.5 * TILE, "speed": 0.0, "radius": 0.0,
 			"destroys_walls": false, "knockback": 10.0, "pierces": true,
-			"aoe": 2.15 * TILE, "water_mult": 1.0,
+			"aoe": 3.3 * TILE, "water_mult": 1.0,
 		},
 	}
 
@@ -415,6 +518,12 @@ static func kovacs() -> Dictionary:
 ## A=1.15 measured: his buttons land 50% of the time now, up from the 39% that
 ## justified 1.40. Still Demanding — six small projectiles thrown 9.6 m — but no
 ## longer the outlier tier. He was the strongest kit in the roster at 1.40.
+##
+## HELD at 1.15 on 7 Sep 2026 against a fresh measurement of 37.3%, which bands
+## back to 1.40. THE SANITY CHECK REFUSES IT: 1.40 puts his eDPS at 877 against
+## the 820 ceiling, and CHARACTER_BUILDING section 3 says the check overrules
+## the band. Same refusal Ayaan already carries, and for the same reason — the
+## honest lever for a kit the formula cannot price is a TIER, not the formula.
 ## 1250 × 0.778(R) × 0.85(G) × 1.00(M) × 1.06(S) × 1.15(A) = 1008 → 6 × 168
 static func leon() -> Dictionary:
 	# Clip timing: both casts are long wind-ups, so they seek straight to their
@@ -438,7 +547,7 @@ static func leon() -> Dictionary:
 			# full 9.6 m range they land 0.53 m off centre and still connect with
 			# a 2.02 m hittable width. At 10 deg they missed past about 8 m.
 			"style": Style.BUTTONS, "pellets": 6, "spread_deg": 7.0, "damage": 168,
-			"range": 4.8 * TILE, "speed": SPEED_NORMAL * 3.20, "radius": 0.46,
+			"range": 5.3 * TILE, "speed": SPEED_NORMAL * 3.20, "radius": 0.46,
 			"destroys_walls": false, "knockback": 1.5, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 			# A tight cone of six is Colt's stream, not Shelly's shotgun blast:
@@ -453,9 +562,9 @@ static func leon() -> Dictionary:
 		# it cannot attack, and the silence lifts a beat after they step off.
 		"super": {
 			"style": Style.DISCONNECT, "pellets": 1, "spread_deg": 360.0, "damage": 1411,
-			"range": 4.8 * TILE, "speed": SPEED_NORMAL * 2.10, "radius": 0.66,
+			"range": 5.4 * TILE, "speed": SPEED_NORMAL * 2.10, "radius": 0.66,
 			"destroys_walls": false, "knockback": 5.0, "pierces": false,
-			"aoe": 1.7 * TILE, "water_mult": 1.0, "disconnect_seconds": 2.4,
+			"aoe": 2.62 * TILE, "water_mult": 1.0, "disconnect_seconds": 2.4,
 			"zone_seconds": 4.0,
 		},
 	}
@@ -521,10 +630,10 @@ static func anders() -> Dictionary:
 			# right. Exactly the same rule as Tony's shell — an arcing attack is
 			# timed against movement, not against reaction time.
 			"style": Style.KEEP_IT_UP, "pellets": 1, "spread_deg": 0.0, "damage": 900,
-			"range": 3.5 * TILE, "speed": SPEED_NORMAL * 3.00, "radius": 0.44,
+			"range": 4.8 * TILE, "speed": SPEED_NORMAL * 3.00, "radius": 0.44,
 			"model": "res://assets/hacky_sack.glb",   # the thrown sack's look; hits still resolve by `radius`
 			"destroys_walls": false, "knockback": 3.0, "pierces": false,
-			"aoe": 0.95 * TILE, "water_mult": 1.0,
+			"aoe": 1.46 * TILE, "water_mult": 1.0,
 			# The kick blasts the ground Anders kicks from, at `kick_damage_mult`
 			# of whatever the rally is worth. This is where his burst lives now:
 			# the landings alone gave him a third of the roster's burst DPS
@@ -539,7 +648,7 @@ static func anders() -> Dictionary:
 			# pay for it therefore just made him worse: 8.6% -> 6.0%. It earns
 			# its keep by punishing someone who closed on him, and his burst
 			# has to come from somewhere else.
-			"kick_aoe": 1.2 * TILE, "kick_damage_mult": 0.45,
+			"kick_aoe": 1.85 * TILE, "kick_damage_mult": 0.45,
 		},
 		# The escape is the utility, so 1.4x rather than 1.8x. `range` is how far
 		# he leaps. The spike arcs down onto the ground he vacated and blasts
@@ -549,20 +658,57 @@ static func anders() -> Dictionary:
 		"super": {
 			# spread_deg 360 so the blast ring draws as a full circle.
 			"style": Style.POP_OFF, "pellets": 1, "spread_deg": 360.0, "damage": 1800,
-			"range": 2.8 * TILE, "speed": SPEED_NORMAL * 2.80, "radius": 0.48,
+			"range": 4.3 * TILE, "speed": SPEED_NORMAL * 2.80, "radius": 0.48,
 			"destroys_walls": false, "knockback": 14.0, "pierces": true,
-			"aoe": 1.7 * TILE, "water_mult": 1.0,
+			"aoe": 2.62 * TILE, "water_mult": 1.0,
 		},
 	}
 
-## Health Very Low · Speed Normal · Reload Slow · Range Long 5.5
+## Health Very Low · Speed Normal · Reload Slow · Range Long 6.5
 ## Sniper: one big basketball at the screen-range cap. Consecutive fighter hits
 ## light him On Fire.
+##
+## **Longest reach in the game and the thinnest shot, set from play 7 Sep 2026.**
+## Range 5.5 -> 6.5 tiles, speed 3.60 -> 3.90x his move, radius 0.62 -> 0.50:
+## further and faster, narrowed to pay for both. He out-ranges the next kit
+## (Leon, 5.3) by more than a body-width, which is the whole of what a sniper is
+## for. The shot-feel numbers IMPROVED rather than degraded — dodge window
+## 0.30 -> 0.35 s, and lead/hit 0.78 -> 0.94, moving up from just BELOW the 0.80
+## band into the middle of it. The projectile is 0.77 body-widths against a
+## Brawl Stars median of 1.0, which is right for a sniper; Piper's shot is thin.
+##
+## His Super went 6.0 -> 8.0 tiles for a different reason: it BANKS. `range` is
+## total path length rather than displacement, so every bounce spends reach on
+## the detour, and it is meant to be able to carom somewhat off screen and come
+## back. That is the trick the Super exists for.
+##
+## **`NS3_SIM` reads him near zero and that is the sim's fault, not his** — see
+## the piloting note in CHARACTER_BUILDING section 7. A bot never kites, holds an
+## angle or breaks line of sight, which is this kit's entire job, so it scores
+## him worst in the roster while he is comfortable to win with in a human's
+## hands. Re-derive his A from `hits/atk` as usual; do NOT read his win rate.
 ##
 ## A=0.85 measured (83%), and U goes back to 1.00 to pay for it. A and U are
 ## both discounts, and 0.85(G) × 0.85(A) × 0.85(U) = 0.61 is exactly the
 ## stacked-discount trap CHARACTER_BUILDING.md records Anders falling into at
 ## 2.7% wins. The sim is the proof that doc asks for: 3.8% over 240 matches.
+##
+## **A=1.00 as of 7 Sep 2026, and the ARTIFACT CHECK is what decided it.** His
+## delivery dropped in the rescale, but by how much depended on the time scale:
+## 58% at `NS3_SIM_SPEED=10` (bands to 1.15) against **68% at 2x** (bands to
+## 1.00). He carries the fastest projectile in the roster, which is exactly the
+## kit a 10x sim mis-measures — fewer physics ticks per metre — so the 2x
+## reading is the honest one. CHARACTER_BUILDING section 3 asks for that re-run
+## precisely to tell "the kit misses" from "the sim never saw the hit"; this is
+## the first time it has changed an answer.
+##
+## Taking 1.15 would also have been refused anyway: it puts him at 2.99 hits to
+## kill against a floor of 3. 1.00 passes both checks — eDPS 661, 3.4 hits to
+## kill — and raises him 1236 -> 1454, which is the right direction for the
+## worst kit in the roster (1.6% wins over 60 matches). It is NOT the whole fix:
+## SHOT_FEEL.md has recorded since §7 that his problem is uptime, and the lever
+## is his health tier, which is a character decision rather than a formula one.
+## 1250 × 1.222(R) × 0.85(G) × 1.00(M) × 1.12(S) × 1.00(A) × 1.00(U) = 1454
 ##
 ## Note what this does NOT fix. His delivery is fine — 83%, the second-best in
 ## the roster. He loses because he gets 5.1 attacks a life on 3500 health, so
@@ -596,8 +742,8 @@ static func hammy() -> Dictionary:
 			# Brawl Stars gives its snipers the quick end too. Even so the shot
 			# is airborne 0.55s at full range, which leaves 0.30s of reaction
 			# after a human's 0.25s: he aims now instead of beaming.
-			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1236,
-			"range": 5.5 * TILE, "speed": SPEED_NORMAL * 3.60, "radius": 0.62,
+			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1454,
+			"range": 6.5 * TILE, "speed": SPEED_NORMAL * 3.90, "radius": 0.50,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0, "heat_trait": true,
 			"projectile_color": Color(1.0, 0.34, 0.04),
@@ -606,7 +752,7 @@ static func hammy() -> Dictionary:
 		# adds 25%, so three clean banks ramp 1600 -> 3125 before the fire damage.
 		"super": {
 			"style": Style.PELLETS, "pellets": 1, "spread_deg": 0.0, "damage": 1580,
-			"range": 6.0 * TILE, "speed": SPEED_NORMAL * 3.30, "radius": 0.70,
+			"range": 8.0 * TILE, "speed": SPEED_NORMAL * 3.30, "radius": 0.70,
 			"destroys_walls": false, "knockback": 5.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0, "bounces": 3,
 			"bounce_damage_mult": 1.25, "bounce_speed_mult": 1.08,
@@ -687,7 +833,7 @@ static func ayaan() -> Dictionary:
 			# the dodge window is 0.26s (floor 0.22) and lead/hit is 1.41 (band
 			# tops at 1.45).
 			"style": Style.SLALOM, "pellets": 2, "spread_deg": 0.0, "damage": 676,
-			"range": 4.5 * TILE, "speed": SPEED_FAST * 3.05, "radius": 0.46,
+			"range": 5.0 * TILE, "speed": SPEED_FAST * 3.05, "radius": 0.46,
 			"destroys_walls": false, "knockback": 0.0, "pierces": false,
 			"aoe": 0.0, "water_mult": 1.0,
 			# RANGE IS A BAND and `range` is only its top: the shot ends where it
@@ -695,15 +841,15 @@ static func ayaan() -> Dictionary:
 			# picks the shape it flies to get there. The tier stays Medium
 			# because the band straddles it, and because the setting that beats
 			# cover — the wide single arc — is the LONG one.
-			"range_min": 2.8 * TILE,
+			"range_min": 3.3 * TILE,
 			# The two ends of that shape. A long shot draws one gentle 27-degree
 			# arc, bowing ~1.4 m off the line: wide enough to pass either side of
 			# a body and rejoin on it. A short shot swerves 58 degrees and crosses
-			# three times inside 2.8 tiles — dense, hard to slip, and it never
+			# three times inside 4.3 tiles — dense, hard to slip, and it never
 			# gets anywhere. Steeper than 58 and the series in
 			# `curve_axial_factor` stops being honest.
 			"curve_min_deg": 27.0, "curve_max_deg": 58.0,
-			# Half-waves at the braided end. Three crossings in 2.8 tiles is a
+			# Half-waves at the braided end. Three crossings in 4.3 tiles is a
 			# braid; more and it stops reading as two objects.
 			"waves_max": 3,
 			"projectile_color": Color(0.85, 0.95, 1.0),
@@ -728,9 +874,9 @@ static func ayaan() -> Dictionary:
 		# toward 3 to make it a commitment.
 		"super": {
 			"style": Style.DOWNHILL, "pellets": 1, "spread_deg": 360.0, "damage": 1893,
-			"range": 5.5 * TILE, "speed": SPEED_FAST * 1.90, "radius": 0.0,
+			"range": 5.8 * TILE, "speed": SPEED_FAST * 1.90, "radius": 0.0,
 			"destroys_walls": false, "knockback": 11.0, "pierces": false,
-			"aoe": 1.6 * TILE, "water_mult": 1.0,
+			"aoe": 2.46 * TILE, "water_mult": 1.0,
 			"duration": 2.0, "turn_rate": 4.0,
 			"slow_seconds": 1.5, "slow_factor": 0.6,
 		},

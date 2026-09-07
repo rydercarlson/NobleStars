@@ -72,8 +72,10 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 		# ("Very Fast"); the raw figures are what a stat column reads, where a
 		# word in a table of numerals breaks the column and says less — 3.4 m/s
 		# against 2.8 m/s is a comparison, "Very Fast" against "Fast" is not.
-		# Range is in TILES because that is the unit the balance work is done in
-		# (CHARACTER_BUILDING.md's on-screen cap is 5.5 tiles).
+		# Range is in TILES because that is the unit the balance work is done
+		# in — and since Kits.TILE == 2 * FIGHTER_RADIUS, a tile is a fighter,
+		# so the number on the card is directly comparable to Brawl Stars'
+		# published ranges. (CHARACTER_BUILDING.md's on-screen cap is 8.5.)
 		"stats": {
 			"health": int(kit.get("max_health", Kits.HEALTH_NORMAL)),
 			"damage": int(weapon.get("damage", 0)),
@@ -245,12 +247,12 @@ static func reload_label(v: float) -> String:
 ## Range tiers as CHARACTER_BUILDING.md names them, from metres.
 static func range_label(metres: float) -> String:
 	var tiles: float = metres / Kits.TILE
-	if tiles < 2.0:
+	if tiles < 3.08:
 		return "Very Short"
-	if tiles < 3.0:
+	if tiles < 4.62:
 		return "Short"
-	if tiles < 4.8:
+	if tiles < 7.38:
 		return "Medium"
-	if tiles <= 5.5:
+	if tiles <= 8.5:
 		return "Long"
 	return "Very Long"

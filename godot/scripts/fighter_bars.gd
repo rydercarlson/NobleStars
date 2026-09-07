@@ -17,12 +17,16 @@ const HEAT_GAP := 3.0
 # than metres: HEAD_OFFSET is where the head IS, and this is the gap you see.
 const HEAD_CLEAR := 7.0
 # The stack hangs UP from this point, so the anchor only has to clear the top of
-# the tallest head (2.40 m at Kits.MODEL_SCALE) and nothing below it can ever
+# the tallest head (Kits.MODEL_TOP) and nothing below it can ever
 # reach the face. It used to hang DOWN from 3.4 m, which meant the clearance had
 # to be re-earned every time a row was added — and by the time the bar, the gap,
 # the ammo pips and Hammy's heat pips were all stacked it was being painted
 # across the model. Growing upward makes a new row free.
-const HEAD_OFFSET := Vector3(0, 2.75, 0)
+# DERIVED from Kits.MODEL_SCALE, so it can never fall out of step again. It was
+# a hand-set 2.75 tuned against a 2.40 m head; raising MODEL_SCALE without
+# raising it paints the whole stack through the model's face, and lowering
+# MODEL_SCALE without lowering it leaves the bars floating in the sky.
+const HEAD_OFFSET: Vector3 = Vector3(0, Kits.MODEL_TOP + 0.35, 0)
 
 # Who you are fighting. display_name is a real username now (main.gd's
 # next_bot_name), so this is the fourth place it prints, alongside the versus

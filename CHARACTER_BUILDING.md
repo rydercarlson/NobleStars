@@ -19,7 +19,7 @@ These are the same for everyone and live in `kits.gd`:
 | `BASE_MAX_HEALTH` | **5000** | Default fighter health. Damage is balanced against this. |
 | `MAX_AMMO` | 3.0 | Default ammo pips; a kit can override with `ammo`. |
 | `AMMO_RECHARGE_SECONDS` | 1.8 | The *Normal* reload tier; per-kit `reload` overrides it. |
-| `MOVE_SPEED` | 5.6 m/s | The *Normal* speed tier; per-kit `move_speed` overrides it. |
+| `MOVE_SPEED` | 3.60 m/s | The *Normal* speed tier; per-kit `move_speed` overrides it. The other four tiers DERIVE from it. |
 | `FIGHTER_RADIUS` | 0.65 m | Fighter is 1.30 m wide. The unit ranges actually matter in — see SHOT_FEEL.md. |
 | `PROJECTILE_SPEED_RATIO` | 3.1 | Direct-fire shot speed as a multiple of the firer's move speed. |
 | `ATTACK_COOLDOWN_RATIO` | 0.22 | Minimum gap between attacks, as a fraction of the reload. |
@@ -56,7 +56,8 @@ comment above the kit** so the intent survives later tuning.
 | Fast | 6.16 | 1.10× |
 | Very Fast | 6.72 | 1.20× |
 
-5.6 m/s is 2.8 tiles/second, or 4.31 fighter-widths/second. **Always judge
+3.60 m/s is 2.77 tiles/second — and since `Kits.TILE == 2 * FIGHTER_RADIUS`,
+that is also 2.77 fighter-widths/second, against Brawl Stars' 2.40. **Always judge
 speed in fighter-widths, not m/s** — perceived speed tracks body-lengths, so
 widening the fighter slows the game down at a fixed m/s. The spread from
 Very Slow to Very Fast is 50% — big enough that speed alone decides who picks
@@ -103,21 +104,39 @@ course-correct mid-fight. Pick it for feel.
 
 In tiles. The hard limit is the screen — see §4.
 
-| Tier | Tiles | Meters | Fighter-widths |
+**One tile is one fighter.** `Kits.TILE == 2 * Kits.FIGHTER_RADIUS`, so the
+tiles column and the fighter-widths column are the same number and Brawl Stars'
+published ranges can be compared to ours by reading them.
+
+| Tier | Tiles = fighter-widths | Meters | Brawl Stars |
 |---|---|---|---|
-| Very Short (melee) | 1.2 – 1.5 | 2.4 – 3.0 | 1.8 – 2.3 |
-| Short | 2.2 – 2.8 | 4.4 – 5.6 | 3.4 – 4.3 |
-| **Medium** | **3.5 – 4.3** | 7.0 – 8.6 | 5.4 – 6.6 |
-| Long | 4.8 – 5.5 | 9.6 – 11.0 | 7.4 – 8.5 |
+| Very Short (melee) | 1.8 – 2.3 | 2.3 – 3.0 | 2.0 – 3.0 |
+| Short | 3.0 – 4.0 | 3.9 – 5.2 | 4.0 – 5.3 |
+| **Medium** | **4.5 – 5.0** | 5.9 – 6.5 | 6.0 – 8.0 |
+| Long | 5.2 – 6.5 | 6.8 – 8.5 | 8.7 – 10.0 |
+
+**Only the sniper belongs at the top of Long.** Hammy sits at 6.5; the next
+longest kit is Leon at 5.3, and that gap is deliberate — out-ranging the roster
+is the whole of what a sniper is.
+
+**Only the tiers that EXCEEDED the visible radius came down.** The first pass at
+this cut every range by the same factor, melee included, and the sim caught it
+inside one run: Sanjit fell 11.3% → 2.9% and Henry 10.0% → 3.1%, because a
+1.4-body-width reach means a melee kit has to be nearly overlapping to land a
+swing. Melee was never a visibility problem — it is already deep inside the
+frame — so V.Short and Short are **unchanged**. Cap what pokes out; leave the
+rest alone.
 
 There is deliberately **no "Very Long" tier.** 5.5 tiles is the edge of the
 screen; past that a fighter is shooting at something the player cannot see.
 
-**Read the fighter-widths column, not the tiles.** Range only means anything
-relative to how big the target is, and the fighter is 1.30 m wide. These tiers
-were pulled in at the short end and the fighter was widened by 44%, which
-between them took the roster from reaching *past* Brawl Stars' longest range to
-sitting just inside it.
+**We reach materially shorter than Brawl Stars at every tier, and that is
+forced, not chosen.** Our camera simply shows less ground than theirs — 5.5
+tiles up-screen against the ~7-8 a Brawl Stars brawler can see — so their range
+band does not fit our frame. Adopting their numbers was tried on 7 Sep 2026 and
+came straight back from play: at an 8.5-tile cap a shot fired up the screen
+lands about three tiles past the top of the frame. **If you want their ranges,
+the lever is the camera, not the tiers.**
 
 ---
 
@@ -222,23 +241,42 @@ visibility up-screen and slightly less down-screen:
 
 | Direction | Visible from the player |
 |---|---|
-| Left / right | 11.5 m = **5.7 tiles** = 8.8 fighter-widths |
-| Up-screen / down-screen | 7.7 m / 7.2 m = **3.9 / 3.6 tiles** |
+| Left / right | 11.5 m = **8.8 tiles** (= 8.8 fighter-widths) |
+| Up-screen / down-screen | 7.7 m / 7.2 m = **5.9 / 5.5 tiles** |
 
-The full screen width is 23 m = **17.7 fighter-widths**. Brawl Stars fits about
-21 brawler-widths across, so our fighters read a little chunkier than theirs —
-which is deliberate, and is what lets them move faster than Brawl Stars without
-shots becoming impossible to aim (SHOT_FEEL.md §6).
+The full screen width is 23 m = **17.7 tiles**, and since a tile is a fighter
+that is 17.7 fighter-widths. Brawl Stars fits about 21 brawler-widths across,
+so we show slightly less of the field than they do — which is why our range
+tiers sit slightly short of theirs at every step (§2).
 
 The ground is foreshortened by the camera pitch, and perspective makes the
 up-screen half longer than the down-screen half. So:
 
-- **Weapons cap at 5.5 tiles.** That fills the wide axis and nothing more.
-- **Supers may reach 6.5 tiles**, but only when the projectile visibly travels
-  out of frame, so the player understands what happened. This is the exception,
-  not the standard.
-- Anything above 6.5 tiles is a bug, not a design choice. A fighter aiming at
-  an enemy that has never been on screen is not playing the game.
+- **Weapons cap at 6.5 tiles** (`Kits.MAX_WEAPON_RANGE_TILES`) — **the sniper's
+  ceiling, not a target.** Most kits should sit a fair bit under it; the longest
+  after Hammy is Leon at 5.3.
+- **Supers may reach 8.0 tiles** (`Kits.MAX_SUPER_RANGE_TILES`), deliberately
+  generous because `range` is total PATH length. A bouncing Super spends its
+  reach on the detour, and Hammy's bank shot is *supposed* to carom somewhat off
+  screen and come back.
+
+**THE CAP IS SET BY THE SHORTEST VISIBLE DIRECTION, NOT THE WIDE AXIS.** This
+section used to reason from the 8.8 tiles visible sideways, which is wrong: a
+weapon fires in every direction, and up-screen you can only see **5.54 tiles**.
+An 8.5-tile cap put a shot three tiles past the top of the frame.
+
+**But "nothing may leave the frame" is too strict, and Brawl Stars does not obey
+it either.** Their range runs about **1.43×** their own vertical half-view — a
+Piper shot up the screen leaves their frame too. Measured against that, 6.5
+tiles is **1.17×** ours, so even our sniper is more conservative than they are.
+The 8.0-tile Super cap is 1.44×, i.e. exactly their relationship, and only a
+bank shot should use it.
+
+The honest form of the rule is symmetric and about incoming fire: **you should
+not be hit by someone you cannot see.**
+
+Note neither cap is read by any code: they are what the next kit gets statted
+against, so they have to be kept honest by hand.
 
 ---
 
@@ -280,18 +318,70 @@ Nine fighters, all rebalanced to this framework.
 
 | Fighter | Role | Health | Speed | Reload | Range | hit rate | A | U | eDPS | Damage / attack |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **Nova** | Shotgunner | Normal 5000 | Normal 5.6 | Normal 1.8 | Medium 4.3 | 69% | 1.00 | — | 694 | 1250 (5 × 250) |
-| **Tony** | Artillery | Low 4250 | Slow 5.04 | Slow 2.2 | Long 5.5 | 74% | 1.00 | — | 663 | 1459 |
-| **Henry** | Heavyweight | High 5750 | Slow 5.04 | Slow 2.2 | V.Short 1.5 | 93%† | 0.85 | — | 736 | 1620 |
-| **Sanjit** | Assassin | Normal 5000 | V.Fast 6.72 | V.Fast 1.0 | V.Short 1.4 | 62%† | 1.15 | — | 879 | 880 (2 × 440) |
-| **Kovacs** | Tank | V.High 6500 | V.Slow 4.48 | Normal 1.8 | Short 2.4 | 90%† | 0.85 | — | 667 | 1200 |
-| **Leon** | Controller | Low 4250 | Normal 5.6 | Fast 1.4 | Long 4.8 | 50% | 1.15 | — | 720 | 1008 (6 × 168) |
-| **Anders** | Skirmisher | High 5750 | Normal 5.6 | Fast 1.4 | Short 2.8 | — | n/a | — | n/a (1 pip) | 1100 / 1375 / 1650 rally |
-| **Hammy** | Sniper | V.Low 3500 | Normal 5.6 | Slow 2.2 | Long 5.5 | 83% | 0.85 | 1.00 | 562 | 1236 |
-| **Ayaan** | Carver | Normal 5000 | Fast 6.16 | Normal 1.8 | Medium 2.8–4.5‡ | 41%‡ | 1.15 | — | 751 | 1352 (2 × 676) |
+Re-measured 7 Sep 2026 over 60 matches, after the rescale (`SHOT_FEEL.md` §10).
+**Ranges are in tiles, and a tile is now a fighter**, so the range column is
+also body-widths. Speeds are the new tiers.
+
+| Fighter | Role | Health | Speed | Reload | Range | hit rate | A | U | eDPS | Damage / attack |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Nova** | Shotgunner | Normal 5000 | Normal 3.60 | Normal 1.8 | Medium 4.8 | 49.8% | 1.15 | — | 799 | 1438 (5 × 288) |
+| **Tony** | Artillery | Low 4250 | Slow 3.24 | Slow 2.2 | Medium 4.6 | 63% | 1.00✱ | — | 663 | 1459 |
+| **Henry** | Heavyweight | High 5750 | Slow 3.24 | Slow 2.2 | V.Short 2.3 | 65%† | 0.85 | — | 735 | 1620 |
+| **Sanjit** | Assassin | Normal 5000 | V.Fast 4.32 | V.Fast 1.0 | V.Short 2.15 | 50%† | 1.15 | — | 880 | 880 (2 × 440) |
+| **Kovacs** | Tank | V.High 6500 | V.Slow 2.88 | Normal 1.8 | Short 3.7 | 67%† | 0.85 | — | 669 | 1200 |
+| **Leon** | Controller | Low 4250 | Normal 3.60 | Fast 1.4 | Long 5.3 | 37.3%✗ | 1.15 | — | 720 | 1008 (6 × 168) |
+| **Anders** | Skirmisher | High 5750 | Normal 3.60 | Normal 1.8 | Medium 4.8 | 64% | n/a | — | n/a (1 pip) | 900 + rally ramp |
+| **Hammy** | Sniper | V.Low 3500 | Normal 3.60 | Slow 2.2 | **Long 6.5** | 68%◆ | 1.00 | 1.00 | 661 | 1454 |
+| **Ayaan** | Carver | Normal 5000 | Fast 3.96 | Normal 1.8 | Medium 3.3–5.0‡ | 38%✗ | 1.15 | — | 751 | 1352 (2 × 676) |
+
+✱ **Tony's damage is HELD below what the formula asks**, and it is the one
+deliberate deviation in the roster. Cutting his range Long → Medium should raise
+him to 1716 (`G` 0.85 → 1.00), and applying that compensation left him winning
+27.3% — the formula pays a range cut back in damage at a rate that is simply
+wrong for a weapon whose AOE meant it barely needed the range. Held at 1459 he
+sits at 9.1%, inside the noise band. Measurement overrules the band.
+
+✗ **the band and the sanity check disagree, and the check wins.** Leon measures
+1.40 (eDPS would be 877 against the 820 ceiling) and Ayaan 1.40 (eDPS 914). Both
+are HELD, and each carries the refusal in its `kits.gd` comment.
+
+◆ **measured at `NS3_SIM_SPEED=2`, not 10.** Hammy reads 58% at 10x and 68% at
+2x, because he carries the fastest projectile in the roster and a 10x sim gives
+it fewer physics ticks per metre. **This is the first time the §3 artifact re-run
+has changed an answer** — 7 of 9 kits band identically at both speeds, and the
+two that do not (Hammy, and instant-hit Kovacs) are exactly the ones the physics
+predicts. Trust the 2x reading for anything fast or instant. **Do not quietly pick a friendlier
+band to get around one** — when the check refuses, the honest lever is a tier.
 
 † melee — A is held by judgement, not derived, because the sim inflates melee
-hit rates (see §3). Hit rates are from a 240-match `NS3_SIM` on the 39×39 map.
+hit rates (see §3).
+
+**THE SIM MIS-RATES BOTH ENDS OF THE RANGE BAND, AND IN OPPOSITE DIRECTIONS.**
+The melee caveat above is only half of it. Hammy read 1.6% wins and 0 wins in 69
+spawns across two 60-match runs — the worst kit in the roster by a distance, and
+`todo.md` briefly carried an item saying so. **From play he is easy to win with,
+and that reading is the one that counts.** The cause is the same as the melee
+one: bot piloting. A bot walks a melee kit straight into contact, which
+*inflates* melee; a bot never kites, holds an angle, or breaks line of sight,
+which is the entire job of a sniper, so it *deflates* Hammy. Neither number is
+about the weapon.
+
+So: **treat `NS3_SIM` win rates as evidence about kits a bot can pilot, and
+check the extremes against a human.** Delivery (`hits/atk`) survives the
+translation far better than win rate does, which is why `A` is banded off it and
+not off wins.
+
+**The formula has a blind spot, and Tony is standing in it.** He measures an
+ordinary 63% delivery, so every input says he is priced correctly — and he wins
+**26.6% of his spawns against a 1-in-9 baseline of 11.1%**, places 3.72 against
+a field average of 5.5, and deals 20.6k damage per spawn against a roster median
+near 9k. The cause is not in `damage_per_attack` at all: **a slower game has
+longer flight times and so wider dodge windows, which penalises every kit that
+needs a DIRECT hit and does nothing to an AOE that forgives a near miss.** The
+roster's win spread went 17 → 25 points across the 7 Sep slowdown, and the
+movers fit that story — Tony 14.7 → 26.6 while Henry, who must close to melee,
+fell 18.5 → 10.0. **Anything that changes flight times should be followed by a
+roster-wide sim, not just a per-kit `A` re-derivation.** See `todo.md` 7.3.
 
 ‡ **Ayaan's range is a band, not a number, and it is set by the aim.** The shot
 ends where it was pointed, anywhere from 2.8 to 4.5 tiles, and the distance

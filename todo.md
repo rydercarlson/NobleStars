@@ -40,7 +40,7 @@ they are not urgent, and `Voicelines` is the extreme case.
 |---|---|---|---|---|---|
 | 1.3 | Menu text is half the readable size | Phone fit | P0 | M | a type-scale redesign |
 | 1.5 | Loading title sits under the Dynamic Island | Phone fit | P1 | S | what the splash handoff should do |
-| 2.1 | Speed / camera / model scale — one decision | Feel | P1 | M | a taste call |
+| 2.4 | Walls are shorter than the fighters | Feel | P2 | XS | — |
 | 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | — |
 | 4.1 | Nova is still a capsule | Characters | P1 | M | Meshy pass |
 | 5.1 | The menu's second look | Menu | P2 | M | — |
@@ -133,36 +133,29 @@ What is left is the half that is a design decision rather than a bug.
 
 # 2. The one scale decision
 
-- [ ] **2.1 — Movement speed, camera framing and model scale are a single
-      decision. Do not tune one alone.** `P1` `M`
-      Three separate complaints that are one ratio: how big a fighter is, how
-      much map is on screen, and how far a fighter crosses per second. The
-      numbers are all measured already, so this is a taste call and a retune, not
-      an investigation.
-      - **The camera is 105.5 m out at 60° behind a 7° vertical FOV** = 22.9 x
-        12.9 m at 16:9, or 55.8 px/m on a 1280 frame. Henry renders about
-        **65 x 85 px, 5% of screen width**, against roughly 8-10% for a Brawl
-        Stars brawler. The complaint is real.
-      - **Zooming in is blocked by the range cap.** The vertical half-span is
-        6.45 m against a weapon range cap of 5.5 tiles = 11 m, so a target at max
-        range up or down the screen is already 4.5 m off-camera. Any zoom makes
-        you shoot at what you cannot see — a balance change wearing a camera
-        change's clothes. **The camera on its own has nothing left to give.**
-      - **The lever is `Kits.MODEL_SCALE` (1.44), or the range cap itself.**
-      - **And the models do not match their capsules.** `tools/size_probe.gd`
-        measures each rig from its *bone* extents (a skinned mesh's own AABB is
-        authored in bind space and comes back at ~0.02 m, i.e. meaningless).
-        Against a capsule 1.30 m wide and 1.60 m tall:
-
-            tony    w 0.82  d 0.41  h 2.34      leon    w 0.52  d 0.32  h 2.39
-            henry   w 0.50  d 0.31  h 2.29      anders  w 0.46  d 0.31  h 2.38
-            sanjit  w 0.64  d 0.41  h 2.38      hammy   w 0.46  d 0.29  h 2.40
-            kovacs  w 0.61  d 0.30  h 2.40
-
-        Every model is roughly **half** the capsule's width and **1.5x** its
-        height. Widening the models puts them over 3 m tall; narrowing the
-        capsules makes everyone half as easy to hit. That is a balance change,
-        which is why it belongs in this decision and not beside it.
+- [ ] **2.4 — Walls are shorter than the fighters standing behind them.**
+      `P2` `XS`
+      `Arena.WALL_HEIGHT` is 1.5 m; models are 2.33 m tall at `MODEL_SCALE`
+      1.40. Cover comes up to a fighter's chest, so it reads as a hurdle while
+      mechanically blocking line of sight completely (the LOS ray is at y = 1).
+      Brawl Stars keeps cover and brawlers about the same height.
+      **Re-measured after the 7 Sep rescale**: a wall is now 1.5 m tall on a
+      1.30 m tile, so it is already taller than it is wide — more Brawl
+      Stars-like than it was — and the gap to a fighter narrowed from 0.9 m to
+      0.83 m because the models came down too. Still worth doing, but it is
+      smaller than it looked, and it should be judged against
+      `Arena.TILE_COLLISION_SHRINK`: collision is inset 25% inside the drawn
+      box, so a taller wall also makes that overlap more visible.
+      CLAUDE.md already settles the risk — wall height is **purely visual**,
+      because `Lob` has no collision, `begin_leap` sweeps terrain itself, and
+      both the LOS ray and every projectile sit at y = 1 inside a 1.5 m box —
+      so this is one constant and a screenshot. Shoot it with
+      `Godot --path godot --script res://tools/render_map.gd`,
+      `NS3_MAP_KIND=game`, **not `--headless`**. Judge three things in the shot:
+      does a raised wall hide the fighter behind it (the point), does it hide
+      the one in front of it (the cost), and does Cup's goal frame still read as
+      taller than the wall behind it. Was `SHOT_FEEL.md` §7 "Still open"; now
+      §9.3.
 
 ---
 
@@ -407,16 +400,6 @@ What is left is the half that is a design decision rather than a bug.
         the cost of cover and flanking is time spent walking instead of shooting.
       - Sanity check the `hits/atk` column against each kit's projectile count.
         Anything near zero is a delivery bug, not a balance finding.
-
-- [ ] **7.2 — Sanjit's range feels too long.** `P2` `S`
-      `kits.gd:305` — the melee reaches 1.4 tiles (2.8 m) and the boomerang Super
-      5.0. **Measure which one the complaint is about** with `NS3_KIT=sanjit`
-      before touching the tier tables: `CHARACTER_BUILDING.md` derives damage from
-      range, so a range change is a damage change.
-
----
-
-# 8. Multiplayer
 
 - [ ] **8.2 — Clients do not predict their own attacks.** `P2` `M`
       The next thing anyone will feel after the prediction work. A client's shot
