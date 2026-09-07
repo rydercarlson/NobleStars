@@ -65,7 +65,6 @@ func _build() -> void:
 			deal_grid.add_child(_deal_card(item))
 		column.add_child(block[0])
 	column.add_child(MenuUI.gap(40, true))
-
 # MARK: power levels
 
 ## One card per owned fighter: their face, what level they are, and what the
@@ -210,8 +209,13 @@ func _treat_block() -> Control:
 			return
 		SaveGame.save()
 		menu.refresh_currencies()
-		open_dawg_treat(menu)
-		_reopen())
+		# _reopen() FIRST. It calls push_screen, which hides `_stack[-1]` —
+		# and with the popup opened first, `_stack[-1]` IS the popup, so the
+		# treat was hidden on the frame it opened and the reward, which is
+		# only granted when the slab is tapped, never landed. 1,000 coins for
+		# nothing. `season_screen.gd:_claim` has always done it in this order.
+		_reopen()
+		open_dawg_treat(menu))
 	copy.add_child(buy)
 
 	var odds := MenuUI.vbox(8)
@@ -344,8 +348,9 @@ func _take(item: Dictionary, free: bool, currency: String, price: int,
 		SaveGame.save()
 		menu.refresh_currencies()
 		sfx("reward")
-		open_dawg_treat(menu)
+		# Same order as the OPEN button above: reopen, then raise the treat.
 		_reopen()
+		open_dawg_treat(menu)
 		return
 	SaveGame.grant(kind, amount)
 	SaveGame.save()

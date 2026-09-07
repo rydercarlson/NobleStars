@@ -120,7 +120,11 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 		"style": _style_name(kit.get("super", {})),
 	}
 	if out.unlock_hint == "" and not starting_brawlers().has(id):
-		out.unlock_hint = "Found in Brawler Drops"
+		# "Brawler Drops" is a currency this game does not have — the container
+		# is a Dawg Treat, which is what the four hand-written hints in
+		# brawlers.json say and what the Shop sells. It read as two names for
+		# one thing on the roster's own first-run screen.
+		out.unlock_hint = "Found in Dawg Treats"
 	return out
 
 static func _style_name(weapon: Dictionary) -> String:

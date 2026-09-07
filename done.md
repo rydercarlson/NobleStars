@@ -16,6 +16,57 @@ Newest work is roughly at the top of each section.
 
 ---
 
+## Reviewing someone else's pass (7 Sep 2026)
+
+- [x] **Pressed every button on the four screens Jackson had just rebuilt, and
+      found the Shop takes 1,000 coins for nothing** (7 Sep 2026). The roster,
+      Shop, Events and Season passes are good work — five screens, zero script
+      errors, layouts that hold at 1920x1080 and at phone width (1561x720 ->
+      2017 stage px) — and every defect found was on a *press path*, because the
+      screens had been judged as pictures. That is the transferable lesson:
+      **a menu screenshot proves a screen builds, and nothing else.**
+      - **The Dawg Treat popup was hidden on the frame it opened.**
+        `shop_screen.gd` called `open_dawg_treat(menu)` and then `_reopen()`,
+        and `_reopen()` goes through `push_screen`, which hides `_stack[-1]` —
+        which by then IS the popup. The reward is only granted when the slab is
+        tapped, and a hidden Control gets no input, so buying a Treat deducted
+        1,000 coins, saved, and gave back a plain Shop page. Swapped the two
+        lines at both call sites to match `season_screen.gd:_claim`, which has
+        always had the order right. **Verified by probing the live path** for
+        the popup's own `visible` flag — `popup=true visible=false` before,
+        `visible=true` after, plus a screenshot of the Treat actually on screen.
+        Writing a throwaway probe into `_build` was worth it precisely because
+        this is the class of bug a screenshot cannot see.
+      - **Three fighters advertised a currency the game does not have.**
+        `menu_data.gd`'s fallback `unlock_hint` was `"Found in Brawler Drops"`;
+        the container is a Dawg Treat, which is what the four hand-written hints
+        and the whole Shop call it. Tony, Leon and Sanjit got the fallback, so
+        the first-run roster showed two names for one thing.
+      - **That copy fix silently fixed a layout bug too, and the layout bug is
+        still there.** `"Found in Dawg Treats"` fits on one line where
+        `"Found in Brawler Drops"` wrapped to two, and a wrapped hint makes
+        `_footer` taller than its `1 - ART_FRAC` share, which the art panel
+        above then absorbs — so tiles in one row had different art heights and
+        names on three baselines. It looks fixed and is not; recorded as
+        `todo 5.9` rather than papered over, with the same bug named in
+        `modes_screen.gd:_planned_card`.
+      - **Left alone deliberately, on Ryder's call** (`todo 5.8`): the DEALS
+        block sells a gadget for 1,000 coins and a skin for 79 gems that
+        `SaveGame.grant()` has no case for, its "RESETS IN" clock counts down to
+        a reset no code performs, power level has no cap, and
+        `SaveGame.dawg_treats` is written and never read. All four are the
+        economy being half-wired rather than broken, and wiring it is `5.4`.
+        **Fixing them now would have invented a design decision** that belongs
+        to whoever answers what a power level and a gadget actually do.
+      - **A doc claim was corrected in three files.** The pass recorded
+        "Roster, Shop and Events hold the system's own 26 floor"; grepping the
+        sizes rather than reading the diff says two SHARED helpers still print
+        under it on all three — `MenuUI.block()`'s rule text at 22 and
+        `MenuScreen.topbar`'s sub at 24. Neither is in a screen file, which is
+        how a per-screen pass came out cleaner than the build. Also struck
+        `todo 5.7`'s claim that Shop draws skin art: `_skin_card` went with the
+        storefront half of Shop, so `MenuData.skin_art` has zero callers.
+
 ## The rescale (7 Sep 2026) — one tile is one fighter
 
 - [x] **`Kits.TILE` 2.0 m -> 1.30 m, so a tile is exactly a fighter.** Brawl

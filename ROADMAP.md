@@ -122,7 +122,10 @@ are all rebuilt — see `done.md`). What the count says: 11 pt is **30.2 stage
 px** and the utility tier's own ceiling is 30, so **all 39 sized utility labels
 in the menu are under the floor** — the top of the tier by 1%, the bottom by a
 third. Roster, Shop and Events were brought up to the tier's own 26 floor at no
-cost. **Season is the one that proves this is a redesign.** Its page does not
+cost — *in their own screen files.* Re-counted 7 Sep: two SHARED helpers still
+sit under it and appear on all three, `MenuUI.block()`'s rule text at 22 and
+`MenuScreen.topbar`'s sub at 24, so "conformed" is per-file rather than per-pixel
+and the grep, not the diff, is what settles it. **Season is the one that proves this is a redesign.** Its page does not
 scroll, its three blocks must total 816 stage px, and those heights were already
 solved with the padding and head type cut to fit — so raising its Pass grid to
 30 means showing **fewer tiers at once**, which is a decision about what the

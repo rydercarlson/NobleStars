@@ -47,6 +47,8 @@ they are not urgent, and `Voicelines` is the extreme case.
 | 5.3 | Jackson's menu idea — layout built, previews and a phone look left | Menu | P2 | M | — |
 | 5.4 | A real progression system | Progression | P2 | L | what a level changes |
 | 5.5 | Four fighters have no named unlock | Progression | P2 | XS | a content call |
+| 5.8 | Shop DEALS charges for things that do not exist | Menu | P2 | S | 5.4 |
+| 5.9 | A roster tile's footer resizes the art above it | Menu | P2 | XS | — |
 | 6.1 | A third game mode | Modes | P2 | L | which mode |
 | 7.1 | The balance pass | Balance | P2 | M | — |
 | 7.2 | Sanjit's range feels too long | Balance | P2 | S | — |
@@ -109,6 +111,14 @@ What is left is the half that is a design decision rather than a bug.
         hold "LEGENDARY" at 26 until the copy beside them gave up 80 px).
         Screens that do not: **season** (10 labels) and **home** (7), plus five
         in the shell and popups.
+      - **Those three are conformed per FILE, not per pixel.** Re-counted the
+        same day by grepping sizes rather than reading the diff: two shared
+        helpers still sit under 26 and print on all three screens —
+        `MenuUI.block()`'s rule text at **22** (every Shop block head) and
+        `MenuScreen.topbar`'s sub at **24** (Roster's "9 OF 9"). Neither lives in
+        a screen file, which is why a per-screen pass missed them. Raising the
+        two is free; it is listed here rather than done because it is one line
+        each in Jackson's design system and belongs with the rest of 1.3.
       - **Season is the case that proves this is a redesign, not a multiply.**
         Its page does not scroll: header + Trophy Road + Nobles Pass + gaps have
         to total 816 stage px, and every one of those heights was solved against
@@ -375,12 +385,55 @@ What is left is the half that is a design decision rather than a bug.
 
 - [ ] **5.7 — Menu art the JSON describes and nothing draws.** `P3` `M`
       All of it is pipeline 2 or 3 in **Reference** — no illustrator needed.
-      The two skins that *have* art now draw it (`shop_screen.gd:_skin_card` →
-      `MenuData.skin_art`, resolved from an explicit `art` key on s1/s2). Still
+      - ~~The two skins that have art now draw it (`shop_screen.gd:_skin_card` →
+        `MenuData.skin_art`)~~ — **struck 7 Sep 2026: no skin is drawn anywhere
+        any more.** `_skin_card` went with the storefront half of Shop in the
+        7 Sep relayout, so `MenuData.skin_art` and `has_skin_art` now have zero
+        callers. Whether skins come back at all is tied to `5.4` and **D3**;
+        until then this item is about the badges and pins below, not skins.
+      Still
       undrawn: the three skins with no art; the gadget/gear/Star Power/Hypercharge
       **badges** (names display, art does not); **pins** (`brawlers.json` carries
       a count and there is no pin art at all); player avatars for the profile
       popup; map thumbnails; the club badge.
+
+- [ ] **5.8 — Shop's DEALS block takes money for things that do not exist.**
+      `P2` `S` *Found 7 Sep 2026 by pressing the buttons rather than shooting
+      the screen. Deliberately left unfixed — Ryder's call, on the grounds that
+      the economy is half-wired rather than broken, and wiring it is `5.4`.*
+      - **Two deals grant nothing.** `SaveGame.grant()` has cases for
+        coins / gems / star_points / power_points / bling / dawg_treat only.
+        game.json's daily `d5` is `kind: gadget` at 1,000 coins and `d6` is
+        `kind: skin` at 79 gems; both clear `_affordable_deals`' currency
+        filter, neither carries an `amount`, and `_take` hands both straight to
+        `grant()`, which falls through the match statement in silence. You pay,
+        the card flips to TAKEN, nothing arrives. Either teach `grant` about
+        them (needs 5.4 to say what a gadget *is*) or drop the two items.
+      - **"RESETS IN 5H 45M" is a countdown to nothing.** `shop:<id>` appears
+        three times in the whole codebase — the read, the write, and the lookup.
+        No path ever clears a shop claim, so a deal is TAKEN for the life of the
+        save under a clock saying otherwise. `_reset_time()` is a wall clock,
+        not a schedule.
+      - **Power level has no ceiling.** `SaveGame.set_brawler_power` clamps only
+        at the bottom, and the cost is a flat `200 * power`, so tapping UPGRADE
+        buys Power 40. Brawl Stars caps at 11. Tied to 5.4, which is where a
+        level starts meaning something.
+      - **`SaveGame.dawg_treats` is written and never read.** `grant()`
+        increments it and no screen shows it, so a "2 DAWG TREATS" road reward
+        banks two into a counter that does not exist *and* opens two popups.
+
+- [ ] **5.9 — A roster tile's footer resizes the art above it.** `P2` `XS`
+      *Jackson's lane; found 7 Sep, not touched.* `roster_screen.gd:_footer`
+      centres a column whose height depends on how many lines the unlock hint
+      wraps to, and that height beats its `1 - ART_FRAC` share — so the coloured
+      art panel absorbs the difference and tiles in one row end up different
+      heights with their names on three different baselines. It is invisible
+      today only because shortening `"Found in Brawler Drops"` to
+      `"Found in Dawg Treats"` happens to fit every current hint on one line;
+      the next two-line hint brings it straight back. The fix is a fixed footer
+      height (or a capped hint line count), not a tweak to `ART_FRAC`.
+      **`modes_screen.gd:_planned_card` has the identical bug** — KNOCKOUT's
+      title sits higher than its four neighbours because its subtitle wraps.
 
 ---
 
