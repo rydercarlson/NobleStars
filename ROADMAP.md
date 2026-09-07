@@ -458,6 +458,14 @@ name its own. **No stray rules** — spacing separates blocks, and the only
 lines left are content (a threshold that turns gold, the rows of the record).
 **The utility type went up to 26–30 stage px**, which is `todo 1.3`. Not used
 from the pack: any face it invents.
+**Rewards are pictures of themselves** (the 7 Sep Season mockup, the third pass
+and the one that reaches the pushed screens). Season's Trophy Road and Nobles
+Pass are cards in the same material — a glyph, the amount under it, and a state
+line that is a tick, a padlock or the word CLAIM — on a drawn track whose dots
+light as far as you have got, with the Pass as a Free/Premium grid ringed at the
+tier you are on. Setting a reward as a word was the earlier rule and it was
+wrong about what a rail is scanned for: which KIND, not how much. Shop is the
+last screen still wearing the overhaul's layout at a larger size.
 
 **D7 is the one that is easy to answer wrongly by not answering.** Voicelines
 need nine real people to physically show up, and that is a scheduling problem

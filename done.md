@@ -693,6 +693,75 @@ Newest work is roughly at the top of each section.
 
 ## Menu
 
+- [x] **Season rebuilt to the mockup: reward cards, a drawn track, and a Pass
+      grid** (7 Sep 2026). Jackson sent a mockup of the Season page and asked
+      for its format. Three changes, and the third is the one that cost the
+      time:
+      - **A reward is a picture of itself.** The rails set every reward as
+        words, on the reasoning that a word reads faster down a rail than a
+        108px illustration and ships no file. That reasoning was wrong about
+        what is being scanned for: not *how much*, but *which kind*, which a
+        glyph answers first and a word answers second. Twenty columns of
+        display type is also just a wall of text. The word stays under the
+        glyph as the amount. Four glyphs were drawn to fill the set
+        (`svg/dawg_treat.svg` — the bone — plus `crown`, `ticket`, `pin`); a
+        fighter, skin or pin shows the roster's own portrait render in a tile
+        of the kit's colour, so a reward is never a second illustration of
+        somebody the roster already draws.
+      - **The track is drawn.** A row of thresholds with nothing between them
+        is a list of numbers; the line with a dot per milestone, lit as far as
+        you have got and dark after, is what makes it a road. One of the few
+        places a line IS the content — which is what `MenuUI.rule()` survived
+        the 6 Sep no-rules pass for. Each track cell draws its own half-spans
+        and its dot with anchored `ColorRect`s, so the line is continuous
+        across adjacent columns and needs no custom `_draw`.
+      - **The heights have to add up, and estimating them does not work.**
+        Nothing on this screen scrolls vertically, so the header, the two
+        blocks and the gaps between them have to fit 816 stage pixels between
+        the top bar and `MenuUI.NAV_H`. Every hand-computed budget came out
+        short, and the reason is type metrics: Anton's line box is ~1.64x its
+        font size and Barlow's ~1.2x, so a "24px" name is 39 tall and a "20px"
+        gold CLAIM button, with `MenuUI.button`'s 16px content margin, cannot
+        be shorter than 65 — half a tile. Three things came out of that:
+        - **A claimable card is the button.** Nesting a CLAIM button in the
+          card made every claimable column ~20px taller than its neighbours
+          and pushed the rail out of its block. `_reward_card` returns a
+          `Button` in that state and a `PanelContainer` otherwise, the state
+          line reads CLAIM in gold, and the whole tile is the tap target —
+          which is the bigger target on a phone anyway, and is what the mockup
+          draws.
+        - **`MenuUI.button` takes a `pad` now**, for the one chip that still
+          has to be small (UPGRADE in the premium lane head). Default 16, so
+          every existing caller is unchanged.
+        - **Measure it, do not add it up.** `print(get_global_rect())` for the
+          two blocks and the nav bar settled in one run what four rounds of
+          arithmetic had got wrong. A `Control` whose minimum exceeds its
+          anchors silently grows its parent — `body` was 1136 tall inside a
+          1080 stage — so the overflow is invisible until something lands
+          under the nav.
+      - Smaller things that were wrong and are worth not redoing: a
+        `ScrollContainer` gives its child the full height on the disabled axis
+        **only if the child carries `SIZE_EXPAND`**, so the Pass rail laid out
+        forty tiers correctly inside a zero-width box and drew nothing; and a
+        `PanelContainer`'s stylebox content margin is added to its child's
+        width, so a 3px ring around the current tier made every column
+        `TIER_W + 6` and walked the scroll-to-tier offset off by a column and
+        a half.
+      - On a stage taller than 16:9 the blocks and the cards take the slack
+        (`_grow`) rather than leaving a band of nothing above the nav.
+        Verified at 1920x1080, 1920x1200 and 1560x720, in both the
+        pass-bought and pass-not-bought states, with `NS3_MENU_PROGRESS`.
+
+- [x] **`NS3_MENU_PROGRESS` seeds progress for a harness run** (7 Sep 2026).
+      A fresh save has nothing reached and nothing claimed, so a screenshot of
+      Season or Shop only ever showed the locked state — and claimed,
+      claimable and current-tier are most of what those screens are.
+      `NS3_MENU_PROGRESS=trophies:2000,tier:11,tokens:300,premium:1,claimed:1`
+      sets the `SaveGame` statics in memory and **never calls `save()`**, so
+      the machine's own progress is untouched. `claimed:1` backfills every
+      milestone and tier already passed, which is what puts the three states
+      side by side.
+
 - [x] **The stage covers a 16:10 display** (6 Sep 2026). In fullscreen on the
       MacBook the menu came up "cropped weirdly": `_fit_stage` kept the stage
       1080 tall on any display, so on a 16:10 screen the picture was a 16:9

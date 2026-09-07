@@ -677,6 +677,9 @@ func _currency_target(kind: String) -> Control:
 func _wire_debug_screenshot() -> void:
 	var start: String = OS.get_environment("NS3_MENU_SCREEN")
 	var detail: String = OS.get_environment("NS3_MENU_DETAIL")
+	var progress: String = OS.get_environment("NS3_MENU_PROGRESS")
+	if progress != "":
+		_seed_progress(progress)
 	if detail != "":
 		select_brawler(detail.to_lower(), false)
 	if start != "" and start != "lobby" and start != "home":
@@ -699,3 +702,43 @@ func _wire_debug_screenshot() -> void:
 		get_viewport().get_texture().get_image().save_png(out)
 		print("NS3_MENU_SHOT wrote ", ProjectSettings.globalize_path(out))
 		get_tree().quit())
+
+## NS3_MENU_PROGRESS=trophies:2000,tier:11,tokens:300,premium:1,claimed:1 seeds
+## progress IN MEMORY for a harness run. A fresh save has nothing reached and
+## nothing claimed, so a screenshot of Season only ever showed its locked state
+## — and the claimed, claimable and current-tier states are most of what that
+## screen is. Nothing here writes the save, so the player's own progress on this
+## machine is untouched.
+func _seed_progress(spec: String) -> void:
+	var backfill := false
+	for pair in spec.split(",", false):
+		var bits: PackedStringArray = pair.split(":")
+		if bits.size() < 2:
+			continue
+		var value: String = bits[1].strip_edges()
+		match bits[0].strip_edges():
+			"trophies":
+				SaveGame.trophies[SaveGame.selected_kit] = int(value)
+			"tier":
+				SaveGame.pass_tier = int(value)
+			"tokens":
+				SaveGame.pass_tokens = int(value)
+			"premium":
+				SaveGame.pass_premium = value != "0"
+			"claimed":
+				backfill = value != "0"
+	if not backfill:
+		return
+	# Everything already passed counts as banked, so the rails show the three
+	# states side by side the way they do on a save with hours on it.
+	var total: int = SaveGame.total_trophies()
+	for entry in MenuData.trophy_road():
+		var goal: int = int(entry.get("trophies", 0))
+		if total >= goal:
+			SaveGame.claim("road:%d" % goal)
+	for tier in MenuData.game.get("passRewards", []):
+		var number: int = int(tier.get("tier", 1))
+		if number < SaveGame.pass_tier:
+			SaveGame.claim("pass:%d:free" % number)
+			if SaveGame.pass_premium:
+				SaveGame.claim("pass:%d:premium" % number)

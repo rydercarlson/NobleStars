@@ -1,7 +1,7 @@
 # Noble Stars — TODO
 
 Open work on the Godot 3D game (`godot/`). **Finished work moved to
-[`done.md`](done.md)** — 49 entries recording what was measured, what was tried
+[`done.md`](done.md)** — 65 entries recording what was measured, what was tried
 and rejected, and why things are the shape they are. Read it before reopening
 anything here; several items on this list have a rejected first attempt on
 record.
@@ -319,9 +319,11 @@ What is left is the half that is a design decision rather than a bug.
         colour; a kit's `stage` key takes a real one whenever there is one.
       - The ability-preview buttons under the two cards on home (the previews
         themselves are content).
-      - The pushed screens got the new chrome and type but not a second look at
-        their own layouts — Season's two rails and Shop's lists in particular
-        are still the overhaul's, only bigger.
+      - Season was rebuilt to its own mockup on 7 Sep (reward glyphs, a drawn
+        trophy track, the Free/Premium grid — see done.md). **Shop's lists are
+        the last screen still wearing the overhaul's layout at a larger size**,
+        and its Dawg Treat block is the obvious candidate for the same
+        treatment: a treat is a picture of itself too.
       - Shoot it on the phone (`Tools/device_shot.sh`) — everything above was
         judged on the desktop stage at 1920x1080 and 2017 px of chrome width
         was not seen.

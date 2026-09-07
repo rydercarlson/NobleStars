@@ -313,8 +313,12 @@ static func section(text: String, color: Color = TEXT_DIM) -> VBoxContainer:
 
 ## Flat block, square, no bevel. Press sinks it 2px and dims it; that is the
 ## whole feedback, and it is the same on every button in the menu.
+## `pad` is the box's content margin, and it is what sets a button's MINIMUM
+## height — the display face's line box is 1.64x its size, so a 20px CLAIM at
+## the default padding cannot be smaller than 65 tall no matter what min_size
+## says. Pass a smaller one for a chip inside a card; 16 is the standard key.
 static func button(text: String, variant: String = "green", size: int = 34,
-		min_size: Vector2 = Vector2.ZERO) -> Button:
+		min_size: Vector2 = Vector2.ZERO, pad: int = 16) -> Button:
 	var b := Button.new()
 	b.text = text.to_upper()
 	b.custom_minimum_size = min_size
@@ -327,9 +331,9 @@ static func button(text: String, variant: String = "green", size: int = 34,
 	var fill: Color = fill_for(variant)
 	var border: Color = RULE_HI if variant in ["navy", "card", "dark", "ink"] else Color(0, 0, 0, 0)
 	for state in ["normal", "focus", "disabled"]:
-		b.add_theme_stylebox_override(state, _keyed(flat_box(fill, border, 16), fill))
-	b.add_theme_stylebox_override("hover", _keyed(flat_box(fill.lerp(TEXT, 0.10), border, 16), fill))
-	b.add_theme_stylebox_override("pressed", flat_box(fill.lerp(INK, 0.28), border, 16))
+		b.add_theme_stylebox_override(state, _keyed(flat_box(fill, border, pad), fill))
+	b.add_theme_stylebox_override("hover", _keyed(flat_box(fill.lerp(TEXT, 0.10), border, pad), fill))
+	b.add_theme_stylebox_override("pressed", flat_box(fill.lerp(INK, 0.28), border, pad))
 	press_feedback(b)
 	return b
 
