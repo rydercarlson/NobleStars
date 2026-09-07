@@ -105,16 +105,29 @@ filling the display and only the chrome inset**.
 
 **The menu's type scale is the one thing left, and it moved from Ryder's column
 to a real decision on Jackson's system.** It is now measured rather than
-guessed: the utility tier renders at **6.2-8.0 pt** on the handset against
-Apple's 11 pt floor for body text, roughly half. Clearing the floor needs about
+guessed: the utility tier rendered at **6.2-8.0 pt** on the handset against
+Apple's 11 pt floor for body text, roughly half. It has since moved to 26-30
+stage px, which is **9.5-10.9 pt** — under the floor everywhere, rather than at
+half of it. Clearing the floor needs about
 30 stage px, which lands on the bottom of the display tier at 44 — so this is
 **a redesign of the deliberate hole in the scale, not a multiply**, and it is
 exactly the change CLAUDE.md's **Menu** section warns will flatten the design if
 done blind. The match HUD's half of the same item was fixed alongside 1.1, since
 its labels sit at 12-39 pt with no such doctrine attached.
 
-**Jackson's onboarding is now the critical-path item in this phase**, because
-1.3 is his call and nothing in Phase 2 starts before **D1** either.
+**1.3 is the only thing left in this phase, and as of 7 Sep it is a decision
+with numbers under it rather than an open question.** Onboarding is done, D1 is
+answered, and Phase 2 ran a long way on it (Season, the roster, Shop and Events
+are all rebuilt — see `done.md`). What the count says: 11 pt is **30.2 stage
+px** and the utility tier's own ceiling is 30, so **all 39 sized utility labels
+in the menu are under the floor** — the top of the tier by 1%, the bottom by a
+third. Roster, Shop and Events were brought up to the tier's own 26 floor at no
+cost. **Season is the one that proves this is a redesign.** Its page does not
+scroll, its three blocks must total 816 stage px, and those heights were already
+solved with the padding and head type cut to fit — so raising its Pass grid to
+30 means showing **fewer tiers at once**, which is a decision about what the
+Pass is for. That decision is Jackson's, and it is the last thing between this
+project and a clean Phase 0.
 
 **Jackson's onboarding, specifically.** Clone, then `Tools/godot.sh --path godot
 --headless --import` once (a fresh clone must import before the project will
