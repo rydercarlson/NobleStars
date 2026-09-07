@@ -781,6 +781,29 @@ Newest work is roughly at the top of each section.
         minimum width of zero, so a name column that does not expand gets only
         what "POWER 1" needs and KOVACS comes out "KOVAC".
 
+- [x] **Events got the icons it already had, and a button you can see**
+      (7 Sep 2026). Two bugs and a relayout:
+      - **The SELECT button was invisible.** It was built `"navy"`, and
+        `MenuUI.fill_for` resolves that to `PANEL` — the fill of the card it
+        sits on — so on the one mode you had not already picked, the action was
+        a word floating in the dark with a hairline somewhere behind it. It is
+        `"grey"` now, and it is the same size and position as PLAY on the other
+        card, because they are the same control in two states.
+      - **Every mode names an `icon` in game.json and nothing drew them.**
+        `bulldog`, `gem`, `coin`, `power_point`, `star_drop` were all already
+        in the art; only the Cup's `brawl_ball` was missing, so `svg/ball.svg`
+        was drawn for it. First pass at that glyph had a pentagon and seams
+        heavy enough to read as a spider at 66px — the second is a smaller
+        centre panel and five short seams.
+      - A hairline rule was still separating each card's blurb from its head,
+        which the 6 Sep no-rules pass had removed everywhere else, and a glyph
+        beside the map name was tried and dropped: there is no map icon in the
+        set and `stage_ring` at 22px is a smudge. Gold already says "this is
+        the place".
+      - The five unbuilt modes were dim rows with a 7px colour block each;
+        they are small dim cards now, so the section reads as a plan rather
+        than as a list of things that do not work.
+
 - [x] **Seven dead helpers left the design system** (7 Sep 2026, `todo 5.1`).
       `plate_colors` was the one the todo asked about — "either it earns its
       place or it goes" — and the answer was that the overhaul had already
