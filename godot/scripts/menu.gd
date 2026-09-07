@@ -727,6 +727,13 @@ func _seed_progress(spec: String) -> void:
 				SaveGame.pass_premium = value != "0"
 			"claimed":
 				backfill = value != "0"
+			"starters":
+				# Back to a first-run roster, so the locked tiles and their
+				# unlock hints can be shot from a save with developer mode on.
+				if value != "0":
+					SaveGame.unlocked.clear()
+					for id in MenuData.starting_brawlers():
+						SaveGame.unlock(str(id))
 	if not backfill:
 		return
 	# Everything already passed counts as banked, so the rails show the three

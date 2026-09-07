@@ -198,7 +198,7 @@ should not block each other.*
 | ~~**Jackson**~~ | ~~Write the redesign idea down~~ — done 6 Sep | — | **D1** answered |
 | **Jackson** | Build it — the five-zone layout is in; the rest of `todo 5.1` remains | M | `todo 5.1`, `todo 5.3` |
 | **Jackson** | The party surface — the menu half | L | **D10** |
-| **Jackson** | Roster as tiles, not rows | S | `todo 5.2` |
+| ~~**Jackson**~~ | ~~Roster as tiles, not rows~~ — **done** 7 Sep, portrait tiles on kit-colour grounds | S | — |
 | **Jackson** | Map select and map thumbnails | M | pipeline 2 |
 | **Jackson** | Wire or delete the dead JSON | M | `todo 5.6` |
 | **Jackson** | Draw the art the JSON already describes | M | `todo 5.7`, pipeline 3 |

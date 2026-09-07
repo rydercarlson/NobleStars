@@ -1,7 +1,7 @@
 # Noble Stars — TODO
 
 Open work on the Godot 3D game (`godot/`). **Finished work moved to
-[`done.md`](done.md)** — 65 entries recording what was measured, what was tried
+[`done.md`](done.md)** — 66 entries recording what was measured, what was tried
 and rejected, and why things are the shape they are. Read it before reopening
 anything here; several items on this list have a rejected first attempt on
 record.
@@ -44,7 +44,6 @@ they are not urgent, and `Voicelines` is the extreme case.
 | 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | — |
 | 4.1 | Nova is still a capsule | Characters | P1 | M | Meshy pass |
 | 5.1 | The menu's second look | Menu | P2 | M | — |
-| 5.2 | The roster should be tiles, not rows | Menu | P2 | S | — |
 | 5.3 | Jackson's menu idea — layout built, previews and a phone look left | Menu | P2 | M | — |
 | 5.4 | A real progression system | Progression | P2 | L | what a level changes |
 | 5.5 | Four fighters have no named unlock | Progression | P2 | XS | a content call |
@@ -301,11 +300,6 @@ What is left is the half that is a design decision rather than a bug.
         overhaul replaced. Either it earns its place or it goes.
       - The stage fighter is the only moving thing on Home. Whether the flank
         columns want any motion at all is a real question, not an obvious yes.
-
-- [ ] **5.2 — The roster should be tiles, not rows.** `P2` `S`
-      `roster_screen.gd` is a plain picker of rows. Ryder wants character tiles.
-      Cheap now that Home is the detail screen and the roster only has to select
-      and return.
 
 - [ ] **5.3 — Redesign the menu around Jackson's idea.** `P2` `M`
       *The idea is written down (ROADMAP **D1**, 6 Sep 2026) and the layout is

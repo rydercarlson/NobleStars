@@ -752,6 +752,38 @@ Newest work is roughly at the top of each section.
         Verified at 1920x1080, 1920x1200 and 1560x720, in both the
         pass-bought and pass-not-bought states, with `NS3_MENU_PROGRESS`.
 
+- [x] **5.2 — The roster is a wall of faces, not a table** (7 Sep 2026).
+      Ryder wanted tiles; the screen was nine numbered rows. The argument the
+      table was built on is worth recording because it was *true* and still
+      wrong: nine rows fit one screen with no scrolling and put trophies and
+      power in columns you can compare down, which a grid cannot do. Neither
+      fact is why anyone opens this screen. **You do not pick a fighter by
+      comparing trophy counts** — you pick the one you want to play, and you
+      recognise them by face. The table made the two figures the loudest thing
+      on a screen whose entire job is recognition, and it set nine names in the
+      display face while nine portrait renders sat unused in
+      `assets/menu/portraits/`. The numbers are still there, small, in each
+      tile's footer, which is the weight they deserve.
+      - One tile each: the portrait on a ground of the kit's own colour (the
+        only solid block of a fighter's colour in the menu outside the home
+        flanks, and what makes nine tiles read as nine people rather than nine
+        dark rectangles), the roster number top-left, a padlock or SELECTED
+        top-right, then name, role, and a trophy figure and power level.
+      - **Two rows at any roster size.** `_columns()` is `ceil(n / 2)`, so nine
+        lay out 5+4 and the twelve the beta bar asks for lay out 6+6, both on
+        one fixed-height screen. Past twelve this wants a scroll or a third row
+        rather than thinner tiles.
+      - A locked fighter is **dimmed, not hidden** — which fighter it is is the
+        reason to go and unlock them — and spends the footer on the unlock hint
+        instead of on two zeroes. Nova has no render yet (`todo 4.1`) and gets
+        her initial in the display face, which reads as "not shot yet" where a
+        broken-image box reads as a bug.
+      - **The ground is a `Panel`, not a `PanelContainer`.** A container lays
+        its children out to fill it and ignores their anchors, so `MenuUI.pin`
+        did nothing and the roster number and the SELECTED mark rendered on top
+        of each other in the corner. Verified at 1920x1080 and 1560x720, with
+        the roster fully unlocked and back at first-run.
+
 - [x] **`NS3_MENU_PROGRESS` seeds progress for a harness run** (7 Sep 2026).
       A fresh save has nothing reached and nothing claimed, so a screenshot of
       Season or Shop only ever showed the locked state — and claimed,
@@ -760,7 +792,9 @@ Newest work is roughly at the top of each section.
       sets the `SaveGame` statics in memory and **never calls `save()`**, so
       the machine's own progress is untouched. `claimed:1` backfills every
       milestone and tier already passed, which is what puts the three states
-      side by side.
+      side by side, and `starters:1` puts the roster back to a first-run one,
+      which is the only way to shoot a locked tile on a save with developer
+      mode turned on.
 
 - [x] **The stage covers a 16:10 display** (6 Sep 2026). In fullscreen on the
       MacBook the menu came up "cropped weirdly": `_fit_stage` kept the stage
