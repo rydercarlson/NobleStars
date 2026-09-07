@@ -1,0 +1,138 @@
+# Builds the iOS Xcode project on every push to main and publishes it to the
+# `ios-xcode` branch, so testing on the phone is `git fetch` + press Run in
+# Xcode — no Godot install, no export step, nothing to remember.
+#
+# WHY A BRANCH AND NOT A RELEASE ARTIFACT: an artifact has to be downloaded and
+# unzipped by hand every time, which is the "business" this exists to remove.
+#
+# WHY THE BRANCH IS ORPHANED AND FORCE-PUSHED: the exported project embeds the
+# .pck, so each build is ~37 MB. Keeping history would add that much to a public
+# repo on every commit, forever. The branch therefore holds exactly one commit —
+# the latest build — and its history is replaced each run. That is also why you
+# pull it with `reset --hard` rather than `git pull` (see the README it writes).
+#
+# SIGNING IS NOT DONE HERE and must not be. The runner has no Apple account.
+# The preset already writes DEVELOPMENT_TEAM=S7AT3UP8R4 and
+# CODE_SIGN_STYLE=Automatic into the project, so Xcode signs it on Ryder's Mac
+# the first time he presses Run. Read CLAUDE.md's iOS section before changing
+# any of that — the `No Account for Team` symptom has had two different causes
+# here and both of them pointed at the wrong thing.
+
+name: iOS Xcode project
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # A run takes longer than the gap between two quick commits; only the newest
+  # push is worth publishing, and two runs force-pushing one branch would race.
+  group: ios-xcode
+  cancel-in-progress: true
+
+env:
+  # Must match the editor this project is developed against. CLAUDE.md pins the
+  # templates path to this exact string, and Godot refuses to export against a
+  # template directory whose version does not match the binary's.
+  GODOT_VERSION: 4.7.2
+  GODOT_RELEASE: 4.7.2-stable
+
+jobs:
+  export:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot and the export templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot-bin
+            ~/Library/Application Support/Godot/export_templates
+          key: godot-${{ env.GODOT_RELEASE }}-macos
+
+      - name: Install Godot and the iOS export templates
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download/${GODOT_RELEASE}"
+          mkdir -p ~/godot-bin && cd ~/godot-bin
+          curl -fsSL -o godot.zip "${BASE}/Godot_v${GODOT_RELEASE}_macos.universal.zip"
+          unzip -q godot.zip
+          curl -fsSL -o templates.tpz "${BASE}/Godot_v${GODOT_RELEASE}_export_templates.tpz"
+          unzip -q templates.tpz          # extracts a `templates/` directory
+          DEST=~/"Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$DEST"
+          mv templates/* "$DEST"/
+          rm -rf templates godot.zip templates.tpz
+          ls "$DEST/ios.zip"              # fail loudly if the iOS half is missing
+
+      - name: Import the project
+        # REQUIRED before any export: a fresh clone has no `.godot/`, and an
+        # export against an unimported project silently ships nothing. This is
+        # NOT a compile check — see CLAUDE.md — it only builds the asset cache.
+        run: |
+          set -euo pipefail
+          GODOT=~/godot-bin/Godot.app/Contents/MacOS/Godot
+          chmod +x "$GODOT"
+          "$GODOT" --path godot --headless --import
+
+      - name: Export the Xcode project
+        # Tools/export_ios.sh already handles the two things CI would otherwise
+        # trip on: it sets DEVELOPER_DIR, and it treats Godot's own archive step
+        # failing as cosmetic, since the preset is export_project_only and the
+        # .xcodeproj is written before that step runs.
+        run: |
+          set -euo pipefail
+          # export_ios.sh:50 reads $GODOT, defaulting to /Applications.
+          export GODOT=~/godot-bin/Godot.app/Contents/MacOS/Godot
+          Tools/export_ios.sh
+          test -f build/ios/noblestars3d.xcodeproj/project.pbxproj
+
+      - name: Publish to the ios-xcode branch
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA::7}"
+          SUBJECT=$(git log -1 --pretty=%s)
+          cat > build/ios/README.md <<EOF
+          # Noble Stars — iOS Xcode project (generated)
+
+          Built from \`main\` at ${SHA} — "${SUBJECT}".
+          Generated $(date -u '+%Y-%m-%d %H:%M UTC') by \`.github/workflows/ios-xcode.yml\`.
+
+          **Do not edit anything here.** The whole branch is overwritten on the
+          next push to main. Change the game in \`main\`; change the export in
+          \`export_presets.cfg\` or \`Tools/export_ios.sh\`.
+
+          ## Getting it on the phone
+
+          First time only:
+
+              git clone --branch ios-xcode --single-branch \\
+                  https://github.com/${GITHUB_REPOSITORY}.git ~/noblestars-ios
+
+          Every time after that (the branch is force-pushed, so \`git pull\`
+          will not work — this is the equivalent):
+
+              cd ~/noblestars-ios && git fetch origin ios-xcode && git reset --hard FETCH_HEAD
+
+          Then open \`noblestars3d.xcodeproj\`, pick the phone, press Run. Xcode
+          signs it locally with the paid team already named in the project; the
+          runner never has an Apple account and never signs anything.
+          EOF
+          cd build/ios
+          git init -q -b ios-xcode
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # `build/` is gitignored in the repo proper; this is a fresh repo
+          # rooted inside it, so nothing here is ignored and -f is not needed.
+          git add -A
+          git commit -q -m "iOS Xcode project from ${SHA}: ${SUBJECT}"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              ios-xcode:ios-xcode
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
