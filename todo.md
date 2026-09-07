@@ -1,7 +1,7 @@
 # Noble Stars — TODO
 
 Open work on the Godot 3D game (`godot/`). **Finished work moved to
-[`done.md`](done.md)** — 69 entries recording what was measured, what was tried
+[`done.md`](done.md)** — 70 entries recording what was measured, what was tried
 and rejected, and why things are the shape they are. Read it before reopening
 anything here; several items on this list have a rejected first attempt on
 record.
@@ -345,15 +345,19 @@ What is left is the half that is a design decision rather than a bug.
 
 - [ ] **5.6 — JSON the menu carries that nothing reads.** `P3` `M`
       Either wire it or delete it; carrying it costs export bytes and reads as
-      a feature that exists.
+      a feature that exists. *Half done 7 Sep — what is left is the two items
+      that are waiting on someone else's decision, not on this cleanup.*
       - **The `loadout` dict has zero readers.** `MenuData._merge` still emits
         gadget/gear/Star Power/Hypercharge, but `BrawlerDetailScreen._build_loadout`
         went with the roster's detail card when Home became the detail view. Six
         kits name a full set in `brawlers.json`; none of it reaches a screen. Tied
         to 5.4 — a loadout that displays and does nothing is worse than no
         loadout.
-      - `game.json`'s **`quests`, `leaderboard`, `gameLog` and `upcoming`** are
-        read by nothing.
+      - ~~`game.json`'s `quests`, `leaderboard`, `gameLog` and `upcoming` are
+        read by nothing~~ — **deleted 7 Sep**, along with `news`, `friends`,
+        `club` and `inbox`, whose screens went in the overhaul. A third of the
+        file, and with it `SaveGame.read_mail`, `club_chat` and `unread_mail()`,
+        which had no callers left either.
       - **`MenuData.card_art` has zero callers** (see 4.2).
       - `passRewards` was deliberately left at the 15 tiers the pass screen
         parses rather than the web build's 40. That one is fine.

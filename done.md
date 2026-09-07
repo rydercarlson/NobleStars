@@ -781,6 +781,27 @@ Newest work is roughly at the top of each section.
         minimum width of zero, so a name column that does not expand gets only
         what "POWER 1" needs and KOVACS comes out "KOVAC".
 
+- [x] **A third of game.json was data for screens that do not exist**
+      (7 Sep 2026, half of `todo 5.6`). `news`, `friends`, `club` and `inbox`
+      lost their screens in the 4 Sep overhaul; `upcoming`, `quests`,
+      `leaderboard` and `gameLog` never had one. All eight were still shipping
+      in the iOS bundle — 7,071 bytes of 21,114, invented usernames and fake
+      match history included. Deleted, with `SaveGame.read_mail`, `club_chat`
+      and `unread_mail()`, which existed only to read the inbox block and had
+      no callers left. game.json now holds exactly what a screen draws:
+      `season`, `startingBrawlers`, `opponents`, `modes`, `shop`,
+      `passRewards`, `trophyRoad`.
+      - **Two items in 5.6 were deliberately left.** The `loadout` dict
+        (gadget / gear / Star Power / Hypercharge) is tied to `todo 5.4` and
+        Ryder's **D3** — deleting it would mean re-authoring it the day a power
+        level starts meaning something — and `MenuData.card_art` is tied to
+        `todo 4.2`'s open question about the card medium (**D5**). Both are
+        waiting on a decision, not on this cleanup.
+      - Verified by shooting all seven surviving surfaces and running a
+        Showdown match through its results card, since `main.gd` reads
+        `SaveGame` too. Zero errors. The rewrite was checked to be
+        byte-identical on every surviving block, not just parseable.
+
 - [x] **Events got the icons it already had, and a button you can see**
       (7 Sep 2026). Two bugs and a relayout:
       - **The SELECT button was invisible.** It was built `"navy"`, and

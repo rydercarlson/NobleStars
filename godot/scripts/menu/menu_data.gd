@@ -1,8 +1,14 @@
 class_name MenuData
-## Content for the menu, read from the web menu's own data files:
-## res://data/brawlers.json and res://data/game.json are byte-for-byte the
-## files in web-menu/data/, so copy, modes, shop, news, club and pass rewards
-## are edited in one place and both builds follow.
+## Content for the menu: `res://data/brawlers.json` and `res://data/game.json`.
+##
+## These began as byte-for-byte copies of the deleted web build's own data
+## files, and carried its whole feature list with them. On 7 Sep the blocks no
+## surviving screen reads came out — `news`, `friends`, `club`, `inbox`,
+## `upcoming`, `quests`, `leaderboard` and `gameLog`, a third of game.json —
+## because data for a screen that does not exist reads as a feature that does.
+## What game.json holds now is exactly what a screen draws: `season`,
+## `startingBrawlers`, `opponents`, `modes`, `shop`, `passRewards`,
+## `trophyRoad`.
 ##
 ## The one thing the JSON is NOT trusted for is balance: every brawler entry is
 ## merged with its live Kits dictionary, so health/damage/speed/range on the
