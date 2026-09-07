@@ -101,10 +101,6 @@ static func label_font() -> Font:
 static func body_font() -> Font:
 	return _font(FONT_BODY)
 
-## Kept for callers written against the old two-weight body font.
-static func body_font_700() -> Font:
-	return _font(FONT_LABEL)
-
 static func _font(path: String) -> Font:
 	if not _fonts.has(path):
 		_fonts[path] = load(path)
@@ -224,12 +220,8 @@ static func flat_box(fill: Color, border: Color = Color(0, 0, 0, 0),
 	_boxes[key] = s
 	return s
 
-## Named fills, kept keyed by the old variant names so existing callers land on
-## something sensible. `radius` and `shadow` are accepted and ignored.
-static func plate_colors(variant: String) -> Array:
-	var fill: Color = fill_for(variant)
-	return [fill, fill, fill]
-
+## Named fills, keyed by the old variant names so pre-overhaul callers land on
+## something sensible.
 static func fill_for(variant: String) -> Color:
 	match variant:
 		"yellow", "gold":
@@ -271,36 +263,7 @@ static func dark_panel(radius: int = 0, alpha: float = 0.0,
 	p.add_theme_stylebox_override("panel", dark_box(radius, alpha, margin))
 	return p
 
-# MARK: the stat line
-#
-# The program booklet's own unit: a label, leader space, and a figure that lines
-# up with the figure above it. Used down the home screen's flanks.
-
-## `unit` is set small and dim beside the figure rather than folded into it, so
-## the figures stay a clean column of tabular numerals you can compare down.
-static func stat_row(key: String, value: String, accent: Color = TEXT,
-		size: int = 44, unit: String = "") -> HBoxContainer:
-	var row := hbox(8)
-	var k: Label = label(key, 26, TEXT_DIM)
-	k.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	row.add_child(k)
-	row.add_child(spacer())
-	var v: Label = display(value, size, accent)
-	v.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	row.add_child(v)
-	if unit != "":
-		var u: Label = label(unit, 22, TEXT_FAINT)
-		u.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-		row.add_child(u)
-	return row
-
-## A stat row as its own block. It used to carry a hairline under the figure;
-## the spacing between rows does that job now.
-static func stat_line(key: String, value: String, accent: Color = TEXT,
-		size: int = 44, unit: String = "") -> VBoxContainer:
-	var column := vbox(0)
-	column.add_child(stat_row(key, value, accent, size, unit))
-	return column
+# MARK: blocks of type
 
 ## A section head: letterspaced caps that open a block. No rule under it —
 ## the gap above it is what separates blocks.
@@ -354,12 +317,6 @@ static func small_button(text: String, variant: String = "grey") -> Button:
 	b.custom_minimum_size = Vector2(0, 54)
 	return b
 
-static func disabled_button(text: String) -> Button:
-	var b: Button = button(text, "grey", 34)
-	b.disabled = true
-	b.modulate = Color(0.55, 0.55, 0.6)
-	return b
-
 ## A flat text link — the bottom bar's destinations. No box at all: the label is
 ## the whole control, and the gold rule under it is the hover state.
 static func link(text: String, size: int = 28) -> Button:
@@ -384,18 +341,6 @@ static func icon_button(icon_name: String, size: float) -> TextureButton:
 	b.ignore_texture_size = true
 	b.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	b.custom_minimum_size = Vector2(size, size)
-	press_feedback(b)
-	return b
-
-static func art_button(texture: Texture2D, height: float) -> TextureButton:
-	var b := TextureButton.new()
-	b.texture_normal = texture
-	b.ignore_texture_size = true
-	b.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-	var aspect: float = 1.0
-	if texture:
-		aspect = float(texture.get_width()) / float(texture.get_height())
-	b.custom_minimum_size = Vector2(height * aspect, height)
 	press_feedback(b)
 	return b
 
@@ -449,20 +394,6 @@ static func set_bar(track: Panel, ratio: float, animate: bool = true) -> void:
 	var tw := track.create_tween()
 	tw.tween_property(fill, "anchor_right", target, 0.5) \
 		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-
-## A small square tag. Optionally icon + figure; on a solid fill when `filled`.
-static func chip(text: String, icon_name: String, size: int = 20,
-		color: Color = GOLD, filled: bool = false) -> PanelContainer:
-	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel",
-			flat_box(color, Color(0, 0, 0, 0), 6) if filled else flat_box(INK, RULE, 6))
-	var row := hbox(6)
-	if icon_name != "":
-		row.add_child(icon(icon_name, size + 2))
-	row.add_child(display(text, size, GOLD_INK if filled else color))
-	p.add_child(row)
-	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return p
 
 ## A solid block of team colour — the program's position tag.
 static func tag(text: String, fill: Color, ink: Color = TEXT) -> PanelContainer:
@@ -591,6 +522,81 @@ static func icon_box(icon_name: String, size: float = 52.0, glyph: float = 0.55)
 	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	p.add_child(t)
 	return p
+
+## A bordered block with a head — a glyph, a name, and the rule that governs
+## what is inside it — and a body for the caller to fill. Season and Shop are
+## both built out of these, which is what makes two dense screens read as one
+## system rather than as two layouts that happen to share a palette. Returns
+## `[card, body]`; the body is a `VBoxContainer` with no separation.
+static func block(icon_name: String, title: String, rule_text: String = "",
+		pad: int = 14) -> Array:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", card_box(PANEL, RULE_HI, pad))
+	var column := vbox(0)
+	card.add_child(column)
+
+	var head := hbox(12)
+	head.custom_minimum_size = Vector2(0, 36)
+	column.add_child(head)
+	if icon_name != "":
+		var glyph: TextureRect = icon(icon_name, 30)
+		glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(glyph)
+	var name_label: Label = label(title, 26, TEXT)
+	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	head.add_child(name_label)
+	if rule_text != "":
+		var dot: Label = label("·", 26, TEXT_FAINT)
+		dot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		head.add_child(dot)
+		var rule_label: Label = label(rule_text, 22, TEXT_DIM)
+		rule_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		head.add_child(rule_label)
+	head.add_child(spacer())
+	column.add_child(gap(8, true))
+	return [card, column]
+
+## The glyph for a reward kind. Season names rewards on two rails and Shop
+## names them in its deals, and they have to name them the same way — a Dawg
+## Treat that is a bone in one place and a word in the other is two systems.
+## Callers that can resolve a fighter (`brawler`, `skin`, `pin`) should show
+## that fighter's portrait instead; this is the fallback for all three.
+const REWARD_GLYPH := {
+	"coins": "coin",
+	"gems": "gem",
+	"power_points": "power_point",
+	"bling": "bling",
+	"dawg_treat": "dawg_treat",
+	"star_drop": "dawg_treat",
+	"pin": "pin",
+	"skin": "hanger",
+	"gadget": "gadget",
+	"star_power": "star_power",
+	"hypercharge": "hypercharge",
+	"brawler": "shield",
+	"brawler_drop": "shield",
+}
+
+static func reward_glyph(kind: String) -> String:
+	return REWARD_GLYPH.get(kind, "token")
+
+## What to call a quantity of something. Returns "" for the kinds that need a
+## fighter looked up (`brawler`, `skin`, `pin`), which is the caller's job —
+## everything else is named here so Season's rails and Shop's deals cannot
+## drift into calling the same reward two different things.
+static func reward_name(kind: String, amount: int) -> String:
+	match kind:
+		"coins":
+			return "%s COINS" % fmt(amount)
+		"gems":
+			return "%s GEMS" % fmt(amount)
+		"power_points":
+			return "%s POWER PTS" % fmt(amount)
+		"bling":
+			return "%s BLING" % fmt(amount)
+		"dawg_treat", "star_drop":
+			return "%s DAWG TREAT%s" % [fmt(amount), "S" if amount != 1 else ""]
+	return ""
 
 ## A round medallion: ink inside, a ring of the accent colour, a glyph in the
 ## middle. The ability cards wear one each.

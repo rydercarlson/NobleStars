@@ -187,35 +187,13 @@ func _unlock_premium() -> void:
 
 # MARK: blocks
 
-## A bordered card with a head — glyph, name, and the rule that governs it —
-## and a body the caller fills. Returns [card, body].
+## The shared block (`MenuUI.block`) at a fixed height, because this screen
+## does not scroll and its blocks have to add up to what it has.
 func _block(icon_name: String, title: String, rule_text: String,
 		height: float) -> Array:
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel",
-			MenuUI.card_box(MenuUI.PANEL, MenuUI.RULE_HI, BLOCK_PAD))
-	card.custom_minimum_size = Vector2(0, height)
-	var column := MenuUI.vbox(0)
-	card.add_child(column)
-
-	var head := MenuUI.hbox(12)
-	head.custom_minimum_size = Vector2(0, 36)
-	column.add_child(head)
-	var glyph: TextureRect = MenuUI.icon(icon_name, 30)
-	glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	head.add_child(glyph)
-	var name_label: Label = MenuUI.label(title, 26, MenuUI.TEXT)
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	head.add_child(name_label)
-	var dot: Label = MenuUI.label("·", 26, MenuUI.TEXT_FAINT)
-	dot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	head.add_child(dot)
-	var rule_label: Label = MenuUI.label(rule_text, 22, MenuUI.TEXT_DIM)
-	rule_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	head.add_child(rule_label)
-	head.add_child(MenuUI.spacer())
-	column.add_child(MenuUI.gap(8, true))
-	return [card, column]
+	var parts: Array = MenuUI.block(icon_name, title, rule_text, BLOCK_PAD)
+	(parts[0] as Control).custom_minimum_size = Vector2(0, height)
+	return parts
 
 ## A sideways rail. SHOW_NEVER rather than AUTO: an auto scrollbar reserves its
 ## own 18px under the cards whether or not it is drawn, which came off the
@@ -568,11 +546,7 @@ func _reward_icon(reward: Dictionary, size: float) -> Control:
 			return _portrait_tile(_named_fighter(str(reward.get("name", ""))), size)
 		"brawler_drop":
 			return MenuUI.icon("shield", size)
-	var glyph: String = {
-		"coins": "coin", "gems": "gem", "power_points": "power_point",
-		"bling": "bling", "dawg_treat": "dawg_treat", "star_drop": "dawg_treat",
-	}.get(kind, "token")
-	return MenuUI.icon(glyph, size)
+	return MenuUI.icon(MenuUI.reward_glyph(kind), size)
 
 ## The fighter a "Sanjit Pin" is of. Reward names carry the fighter's name and
 ## nothing machine-readable, so this matches the roster against the string.
@@ -614,18 +588,9 @@ func _reward_name(reward: Dictionary) -> String:
 		return "RANDOM FIGHTER"
 	if kind == "skin":
 		return str(reward.get("name", "SKIN")).to_upper()
-	var amount: int = int(reward.get("amount", 1))
-	match kind:
-		"coins":
-			return "%s COINS" % MenuUI.fmt(amount)
-		"gems":
-			return "%s GEMS" % MenuUI.fmt(amount)
-		"star_drop", "dawg_treat":
-			return "%s DAWG TREAT%s" % [MenuUI.fmt(amount), "S" if amount != 1 else ""]
-		"power_points":
-			return "%s POWER PTS" % MenuUI.fmt(amount)
-		"bling":
-			return "%s BLING" % MenuUI.fmt(amount)
+	var named: String = MenuUI.reward_name(kind, int(reward.get("amount", 1)))
+	if named != "":
+		return named
 	return str(reward.get("name", kind)).replace("_", " ").to_upper()
 
 func _claim(claim_id: String, reward: Dictionary, button: Control) -> void:

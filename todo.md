@@ -1,7 +1,7 @@
 # Noble Stars — TODO
 
 Open work on the Godot 3D game (`godot/`). **Finished work moved to
-[`done.md`](done.md)** — 66 entries recording what was measured, what was tried
+[`done.md`](done.md)** — 68 entries recording what was measured, what was tried
 and rejected, and why things are the shape they are. Read it before reopening
 anything here; several items on this list have a rejected first attempt on
 record.
@@ -295,9 +295,11 @@ What is left is the half that is a design decision rather than a bug.
         1.3's fix quietly fill it in? They are the same pass.
       - **Gold is the only colour with a job** (earned / active / yours). Audit
         that it has not leaked onto anything decorative.
-      - **`MenuUI.plate_colors` still hands every surface the same three-stop
-        vertical gradient**, which is a leftover from the flat-plate system the
-        overhaul replaced. Either it earns its place or it goes.
+      - ~~`MenuUI.plate_colors` still hands every surface a three-stop
+        gradient~~ — **answered 7 Sep: it goes.** It had already been flattened
+        to three copies of one fill by the overhaul, and it had no caller.
+        Removed along with `stat_row`/`stat_line`, `body_font_700`,
+        `disabled_button`, `art_button` and `chip`, which had none either.
       - The stage fighter is the only moving thing on Home. Whether the flank
         columns want any motion at all is a real question, not an obvious yes.
 
@@ -313,11 +315,10 @@ What is left is the half that is a design decision rather than a bug.
         colour; a kit's `stage` key takes a real one whenever there is one.
       - The ability-preview buttons under the two cards on home (the previews
         themselves are content).
-      - Season was rebuilt to its own mockup on 7 Sep (reward glyphs, a drawn
-        trophy track, the Free/Premium grid — see done.md). **Shop's lists are
-        the last screen still wearing the overhaul's layout at a larger size**,
-        and its Dawg Treat block is the obvious candidate for the same
-        treatment: a treat is a picture of itself too.
+      - *Done 7 Sep: Season, the roster and Shop were all relaid out (see
+        done.md). Every pushed screen now has its own layout rather than the
+        overhaul's at a larger size.* What is left of this item is the phone
+        look below and the ability art above.
       - Shoot it on the phone (`Tools/device_shot.sh`) — everything above was
         judged on the desktop stage at 1920x1080 and 2017 px of chrome width
         was not seen.

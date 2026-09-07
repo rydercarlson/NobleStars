@@ -752,6 +752,46 @@ Newest work is roughly at the top of each section.
         Verified at 1920x1080, 1920x1200 and 1560x720, in both the
         pass-bought and pass-not-bought states, with `NS3_MENU_PROGRESS`.
 
+- [x] **Shop opens on the Dawg Treat, and the menu grew a shared block**
+      (7 Sep 2026). Shop was the last screen still wearing the overhaul's
+      layout at a larger size: three lists, of which the first was nine
+      near-identical POWER UP rows with an UPGRADE button each, filling the
+      screen top to bottom, with the Dawg Treat — the one thing on the page
+      with any occasion to it — below the fold underneath them.
+      - **The Treat is the first block now**, with the bone at 96px, the copy,
+        the OPEN button, and the odds beside it as a row of seven rarity
+        chips: a colour band over the chance over the name. The old table was
+        seven lines with a 14px swatch each; the chips take a third of the
+        height and put the seven colours in a row where they read as a scale.
+      - **A fighter is a card with their own face on it**, the same square the
+        roster tiles use, with POWER n and the cost. **The card is not the
+        button** — everywhere else in this menu a whole tile is pressable, and
+        here it deliberately is not: claiming a Trophy Road reward is free, and
+        this spends 200 coins a tap. A cost earns an explicit control.
+      - **Three pieces moved into `MenuUI` so two screens cannot drift.**
+        `block(icon, title, rule)` is the bordered card with a head that Season
+        and Shop are both made of; `reward_glyph(kind)` and
+        `reward_name(kind, amount)` are the one place a reward is named and
+        drawn. That last one was already broken in the small way these things
+        break: Shop said "50 POWER POINTS" where Season said "50 POWER PTS".
+      - **`GridContainer` only splits its width between columns whose children
+        ask to expand.** Without `SIZE_EXPAND_FILL` on the cards, the columns
+        sit at their natural widths and the last row stops halfway across the
+        block. The sibling of the same trap: a label with `clip_text` has a
+        minimum width of zero, so a name column that does not expand gets only
+        what "POWER 1" needs and KOVACS comes out "KOVAC".
+
+- [x] **Seven dead helpers left the design system** (7 Sep 2026, `todo 5.1`).
+      `plate_colors` was the one the todo asked about — "either it earns its
+      place or it goes" — and the answer was that the overhaul had already
+      flattened it to three copies of one fill and nothing had called it since.
+      `stat_row`/`stat_line`, `body_font_700`, `disabled_button`, `art_button`
+      and `chip` had no callers either. Checked with
+      `grep -rn "\.name(" godot --include="*.gd"` and verified by running every
+      menu screen plus a full Nobles Cup match with its results card, since
+      `main.gd` builds its match chrome out of `MenuUI` too — zero errors. Git
+      history has them if one is ever wanted back.
+
 - [x] **5.2 — The roster is a wall of faces, not a table** (7 Sep 2026).
       Ryder wanted tiles; the screen was nine numbered rows. The argument the
       table was built on is worth recording because it was *true* and still

@@ -13,70 +13,144 @@ extends MenuScreen
 ## levels for your fighters, Dawg Treats, and the resource swaps — and the
 ## Treat's odds are printed, because a box whose contents you cannot reason
 ## about is the part of a shop this game has no reason to imitate.
+##
+## *Relaid out 7 Sep 2026, into the same blocks Season is built from.* It was
+## three lists: nine near-identical POWER UP rows with an UPGRADE button each,
+## filling the screen top to bottom, and the Dawg Treat — the one thing on this
+## page with any occasion to it — pushed below the fold underneath them. Now the
+## Treat is the first block and the fighters are cards with their own faces on
+## them, so the page opens on the thing worth opening and a fighter is
+## recognised rather than read.
+
+const BLOCK_GAP := 12.0
+const CARD_GAP := 12
+const POWER_COLUMNS := 5
+const DEAL_COLUMNS := 4
+const POWER_CARD_H := 152.0
+const DEAL_CARD_H := 210.0
+const FACE := 84.0
 
 func _build() -> void:
 	screen_name = "shop"
 	topbar("Shop")
 	var column: VBoxContainer = scroll_content(0)
 
-	column.add_child(MenuUI.section("POWER UP   ·   %s COINS" % MenuUI.fmt(SaveGame.coins)))
-	column.add_child(MenuUI.gap(10, true))
+	# The Treat first. It used to be third, under nine rows of UPGRADE, which
+	# put the only thing on this page with an occasion to it below the fold.
+	var treats: Array = MenuUI.block("dawg_treat", "DAWG TREATS",
+			"ONE PULL, ODDS PRINTED")
+	(treats[1] as VBoxContainer).add_child(_treat_block())
+	column.add_child(treats[0])
+	column.add_child(MenuUI.gap(BLOCK_GAP, true))
+
+	var power: Array = MenuUI.block("power", "POWER UP",
+			"%s COINS IN HAND" % MenuUI.fmt(SaveGame.coins))
+	var grid: GridContainer = MenuUI.grid(POWER_COLUMNS, CARD_GAP)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	(power[1] as VBoxContainer).add_child(grid)
 	for b in MenuData.brawlers:
 		if SaveGame.is_unlocked(str(b.id)):
-			column.add_child(_power_row(b))
-	column.add_child(MenuUI.gap(46, true))
-
-	column.add_child(MenuUI.section("DAWG TREATS"))
-	column.add_child(MenuUI.gap(10, true))
-	column.add_child(_treat_block())
-	column.add_child(MenuUI.gap(46, true))
+			grid.add_child(_power_card(b))
+	column.add_child(power[0])
 
 	var deals: Array = _affordable_deals()
 	if not deals.is_empty():
-		column.add_child(MenuUI.section("DEALS   ·   RESETS IN %s" % _reset_time()))
-		column.add_child(MenuUI.gap(10, true))
+		column.add_child(MenuUI.gap(BLOCK_GAP, true))
+		var block: Array = MenuUI.block("coin", "DEALS",
+				"RESETS IN %s" % _reset_time())
+		var deal_grid: GridContainer = MenuUI.grid(DEAL_COLUMNS, CARD_GAP)
+		deal_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		(block[1] as VBoxContainer).add_child(deal_grid)
 		for item: Dictionary in deals:
-			column.add_child(_deal_row(item))
+			deal_grid.add_child(_deal_card(item))
+		column.add_child(block[0])
 	column.add_child(MenuUI.gap(40, true))
 
 # MARK: power levels
 
-## One row per owned fighter: what level they are and what the next one costs.
-## This is the coin sink the deleted detail screen used to own.
-func _power_row(b: Dictionary) -> Control:
+## One card per owned fighter: their face, what level they are, and what the
+## next one costs. This is the coin sink the deleted detail screen used to own.
+##
+## The card is NOT the button — the gold chip in it is. Everywhere else in the
+## menu a whole tile is pressable, and here it must not be: claiming a Trophy
+## Road reward is free and reversible-by-not-mattering, and this spends 200
+## coins a tap. A cost is the one thing worth an explicit control.
+func _power_card(b: Dictionary) -> Control:
 	var id: String = str(b.id)
 	var power: int = SaveGame.brawler_power(id)
 	var cost: int = 200 * power
-	var row := MenuUI.hbox(0)
-	row.custom_minimum_size = Vector2(0, 76)
+	var affordable: bool = SaveGame.coins >= cost
+	var color: Color = MenuUI.hex(b.get("color"), MenuUI.BLUE)
 
-	var block := ColorRect.new()
-	block.color = MenuUI.hex(b.get("color"), MenuUI.BLUE)
-	block.custom_minimum_size = Vector2(7, 0)
-	row.add_child(block)
-	row.add_child(MenuUI.gap(16))
-	var name_label: Label = MenuUI.display(str(b.name).to_upper(), 38)
-	name_label.custom_minimum_size = Vector2(360, 0)
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(name_label)
-	var level: Label = MenuUI.label("POWER %d" % power, 19, MenuUI.TEXT_DIM)
-	level.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(level)
-	row.add_child(MenuUI.spacer())
-	var price: Label = MenuUI.display(MenuUI.fmt(cost), 32,
-			MenuUI.GOLD if SaveGame.coins >= cost else MenuUI.TEXT_FAINT)
-	price.custom_minimum_size = Vector2(160, 0)
-	price.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", MenuUI.flat_box(MenuUI.INK,
+			MenuUI.GOLD if affordable else MenuUI.RULE, 12))
+	card.custom_minimum_size = Vector2(0, POWER_CARD_H)
+	# A GridContainer only splits its width evenly between columns whose
+	# children ask to expand; without this the cards sit at their natural
+	# widths and the last row stops halfway across the block.
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var column := MenuUI.vbox(8)
+	card.add_child(column)
+
+	var head := MenuUI.hbox(14)
+	column.add_child(head)
+	head.add_child(_face(b, color))
+	var who := MenuUI.vbox(2)
+	who.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	# EXPAND_FILL or the row hands this column only what "POWER 1" needs, and a
+	# name set to clip has a minimum width of zero — KOVACS came out "KOVAC".
+	who.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(who)
+	var name_label: Label = MenuUI.display(str(b.name).to_upper(), 34)
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	who.add_child(name_label)
+	who.add_child(MenuUI.label("POWER %d" % power, 22, MenuUI.TEXT_DIM))
+
+	var foot := MenuUI.hbox(8)
+	column.add_child(foot)
+	var coin: TextureRect = MenuUI.icon("coin", 26)
+	coin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	foot.add_child(coin)
+	var price: Label = MenuUI.display(MenuUI.fmt(cost), 30,
+			MenuUI.GOLD if affordable else MenuUI.TEXT_FAINT)
 	price.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(price)
-	row.add_child(MenuUI.gap(20))
-	var buy: Button = MenuUI.button("UPGRADE", "gold" if SaveGame.coins >= cost else "grey",
-			22, Vector2(180, 54))
+	foot.add_child(price)
+	foot.add_child(MenuUI.spacer())
+	var buy: Button = MenuUI.button("UPGRADE", "gold" if affordable else "grey",
+			22, Vector2(148, 44), 6)
 	buy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	buy.disabled = SaveGame.coins < cost
+	buy.disabled = not affordable
 	buy.pressed.connect(func() -> void: _upgrade(b, cost, buy))
-	row.add_child(buy)
-	return row
+	foot.add_child(buy)
+	return card
+
+## The roster tile's face, small: the portrait on a square of the kit's colour,
+## or the initial for a fighter with no render yet (Nova, `todo 4.1`).
+func _face(b: Dictionary, color: Color) -> Control:
+	var tile := PanelContainer.new()
+	tile.add_theme_stylebox_override("panel", MenuUI.flat_box(
+			MenuUI.INK.lerp(color, 0.42), color, 0, MenuUI.RADIUS_SMALL))
+	tile.custom_minimum_size = Vector2(FACE, FACE)
+	tile.clip_contents = true
+	tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var art: Texture2D = MenuData.portrait(str(b.id))
+	if art == null:
+		var initial: Label = MenuUI.display(str(b.get("name", "?")).substr(0, 1).to_upper(),
+				48, MenuUI.INK.lerp(MenuUI.TEXT, 0.35))
+		initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		tile.add_child(initial)
+		return tile
+	var face := TextureRect.new()
+	face.texture = art
+	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	face.custom_minimum_size = Vector2(FACE, FACE)
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_child(face)
+	return tile
 
 func _upgrade(b: Dictionary, cost: int, button: Control) -> void:
 	var id: String = str(b.id)
@@ -98,22 +172,33 @@ func _upgrade(b: Dictionary, cost: int, button: Control) -> void:
 
 const TREAT_PRICE := 1000
 
-## The treat, its price, and the odds. The odds table is the point: it is the
+## The treat, its price, and the odds. The odds are the point: they are the
 ## same figures `_roll_tier` runs on, printed, so the rarest tier being a real
-## 0.5% is something you can read rather than something you have to feel.
+## 0.5% is something you can read rather than something you have to feel. They
+## used to be a seven-line table with a colour swatch per row; as a row of
+## chips they take a third of the height and the colours line up as a scale.
 func _treat_block() -> Control:
-	var row := MenuUI.hbox(60)
-	var left := MenuUI.vbox(10)
-	left.custom_minimum_size = Vector2(460, 0)
+	var row := MenuUI.hbox(28)
+	var left := MenuUI.hbox(18)
+	left.custom_minimum_size = Vector2(620, 0)
 	row.add_child(left)
-	left.add_child(MenuUI.display("DAWG TREAT", 52))
-	left.add_child(MenuUI.wrap(MenuUI.body(
-			"One pull from the table on the right. A fighter you do not own yet "
-			+ "can come out of Mythic or better.", 23, MenuUI.TEXT_DIM)))
-	left.add_child(MenuUI.gap(8, true))
+	var bone: TextureRect = MenuUI.icon("dawg_treat", 96)
+	bone.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	left.add_child(bone)
+	var copy := MenuUI.vbox(4)
+	copy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_child(copy)
+	copy.add_child(MenuUI.display("DAWG TREAT", 44))
+	copy.add_child(MenuUI.wrap(MenuUI.body(
+			"One pull. A fighter you do not own yet can come out of Mythic or "
+			+ "better.", 26, MenuUI.TEXT_DIM)))
+	copy.add_child(MenuUI.gap(6, true))
+	var affordable: bool = SaveGame.coins >= TREAT_PRICE
 	var buy: Button = MenuUI.button("OPEN — %s COINS" % MenuUI.fmt(TREAT_PRICE),
-			"gold" if SaveGame.coins >= TREAT_PRICE else "grey", 26, Vector2(360, 66))
-	buy.disabled = SaveGame.coins < TREAT_PRICE
+			"gold" if affordable else "grey", 24, Vector2(320, 56), 10)
+	buy.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	buy.disabled = not affordable
 	buy.pressed.connect(func() -> void:
 		if not SaveGame.spend("coins", TREAT_PRICE):
 			sfx("error")
@@ -123,31 +208,45 @@ func _treat_block() -> Control:
 		menu.refresh_currencies()
 		open_dawg_treat(menu)
 		_reopen())
-	left.add_child(buy)
+	copy.add_child(buy)
 
-	var odds := MenuUI.vbox(0)
+	var odds := MenuUI.vbox(8)
 	odds.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	odds.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(odds)
-	odds.add_child(MenuUI.label("ODDS", 18, MenuUI.TEXT_FAINT))
-	odds.add_child(MenuUI.rule())
-	odds.add_child(MenuUI.gap(6, true))
+	odds.add_child(MenuUI.label("ODDS", 22, MenuUI.TEXT_FAINT))
+	var chips := MenuUI.hbox(8)
+	chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	odds.add_child(chips)
 	for tier: Dictionary in TREAT_TIERS:
-		var line := MenuUI.hbox(12)
-		line.custom_minimum_size = Vector2(0, 38)
-		var swatch := ColorRect.new()
-		swatch.color = MenuUI.hex(tier.color)
-		swatch.custom_minimum_size = Vector2(14, 14)
-		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		line.add_child(swatch)
-		var name_label: Label = MenuUI.label(str(tier.label), 20, MenuUI.TEXT_SOFT)
-		name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		line.add_child(name_label)
-		line.add_child(MenuUI.spacer())
-		var pct: Label = MenuUI.display("%.1f%%" % (float(tier.p) * 100.0), 24)
-		pct.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		line.add_child(pct)
-		odds.add_child(line)
+		chips.add_child(_odds_chip(tier))
 	return row
+
+## One rarity: a bar of its colour over the chance of drawing it. The bar is
+## the swatch and the divider at once.
+func _odds_chip(tier: Dictionary) -> Control:
+	var accent: Color = MenuUI.hex(tier.color)
+	var chip := PanelContainer.new()
+	chip.add_theme_stylebox_override("panel",
+			MenuUI.flat_box(MenuUI.INK, MenuUI.RULE, 10))
+	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var column := MenuUI.vbox(6)
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_child(column)
+	var band := ColorRect.new()
+	band.color = accent
+	band.custom_minimum_size = Vector2(0, 5)
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_child(band)
+	var pct: Label = MenuUI.display("%.1f%%" % (float(tier.p) * 100.0), 28, accent)
+	pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(pct)
+	var name_label: Label = MenuUI.wrap(MenuUI.label(str(tier.label), 20,
+			MenuUI.TEXT_DIM))
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(name_label)
+	return chip
 
 # MARK: deals
 
@@ -164,42 +263,69 @@ func _affordable_deals() -> Array:
 				out.append(item)
 	return out
 
-func _deal_row(item: Dictionary) -> Control:
+## A deal, as the same tile Season pays out on: the glyph for what it is, what
+## you get, and the price as the control. Naming a reward the same way on both
+## screens is the whole reason `MenuUI.reward_glyph` exists.
+func _deal_card(item: Dictionary) -> Control:
 	var kind: String = str(item.get("kind", "coins"))
 	var amount: int = int(item.get("amount", 0))
 	var currency: String = str(item.get("currency", "coins"))
 	var price: int = int(item.get("price", 0))
 	var free: bool = currency == "free" or price <= 0
 	var bought: bool = SaveGame.is_claimed("shop:%s" % str(item.get("id", "")))
+	var affordable: bool = free or SaveGame.can_afford(currency, price)
 
-	var row := MenuUI.hbox(0)
-	row.custom_minimum_size = Vector2(0, 72)
-	var name_label: Label = MenuUI.display(_item_name(kind, amount), 34,
-			MenuUI.TEXT if not bought else MenuUI.TEXT_FAINT)
-	name_label.custom_minimum_size = Vector2(460, 0)
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(name_label)
+	var card := PanelContainer.new()
+	var edge: Color = MenuUI.RULE
+	if bought:
+		edge = MenuUI.GREEN_LO
+	elif affordable:
+		edge = MenuUI.GOLD
+	card.add_theme_stylebox_override("panel", MenuUI.flat_box(
+			Color("#0e1a12") if bought else MenuUI.INK, edge, 12))
+	card.custom_minimum_size = Vector2(0, DEAL_CARD_H)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var column := MenuUI.vbox(6)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
+	card.add_child(column)
+
+	var glyph: TextureRect = MenuUI.icon(MenuUI.reward_glyph(kind), 52)
+	glyph.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(glyph)
+	var name_label: Label = MenuUI.display(_item_name(kind, amount), 26,
+			MenuUI.TEXT_DIM if bought else MenuUI.TEXT)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	column.add_child(name_label)
 	if str(item.get("brawler", "")) != "":
 		var who: Label = MenuUI.label(
-				str(MenuData.brawler(str(item.brawler)).get("name", "")), 19, MenuUI.TEXT_DIM)
-		who.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		row.add_child(who)
-	row.add_child(MenuUI.spacer())
+				str(MenuData.brawler(str(item.brawler)).get("name", "")), 20,
+				MenuUI.TEXT_FAINT)
+		who.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		column.add_child(who)
+	column.add_child(MenuUI.gap(2, true))
+
 	if bought:
-		var done: Label = MenuUI.label("TAKEN", 19, MenuUI.TEXT_FAINT)
-		done.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		row.add_child(done)
-		return row
-	var affordable: bool = free or SaveGame.can_afford(currency, price)
+		var done := MenuUI.hbox(6)
+		done.alignment = BoxContainer.ALIGNMENT_CENTER
+		done.custom_minimum_size = Vector2(0, 44)
+		var tick: TextureRect = MenuUI.icon("check", 24)
+		tick.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		done.add_child(tick)
+		var word: Label = MenuUI.label("TAKEN", 22, MenuUI.GREEN_HI)
+		word.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		done.add_child(word)
+		column.add_child(done)
+		return card
 	var label_text: String = "FREE" if free else "%s %s" % [MenuUI.fmt(price),
 			currency.to_upper()]
 	var buy: Button = MenuUI.button(label_text, "gold" if affordable else "grey", 22,
-			Vector2(230, 54))
-	buy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			Vector2(0, 44), 6)
 	buy.disabled = not affordable
 	buy.pressed.connect(func() -> void: _take(item, free, currency, price, buy))
-	row.add_child(buy)
-	return row
+	column.add_child(buy)
+	return card
 
 func _take(item: Dictionary, free: bool, currency: String, price: int,
 		button: Control) -> void:
@@ -226,18 +352,8 @@ func _take(item: Dictionary, free: bool, currency: String, price: int,
 	_reopen()
 
 func _item_name(kind: String, amount: int) -> String:
-	match kind:
-		"coins":
-			return "%s COINS" % MenuUI.fmt(amount)
-		"gems":
-			return "%s GEMS" % MenuUI.fmt(amount)
-		"power_points":
-			return "%s POWER POINTS" % MenuUI.fmt(amount)
-		"bling":
-			return "%s BLING" % MenuUI.fmt(amount)
-		"dawg_treat", "star_drop":
-			return "%s DAWG TREAT%s" % [MenuUI.fmt(amount), "S" if amount != 1 else ""]
-	return kind.replace("_", " ").to_upper()
+	var named: String = MenuUI.reward_name(kind, amount)
+	return named if named != "" else kind.replace("_", " ").to_upper()
 
 func _reset_time() -> String:
 	var now: Dictionary = Time.get_datetime_dict_from_system()

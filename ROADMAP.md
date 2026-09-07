@@ -196,7 +196,7 @@ should not block each other.*
 | Owner | Item | Size | |
 |---|---|---|---|
 | ~~**Jackson**~~ | ~~Write the redesign idea down~~ — done 6 Sep | — | **D1** answered |
-| **Jackson** | Build it — the five-zone layout is in; the rest of `todo 5.1` remains | M | `todo 5.1`, `todo 5.3` |
+| **Jackson** | Build it — layout, Season, roster and Shop are in; ability art and a phone look remain | M | `todo 5.1`, `todo 5.3` |
 | **Jackson** | The party surface — the menu half | L | **D10** |
 | ~~**Jackson**~~ | ~~Roster as tiles, not rows~~ — **done** 7 Sep, portrait tiles on kit-colour grounds | S | — |
 | **Jackson** | Map select and map thumbnails | M | pipeline 2 |
