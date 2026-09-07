@@ -39,8 +39,8 @@ var touch_index := -1
 var origin := Vector2.ZERO
 var value := Vector2.ZERO
 
-## Where the stick sits with no finger on it. `main.gd:_layout_sticks` owns
-## these and re-parks them whenever the viewport changes size.
+## Where the stick sits with no finger on it. `main.gd:_layout_hud` owns these
+## and re-parks them whenever the viewport changes size.
 var home := Vector2.ZERO
 var tint := Color(1, 1, 1)
 var radius := RADIUS
@@ -52,6 +52,13 @@ var charge := -1.0
 ## How near `home` a touch has to land to grab this stick, for a stick that owns
 ## a patch of screen rather than half of it. 0 = the caller decides.
 var grab_radius := 0.0
+
+## The furthest this stick has been pushed during the CURRENT touch. `value` on
+## its own cannot tell a finger that never left home from one that was dragged
+## out to aim and then brought back to call the shot off — both read zero at the
+## instant of release — and those two have to do different things. Reset by
+## `begin`, so it means "this gesture", not "ever".
+var peak := 0.0
 
 ## The drawn knob offset, which lags `value` back to centre on release. Kept
 ## apart from `value` so the animation can never be read as input.
@@ -88,6 +95,7 @@ func begin(pos: Vector2, index: int) -> void:
 	touch_index = index
 	origin = pos
 	value = Vector2.ZERO
+	peak = 0.0
 	_shown = Vector2.ZERO
 	queue_redraw()
 
@@ -95,6 +103,7 @@ func update_drag(pos: Vector2) -> void:
 	if not active:
 		return
 	value = (pos - origin).limit_length(radius) / radius
+	peak = maxf(peak, value.length())
 	_shown = value
 	queue_redraw()
 

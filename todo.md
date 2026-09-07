@@ -41,11 +41,8 @@ they are not urgent, and `Voicelines` is the extreme case.
 | 1.3 | Menu text is half the readable size | Phone fit | P0 | M | a type-scale redesign |
 | 1.5 | Loading title sits under the Dynamic Island | Phone fit | P1 | S | what the splash handoff should do |
 | 2.1 | Speed / camera / model scale — one decision | Feel | P1 | M | a taste call |
-| 3.1 | A shot cannot be called off after aiming | Controls | P1 | S | — |
 | 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | — |
 | 4.1 | Nova is still a capsule | Characters | P1 | M | Meshy pass |
-| 8.1 | A client's death is silent and its HUD lies | Multiplayer | P1 | S | — |
-| 10.1 | The app icon is a placeholder | Ship | P1 | S | — |
 | 5.1 | The menu's second look | Menu | P2 | M | — |
 | 5.2 | The roster should be tiles, not rows | Menu | P2 | S | — |
 | 5.3 | Jackson's menu idea — layout built, previews and a phone look left | Menu | P2 | M | — |
@@ -170,15 +167,6 @@ What is left is the half that is a design decision rather than a bug.
 ---
 
 # 3. Controls and feel
-
-- [ ] **3.1 — One cannot decide *not* to attack after aiming.** `P1` `S`
-      Drag the aim stick out, change your mind, drag it back to the centre — the
-      shot still fires on release. It should not. The stick already knows: `value`
-      is what crosses `TAP_THRESHOLD` for the detent in `main.gd:_update_aim_detent`,
-      so a release below that threshold *after* the stick has been out is
-      distinguishable from a tap that never left home. Careful with the
-      interaction: a release at zero deflection that was never dragged is a
-      **tap**, and a tap must keep firing at the nearest target.
 
 - [ ] **3.2 — Nothing in the haptics layer has been judged on an actual
       phone.** `P1` `XS`
@@ -428,21 +416,6 @@ What is left is the half that is a design decision rather than a bug.
 
 # 8. Multiplayer
 
-- [ ] **8.1 — A client's own death is silent, and its HUD lies about it.**
-      `P1` `S`
-      Found with `NS3_NET_KILL=6` + `NS3_HAPTIC_LOG=1`: the results card comes up
-      correctly (DEFEATED, #10 of 10, the real stat table) while the HUD behind it
-      still reads `HP 5000/5000`, and **not one haptic fires**.
-      - The health line explains both. A client is put down by the
-        `_net_eliminate` **event**, not by its health being walked to zero, so
-        `_update_status`'s frame-to-frame damage watch — the one hook that is
-        supposed to cover both single-player and net — never sees a decrease.
-      - `death`, `elimination`, `cube`, `super_ready`, `super_fire` and
-        `count_go` are all hooked into host-side paths a client never runs, so
-        **the whole haptic layer is effectively off in wifi play.**
-      - Fix: zero the local health on a net elimination, and fire the taps from
-        the client's own event handlers.
-
 - [ ] **8.2 — Clients do not predict their own attacks.** `P2` `M`
       The next thing anyone will feel after the prediction work. A client's shot
       goes up as `_net_fire` and appears only when `_net_attack` echoes back, so
@@ -495,14 +468,7 @@ What is left is the half that is a design decision rather than a bug.
 
 # 10. Ship
 
-- [ ] **10.1 — The app icon is a placeholder.** `P1` `S`
-      `godot/icon.png` is a flat gold star on navy at 1024x1024, and **the
-      generator that draws it already exists** — `godot/tools/make_icon.gd`, run
-      with `Godot --path godot --headless --script res://tools/make_icon.gd`. So
-      this is not "build a pipeline", it is **design a better icon and edit that
-      script**, which makes it the cheapest P1 on the list. Needed before a build
-      on a phone looks like a real game. The launch art beside it is done: the
-      iOS storyboard inherits the boot splash.
+*Empty. `10.1` (the app icon) is done and in [`done.md`](done.md).*
 
 ---
 

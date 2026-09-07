@@ -16,6 +16,108 @@ Newest work is roughly at the top of each section.
 
 ---
 
+## The P1 sweep (6 Sep 2026) — controls, wifi feedback, and the icon
+
+- [x] **3.1 — A drawn shot can be called off.** Drag the aim stick out, change
+      your mind, drag it back to the centre, release: nothing fires. `TouchStick`
+      keeps a `peak` — the furthest it went during THIS touch, reset by `begin`
+      — because `value` alone cannot tell the two zero-deflection releases
+      apart. Three gestures now end at `_release_fire`: out and released is the
+      lane you drew, never left home is a tap that auto-aims, out and brought
+      back is called off.
+      - **This is not a hole in the "every tap fires" rule, and it took some
+        care not to make it one.** That rule killed the Super's old `hold` case
+        on the grounds that a button which declines to go off reads as broken
+        rather than as restraint, and it still holds: a tap is a gesture you did
+        not aim, and it fires. Drawing a lane and pulling it back is a *second*
+        gesture, performed deliberately, and it already has feedback in both
+        directions — the aim indicator vanishes as the stick crosses back under
+        `TAP_THRESHOLD`, and `_update_aim_detent` fires `aim_off` at the same
+        crossing. The shot not going off is the answer to something you did.
+      - **It is checked ahead of `_kick_instead`** so a Nobles Cup carrier who
+        draws a kick and thinks better of it keeps the ball instead of passing
+        it anyway.
+      - Same `TAP_THRESHOLD` the detent already watches, so there is one
+        definition of where the stick stops meaning "tap" — a second constant
+        here would let the tell and the behaviour drift apart.
+      - **The gesture itself still wants a thumb.** The three branches are
+        exhaustive over the input and the game runs, but nothing in the harness
+        can draw a stick out and back. Pair it with `3.2` on the next device
+        session — both want a hand rather than a screenshot.
+
+- [x] **8.1 — A client's death is felt, and its HUD stops lying.** Found and
+      fixed with the harness the entry names: `NS3_HOST=2 NS3_NET_KILL=6` on one
+      instance, `NS3_JOIN=127.0.0.1 NS3_HAPTIC_LOG=1` on the other.
+      - **The root cause is one sentence and it generalises**: a client learns
+        some things as NUMBERS in the snapshot and others as EVENTS in an RPC,
+        and every haptic was hooked to a host-side code path that is neither.
+        So the fix has a rule: **anything a client learns as a number is
+        watched frame to frame; anything it learns as an event is fired from the
+        RPC handler.** That is why `hit` and `ammo_ready` already worked (health
+        and ammo are numbers, watched in `_update_status`) and nothing else did.
+      - **`_net_eliminate` now zeroes health before `die()`**, which
+        `_net_cup_down` was already doing for Nobles Cup with the reason written
+        beside it: `die()` does not touch health and `fighter_bars` skips only a
+        fighter that `is_dead()`, so a full health bar otherwise hangs over the
+        body for the whole pop-out. Showdown's half had simply never been done.
+      - **The HUD lie is `status_label`**, which reads off `player` — about to
+        be set to null — so left alone it freezes at whatever it last said,
+        which is full health, printed behind a card that says DEFEATED. Blanked.
+      - **`super_ready` moved OUT of `deal_damage` and into the frame watch.**
+        The charge rides the snapshot, so watching the number covers the host
+        and the client with one hook, exactly like the damage watch. The sound
+        moved with it — a client had no `super_ready` sound either, which nobody
+        had noticed because nobody had listened to a client.
+      - **`count_go` was missing its sound as well as its tap.** The host fires
+        both where it makes the COUNTDOWN → PLAYING transition itself, in the
+        branch of `_run_playing` a client never reaches; a client makes the same
+        transition in `_apply_snapshot_state`. The match was starting silently
+        on every machine but the host's.
+      - **`elimination` is matched on the killer's ROSTER INDEX, not their
+        name.** `_net_eliminate` carries an extra `killer_idx` and `_eliminate`
+        an optional one to feed it. A name comparison would have been one line
+        and wrong twice over — every machine calls its own fighter "You", and
+        two players may share a name. Same trap the Cup results board hit.
+      - **There is deliberately no `defeat` tap on the client.** Losing a net
+        Showdown is always losing by dying, so `death` fired a beat earlier and
+        outlasts it — the rule `_end_match` already states. Nobles Cup, where
+        you can lose on your feet, keeps its own in `end_cup_match`.
+      - **Measured after, on the client:** `count_beep`, `count_go`, `hit` (990
+        damage, 17% of max) and `death` all fire, against "not one haptic" in
+        the entry. `super_fired` turned out to have worked all along — it lives
+        in `perform_attack`, which a client runs off the `_net_attack` echo —
+        so the entry overstated its list by one.
+      - **Still missing, and left:** `landed`, the tap for damage you DEALT. A
+        client is never told it hit anyone; there is no number and no event to
+        hang it on, so it would need a new RPC. Not worth one.
+
+- [x] **10.1 — A new app icon, in the game's own design language.** The old one
+      was a gold star on a mid-navy VERTICAL GRADIENT with the lower half of the
+      star darkened — a gradient, a shading pass and the pre-overhaul navy, three
+      things the menu removed everywhere else. The new one takes `INK` and `GOLD`
+      from `MenuUI` so there is one definition of each, and is flat, hard-edged
+      and unshaded like everything else the game draws.
+      - **Ink, not gold, for the field**, and the reason is continuity rather
+        than taste: the boot splash, the launch storyboard and the menu are all
+        ink, so tapping the icon and arriving at the lobby is one surface.
+      - **The generator is supersampled now.** The old one tested a single point
+        per pixel against the star polygon, so every edge was hard-aliased, and
+        a jagged 1024 master is exactly what turns to mush at the sizes iOS
+        downscales to. `SS x SS` samples per pixel, coverage lerped between the
+        two colours, is the whole difference.
+      - **First attempt was rejected**: inner radius 0.52 and a 0.20 rad tilt,
+        reasoned as "chunky and off-axis reads as a mark rather than clip-art".
+        Rendered, it read as a badly drawn star falling off a shelf — the fat
+        inner radius destroys the silhouette and the tilt looks like a mistake
+        rather than a choice. 0.42 and 0.07 rad keeps both the star and the
+        life. **Render it and look at it at 120 px before believing any of these
+        numbers**; the mark is legible there and that is the size that matters.
+      - Nothing runs to the tile edge on purpose: iOS masks the icon into a
+        superellipse, so a design that bleeds is cropped in a way you do not
+        control and does not match across sizes.
+
+---
+
 ## Phone fit (6 Sep 2026) — the P0 block, and the loop that made it cheap
 
 - [x] **The device round trip no longer needs anyone's eyes.**

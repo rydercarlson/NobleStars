@@ -202,7 +202,7 @@ should not block each other.*
 | **Jackson** | Map select and map thumbnails | M | pipeline 2 |
 | **Jackson** | Wire or delete the dead JSON | M | `todo 5.6` |
 | **Jackson** | Draw the art the JSON already describes | M | `todo 5.7`, pipeline 3 |
-| **Jackson** | The app icon | S | `todo 10.1` |
+| ~~Jackson~~ | ~~The app icon~~ — **done**, flat gold-on-ink in the menu's own language | S | — |
 | **Ryder** | Decide what a power level changes | M | **D3** |
 | **Jackson** | Wire progression once **D3** lands | L | `todo 5.4` |
 
@@ -236,7 +236,7 @@ list that changes whether a build looks like a real game on a home screen.
 | **Ryder** | Author nine maps (three per mode) | L | **D11** |
 | **Ryder** | Spectate after death in Showdown | M | bar item 9 |
 | **Ryder** | The party surface — the plumbing half | L | **D10** |
-| **Ryder** | A client's death is silent and its HUD lies | S | `todo 8.1` |
+| ~~Ryder~~ | ~~A client's death is silent and its HUD lies~~ — **done**, and with it the haptic layer in wifi play | S | — |
 | **Ryder** | Client-side attack prediction | M | `todo 8.2` |
 | ~~Ryder~~ | ~~Nobles Cup over wifi~~ — **already built**, see below | — | **D4 answered** |
 
@@ -245,12 +245,12 @@ copying exactly: everything mode-specific in one file, called from `main.gd` at
 four points, with `cup == null` as the guard on every branch. That is what kept
 Showdown's match loop untouched when Cup landed.
 
-**The client-death bug is small and matters more than its size.** A client's HUD
-reads full health behind its own DEFEATED card, and not one haptic fires, because
-a client is put down by an event rather than by its health reaching zero. The
-same root cause means **the whole haptic layer is effectively off in wifi play** —
-so anyone testing multiplayer is testing a version of the game with a feature
-silently missing.
+**The client-death bug is fixed** (6 Sep 2026), and it was worth more than its
+size exactly as this said: the same root cause had the whole haptic layer off in
+wifi play, so anyone testing multiplayer was testing a version of the game with a
+feature silently missing. The general rule it produced is in CLAUDE.md's wifi
+section — a client learns some things as numbers and others as events, and each
+piece of feedback has to hang off whichever one it is.
 
 ### Already built — in the working tree, uncommitted
 
@@ -336,7 +336,7 @@ roster finished first, which is why it is here and not earlier.*
 | **Ryder** | Speed / camera / model scale — one decision | M | `todo 2.1` |
 | **Ryder** | The balance pass, now across 12 kits | M | `todo 7.1` |
 | **Ryder** | Sanjit's range | S | `todo 7.2` |
-| **Ryder** | A shot cannot be called off after aiming | S | `todo 3.1` |
+| ~~Ryder~~ | ~~A shot cannot be called off after aiming~~ — **done** | S | — |
 | **Ryder** | Hammy's heat pips become one draining bar | S | `todo 3.4` |
 | **Ryder** | Judge the haptics on a real phone | XS | `todo 3.2` |
 | **Ryder** | The gas ring makes no sound | S | `todo 9.2` |

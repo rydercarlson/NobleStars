@@ -308,6 +308,12 @@ var _last_empty_click := -1.0
 ## CLIENT never runs deal_damage at all — `authoritative` returns it early — and
 ## its own health arrives in the snapshot stream. Reading the number covers both.
 var _last_player_health := -1
+## The same trick for the Super filling, and moved here from deal_damage for the
+## same reason: the charge rides the snapshot, so a client can be told the bar
+## filled by watching it, and one hook then serves both machines. This is the
+## general shape of the fix for todo 8.1 — anything a client learns as a NUMBER
+## is watched, anything it learns as an EVENT is fired from the RPC handler.
+var _was_super_ready := false
 ## Damage the PLAYER dealt, and the max health of whoever took it. Banked in
 ## deal_damage and spent in _update_status for the same reason the line above is
 ## watched there: one exchange should be one tap.
@@ -920,6 +926,7 @@ func start_match() -> void:
 	cup = null
 	_name_pool = []   # a fresh shuffle per match, so no lobby repeats a username
 	_last_player_health = -1
+	_was_super_ready = false
 	_landed_damage = 0.0
 	# Ahead of the first tap rather than on it: Godot builds the Core Haptics
 	# engine with auto-shutdown on, so it idles down between taps and the first
@@ -1313,13 +1320,13 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 				_landed_at = now
 			_landed_damage += float(amount)
 			_landed_max = float(target.max_health)
-		var was_charged: bool = attacker.is_super_ready()
 		attacker.charge_super(amount)
-		# The moment the bar fills is the only cue the player gets that the
-		# Super is available without looking away from the fight.
-		if attacker == player and not was_charged and attacker.is_super_ready():
-			sfx_ui("super_ready", 1.0)
-			Haptics.fire("super_ready")
+		# The cue for the bar filling is deliberately NOT fired here. It is
+		# watched frame to frame in _update_status instead, because a wifi client
+		# never reaches this function at all and takes its charge off the
+		# snapshot — so the watch is the one hook that serves both machines,
+		# exactly like the damage-taken watch above it. See `_was_super_ready`
+		# and todo 8.1.
 		if sim_active:
 			_sim_kit(attacker.kit.name).damage += amount
 			_sim_kit(attacker.kit.name).hits += 1
@@ -1330,7 +1337,8 @@ func deal_damage(amount: int, target: Fighter, attacker: Fighter,
 			attacker.stats.kills += 1
 			if sim_active:
 				_sim_kit(attacker.kit.name).kills += 1
-		_eliminate(target, attacker.display_name if attacker != null else "")
+		_eliminate(target, attacker.display_name if attacker != null else "", false,
+				net_fighters.find(attacker) if attacker != null else -1)
 
 func perform_attack(f: Fighter, weapon: Dictionary, dir: Vector3, dist: float) -> void:
 	if f.is_disconnected(now):
@@ -2232,7 +2240,8 @@ func gas_closing() -> bool:
 
 # MARK: match flow
 
-func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
+func _eliminate(f: Fighter, killer: String, left_game := false,
+		killer_idx := -1) -> void:
 	# Ahead of the Cup branch: a Cup death is a setback rather than an exit, but
 	# it still wants the sound.
 	sfx_at("elimination", f.global_position, 3.0)
@@ -2262,7 +2271,7 @@ func _eliminate(f: Fighter, killer: String, left_game := false) -> void:
 		# reliable on the same channel, so this lands before the elimination
 		# that raises the card it fills in.
 		_net_push_stats(f)
-		_net_eliminate.rpc(net_fighters.find(f), killer, rank, left_game)
+		_net_eliminate.rpc(net_fighters.find(f), killer, killer_idx, rank, left_game)
 	_drop_cubes(f)
 	fighters.erase(f)
 	for b in brains.duplicate():
@@ -3155,12 +3164,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				move_stick.release()
 			elif super_stick.active and event.index == super_stick.touch_index:
 				var sv: Vector2 = super_stick.value
+				var speak: float = super_stick.peak
 				super_stick.release()
-				_release_fire(sv, true)
+				_release_fire(sv, true, speak)
 			elif aim_stick.active and event.index == aim_stick.touch_index:
 				var v: Vector2 = aim_stick.value
+				var vpeak: float = aim_stick.peak
 				aim_stick.release()
-				_release_fire(v, false)
+				_release_fire(v, false, vpeak)
 	elif event is InputEventScreenDrag:
 		if move_stick.active and event.index == move_stick.touch_index:
 			move_stick.update_drag(event.position)
@@ -3179,8 +3190,31 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.physical_keycode == KEY_E and player.is_super_ready():
 			_auto_aim_fire(player.kit["super"], true)
 
-func _release_fire(stick_value: Vector2, use_super: bool) -> void:
+## Three gestures end here, and `peak` — how far the stick went during this one
+## touch — is the only thing that tells the last two apart, since both release
+## at zero deflection.
+##
+##   out and released    -> the lane you drew
+##   never left home     -> a TAP, which auto-aims at the nearest target
+##   out and brought BACK -> called off, and nothing happens
+##
+## The third is todo 3.1. It looks like it contradicts the rule that **every tap
+## fires** — the rule that killed the Super's old `hold` case, on the grounds
+## that a button which decides not to go off reads as broken rather than as
+## restraint — and it does not, because this is not a tap. A tap is one gesture
+## the player did not aim; drawing a lane and dragging it back to the centre is
+## a second gesture they performed deliberately, and it already has its own
+## feedback both ways: the aim indicator vanishes as the stick crosses back
+## under TAP_THRESHOLD, and `_update_aim_detent` fires `aim_off` at the same
+## crossing. So the shot not going off is the answer to something you did, not
+## silence.
+##
+## It sits ahead of `_kick_instead` on purpose: a Nobles Cup carrier who draws a
+## kick and thinks better of it should keep the ball, not pass it anyway.
+func _release_fire(stick_value: Vector2, use_super: bool, peak: float) -> void:
 	if phase != Phase.PLAYING or player.is_dead():
+		return
+	if peak >= TAP_THRESHOLD and stick_value.length() < TAP_THRESHOLD:
 		return
 	if _kick_instead(stick_value, use_super):
 		return
@@ -3367,6 +3401,15 @@ func _update_status() -> void:
 		if pips == 1 and _last_ammo_pips == 0:
 			Haptics.fire("ammo_ready")
 	_last_ammo_pips = pips
+	# The moment the Super bar fills, and the only cue you get for it without
+	# looking away from the fight. Watched here rather than fired from
+	# deal_damage so that a wifi client — which never runs deal_damage and reads
+	# its charge out of the snapshot — is told too. todo 8.1.
+	var super_ready_now: bool = player.is_super_ready()
+	if phase == Phase.PLAYING and super_ready_now and not _was_super_ready:
+		sfx_ui("super_ready", 1.0)
+		Haptics.fire("super_ready")
+	_was_super_ready = super_ready_now
 	# Your health going DOWN is the one thing worth a buzz whatever caused it —
 	# a pellet, the gas, a Super you never saw. Health only ever climbs on a
 	# respawn or a kickoff restore, so an increase is deliberately silent.
@@ -3879,6 +3922,11 @@ func _apply_snapshot_state(s: Dictionary) -> void:
 		phase = Phase.PLAYING
 		match_start = now
 		center_label.text = "FIGHT!"
+		# The host fires these where it makes the same transition itself, in the
+		# branch of _run_playing a client never reaches — so without them the match
+		# simply starts, silently, on every machine but the host's.
+		sfx_ui("count_go", 3.0)
+		Haptics.fire("count_go")
 		get_tree().create_timer(0.8).timeout.connect(func() -> void:
 			if phase == Phase.PLAYING:
 				center_label.text = "")
@@ -4314,6 +4362,18 @@ func _net_show_results(rank: int, victory: bool, who: Fighter = null) -> void:
 	super_stick.release()
 	if who != null and is_instance_valid(who) and not who.is_dead():
 		who.stats.survived = maxf(0.0, now - match_start)
+	# _end_match owns this in single player and a net match reaches it never —
+	# both the host and every client come through here instead, so this is the
+	# only place the result can be felt in wifi play at all. todo 8.1.
+	#
+	# There is deliberately no `defeat` tap to match the `victory` one. Losing a
+	# net Showdown is ALWAYS losing by dying, there is no scoreline or clock to
+	# lose to, so `death` has already fired a beat earlier and outlasts this call
+	# — which is the same rule _end_match states and the reason its loss branch
+	# is conditional. Nobles Cup, where you can lose on your feet, keeps its own
+	# defeat tap in end_cup_match.
+	if victory:
+		Haptics.fire("victory")
 	var award: Dictionary = SaveGame.award_match(_my_kit_name, rank)
 	_show_results(1 if victory else -1, "You placed #%d of %d" % [rank, _net_roster.size()],
 			_my_kit_name, award, _net_rows(who), authoritative, null, not authoritative)
@@ -4580,19 +4640,38 @@ func _net_attack(idx: int, use_super: bool, dir: Vector3, dist: float) -> void:
 	perform_attack(f, f.kit["super"] if use_super else f.kit.weapon, dir, dist)
 
 @rpc("authority", "call_remote", "reliable")
-func _net_eliminate(idx: int, killer: String, rank: int, left_game: bool) -> void:
+func _net_eliminate(idx: int, killer: String, killer_idx: int, rank: int,
+		left_game: bool) -> void:
 	if net_host or idx < 0 or idx >= net_fighters.size():
 		return
 	var f = net_fighters[idx]
 	if f == null or not is_instance_valid(f):
 		return
+	# Health first, for the reason _net_cup_down already records: die() does not
+	# touch it, and fighter_bars skips only a fighter that is_dead(), so a full
+	# health bar otherwise hangs over the body for the whole pop-out.
+	f.health = 0
 	fighters.erase(f)
 	f.die()
 	_update_players_label()
 	feed_label.text = _elim_feed_text(f.display_name, killer, left_game)
 	if f == player:
+		# A client is put down by THIS EVENT rather than by its health being walked
+		# to zero, so _update_status's damage watch never sees the killing blow and
+		# nothing downstream of it ever fires. `death` is CEREMONY tier and would
+		# preempt the `hit` tap anyway, so this is the whole of what is owed.
+		Haptics.fire("death")
+		# And the HUD's own line reads off `player`, which is about to be null: left
+		# alone it freezes at whatever it last said, which is full health, printed
+		# behind a card that says DEFEATED.
+		status_label.text = ""
 		player = null
 		_net_show_results(rank, false)
+	elif killer_idx >= 0 and killer_idx == _my_idx:
+		# You got the kill. Matched on the ROSTER INDEX rather than on the killer's
+		# name, because every machine calls its own fighter "You" and two players
+		# may share a name — the same trap the Cup results board hit.
+		Haptics.fire("elimination")
 
 @rpc("authority", "call_remote", "reliable")
 func _net_match_over(idx: int) -> void:
@@ -4644,6 +4723,8 @@ func _net_cube_gone(cube_name: String, collector_idx: int) -> void:
 		var f = net_fighters[collector_idx]
 		if f != null and is_instance_valid(f) and not f.is_dead():
 			f.collect_cube()   # popup; the next snapshot re-syncs the stats
+			if f == player:
+				Haptics.fire("cube")   # the host's own hook is in the pickup Area
 
 @rpc("authority", "call_remote", "reliable")
 func _net_wall_broken(wall_name: String) -> void:
