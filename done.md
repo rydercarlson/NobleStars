@@ -1024,6 +1024,146 @@ Newest work is roughly at the top of each section.
         Verified at 1920x1080, 1920x1200 and 1560x720, in both the
         pass-bought and pass-not-bought states, with `NS3_MENU_PROGRESS`.
 
+- [x] **Shop opens on the Dawg Treat, and the menu grew a shared block**
+      (7 Sep 2026). Shop was the last screen still wearing the overhaul's
+      layout at a larger size: three lists, of which the first was nine
+      near-identical POWER UP rows with an UPGRADE button each, filling the
+      screen top to bottom, with the Dawg Treat — the one thing on the page
+      with any occasion to it — below the fold underneath them.
+      - **The Treat is the first block now**, with the bone at 96px, the copy,
+        the OPEN button, and the odds beside it as a row of seven rarity
+        chips: a colour band over the chance over the name. The old table was
+        seven lines with a 14px swatch each; the chips take a third of the
+        height and put the seven colours in a row where they read as a scale.
+      - **A fighter is a card with their own face on it**, the same square the
+        roster tiles use, with POWER n and the cost. **The card is not the
+        button** — everywhere else in this menu a whole tile is pressable, and
+        here it deliberately is not: claiming a Trophy Road reward is free, and
+        this spends 200 coins a tap. A cost earns an explicit control.
+      - **Three pieces moved into `MenuUI` so two screens cannot drift.**
+        `block(icon, title, rule)` is the bordered card with a head that Season
+        and Shop are both made of; `reward_glyph(kind)` and
+        `reward_name(kind, amount)` are the one place a reward is named and
+        drawn. That last one was already broken in the small way these things
+        break: Shop said "50 POWER POINTS" where Season said "50 POWER PTS".
+      - **`GridContainer` only splits its width between columns whose children
+        ask to expand.** Without `SIZE_EXPAND_FILL` on the cards, the columns
+        sit at their natural widths and the last row stops halfway across the
+        block. The sibling of the same trap: a label with `clip_text` has a
+        minimum width of zero, so a name column that does not expand gets only
+        what "POWER 1" needs and KOVACS comes out "KOVAC".
+
+- [x] **Counted the type against Apple's floor on every screen, and
+      conformed the three that could be** (7 Sep 2026, part of `todo 1.3`).
+      The 6 Sep pass moved the utility tier to 26–30 stage px and recorded that
+      as "9.5–10.9 pt, at the floor rather than half of it". Counting it
+      properly says something sharper: the floor needs **30.2 stage px** and
+      the tier's ceiling is 30, so **all 39 sized utility labels in the menu
+      were under 11 pt** — the top of the tier by 1%, the bottom by a third.
+      - Roster, Shop and Events were carrying labels at 20–24, below the
+        system's *own* documented floor of 26, which is a bug against the
+        system rather than a design question. Raised, and it cost one
+        measurement: seven rarity chips in Shop could not hold "LEGENDARY" at
+        26 with its tracking until the copy beside them gave up 80 px, and at
+        620 the word broke across two lines mid-letter.
+      - **Season and Home were left, deliberately.** Season's page does not
+        scroll — header plus both blocks plus gaps must total 816 stage px, and
+        those heights were already solved against Anton's 1.64x line box with
+        the block padding and head type cut to make them fit. A pass cell's
+        name at 26 rather than 20 adds ~10 px, twice per tier column, and there
+        is nothing left to take it from. Getting that grid to 30 means **fewer
+        tiers visible at once**, which is a decision about what the Pass is
+        for. That is the shape of the whole remaining P0: a redesign of the
+        hole in the scale, not a multiply, exactly as the item has said since
+        it was measured.
+
+- [x] **A third of game.json was data for screens that do not exist**
+      (7 Sep 2026, half of `todo 5.6`). `news`, `friends`, `club` and `inbox`
+      lost their screens in the 4 Sep overhaul; `upcoming`, `quests`,
+      `leaderboard` and `gameLog` never had one. All eight were still shipping
+      in the iOS bundle — 7,071 bytes of 21,114, invented usernames and fake
+      match history included. Deleted, with `SaveGame.read_mail`, `club_chat`
+      and `unread_mail()`, which existed only to read the inbox block and had
+      no callers left. game.json now holds exactly what a screen draws:
+      `season`, `startingBrawlers`, `opponents`, `modes`, `shop`,
+      `passRewards`, `trophyRoad`.
+      - **Two items in 5.6 were deliberately left.** The `loadout` dict
+        (gadget / gear / Star Power / Hypercharge) is tied to `todo 5.4` and
+        Ryder's **D3** — deleting it would mean re-authoring it the day a power
+        level starts meaning something — and `MenuData.card_art` is tied to
+        `todo 4.2`'s open question about the card medium (**D5**). Both are
+        waiting on a decision, not on this cleanup.
+      - Verified by shooting all seven surviving surfaces and running a
+        Showdown match through its results card, since `main.gd` reads
+        `SaveGame` too. Zero errors. The rewrite was checked to be
+        byte-identical on every surviving block, not just parseable.
+
+- [x] **Events got the icons it already had, and a button you can see**
+      (7 Sep 2026). Two bugs and a relayout:
+      - **The SELECT button was invisible.** It was built `"navy"`, and
+        `MenuUI.fill_for` resolves that to `PANEL` — the fill of the card it
+        sits on — so on the one mode you had not already picked, the action was
+        a word floating in the dark with a hairline somewhere behind it. It is
+        `"grey"` now, and it is the same size and position as PLAY on the other
+        card, because they are the same control in two states.
+      - **Every mode names an `icon` in game.json and nothing drew them.**
+        `bulldog`, `gem`, `coin`, `power_point`, `star_drop` were all already
+        in the art; only the Cup's `brawl_ball` was missing, so `svg/ball.svg`
+        was drawn for it. First pass at that glyph had a pentagon and seams
+        heavy enough to read as a spider at 66px — the second is a smaller
+        centre panel and five short seams.
+      - A hairline rule was still separating each card's blurb from its head,
+        which the 6 Sep no-rules pass had removed everywhere else, and a glyph
+        beside the map name was tried and dropped: there is no map icon in the
+        set and `stage_ring` at 22px is a smudge. Gold already says "this is
+        the place".
+      - The five unbuilt modes were dim rows with a 7px colour block each;
+        they are small dim cards now, so the section reads as a plan rather
+        than as a list of things that do not work.
+
+- [x] **Seven dead helpers left the design system** (7 Sep 2026, `todo 5.1`).
+      `plate_colors` was the one the todo asked about — "either it earns its
+      place or it goes" — and the answer was that the overhaul had already
+      flattened it to three copies of one fill and nothing had called it since.
+      `stat_row`/`stat_line`, `body_font_700`, `disabled_button`, `art_button`
+      and `chip` had no callers either. Checked with
+      `grep -rn "\.name(" godot --include="*.gd"` and verified by running every
+      menu screen plus a full Nobles Cup match with its results card, since
+      `main.gd` builds its match chrome out of `MenuUI` too — zero errors. Git
+      history has them if one is ever wanted back.
+
+- [x] **5.2 — The roster is a wall of faces, not a table** (7 Sep 2026).
+      Ryder wanted tiles; the screen was nine numbered rows. The argument the
+      table was built on is worth recording because it was *true* and still
+      wrong: nine rows fit one screen with no scrolling and put trophies and
+      power in columns you can compare down, which a grid cannot do. Neither
+      fact is why anyone opens this screen. **You do not pick a fighter by
+      comparing trophy counts** — you pick the one you want to play, and you
+      recognise them by face. The table made the two figures the loudest thing
+      on a screen whose entire job is recognition, and it set nine names in the
+      display face while nine portrait renders sat unused in
+      `assets/menu/portraits/`. The numbers are still there, small, in each
+      tile's footer, which is the weight they deserve.
+      - One tile each: the portrait on a ground of the kit's own colour (the
+        only solid block of a fighter's colour in the menu outside the home
+        flanks, and what makes nine tiles read as nine people rather than nine
+        dark rectangles), the roster number top-left, a padlock or SELECTED
+        top-right, then name, role, and a trophy figure and power level.
+      - **Two rows at any roster size.** `_columns()` is `ceil(n / 2)`, so nine
+        lay out 5+4 and the twelve the beta bar asks for lay out 6+6, both on
+        one fixed-height screen. Past twelve this wants a scroll or a third row
+        rather than thinner tiles.
+      - A locked fighter is **dimmed, not hidden** — which fighter it is is the
+        reason to go and unlock them — and spends the footer on the unlock hint
+        instead of on two zeroes. Nova has no render yet (`todo 4.1`) and gets
+        her initial in the display face, which reads as "not shot yet" where a
+        broken-image box reads as a bug.
+      - **The ground is a `Panel`, not a `PanelContainer`.** A container lays
+        its children out to fill it and ignores their anchors, so `MenuUI.pin`
+        did nothing and the roster number and the SELECTED mark rendered on top
+        of each other in the corner. Verified at 1920x1080 and 1560x720, with
+        the roster fully unlocked and back at first-run.
+
 - [x] **`NS3_MENU_PROGRESS` seeds progress for a harness run** (7 Sep 2026).
       A fresh save has nothing reached and nothing claimed, so a screenshot of
       Season or Shop only ever showed the locked state — and claimed,
@@ -1032,7 +1172,9 @@ Newest work is roughly at the top of each section.
       sets the `SaveGame` statics in memory and **never calls `save()`**, so
       the machine's own progress is untouched. `claimed:1` backfills every
       milestone and tier already passed, which is what puts the three states
-      side by side.
+      side by side, and `starters:1` puts the roster back to a first-run one,
+      which is the only way to shoot a locked tile on a save with developer
+      mode turned on.
 
 - [x] **The stage covers a 16:10 display** (6 Sep 2026). In fullscreen on the
       MacBook the menu came up "cropped weirdly": `_fit_stage` kept the stage

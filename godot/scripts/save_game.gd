@@ -31,9 +31,7 @@ static var matches: int = 0
 static var trophies: Dictionary = {}      # kit name -> int
 static var power: Dictionary = {}         # brawler id -> power level (1+)
 static var unlocked: Dictionary = {}      # brawler id -> bool
-static var claimed: Dictionary = {}       # shop / pass / mail reward id -> true
-static var read_mail: Dictionary = {}     # inbox id -> true
-static var club_chat: Array = []          # [{who, text}, ...]
+static var claimed: Dictionary = {}       # shop / pass reward id -> true
 static var pass_tier: int = 1
 static var pass_tokens: int = 0
 static var pass_premium: bool = false
@@ -99,10 +97,6 @@ static func ensure_loaded() -> void:
 	_merge_ints(power, data.get("power", {}))
 	_merge_bools(unlocked, data.get("unlocked", {}))
 	_merge_bools(claimed, data.get("claimed", {}))
-	_merge_bools(read_mail, data.get("read_mail", {}))
-	var chat: Variant = data.get("club_chat", [])
-	if chat is Array:
-		club_chat = chat
 	# v1 saves predate the menu economy and used the engine's mode id.
 	if save_version < 2:
 		_grant_start()
@@ -174,8 +168,6 @@ static func save() -> void:
 		"power": power,
 		"unlocked": unlocked,
 		"claimed": claimed,
-		"read_mail": read_mail,
-		"club_chat": club_chat,
 		"pass_tier": pass_tier,
 		"pass_tokens": pass_tokens,
 		"pass_premium": pass_premium,
@@ -203,8 +195,6 @@ static func reset() -> void:
 	power = {}
 	unlocked = {}
 	claimed = {}
-	read_mail = {}
-	club_chat = []
 	pass_tier = 1
 	pass_tokens = 0
 	pass_premium = false
@@ -258,13 +248,6 @@ static func is_claimed(id: String) -> bool:
 
 static func claim(id: String) -> void:
 	claimed[id] = true
-
-static func unread_mail() -> int:
-	var n := 0
-	for m in MenuData.game.get("inbox", []):
-		if bool(m.get("unread", false)) and not bool(read_mail.get(str(m.id), false)):
-			n += 1
-	return n
 
 static func spend(currency: String, price: int) -> bool:
 	if currency == "free" or price <= 0:

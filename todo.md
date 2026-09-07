@@ -1,7 +1,7 @@
 # Noble Stars — TODO
 
 Open work on the Godot 3D game (`godot/`). **Finished work moved to
-[`done.md`](done.md)** — 65 entries recording what was measured, what was tried
+[`done.md`](done.md)** — 71 entries recording what was measured, what was tried
 and rejected, and why things are the shape they are. Read it before reopening
 anything here; several items on this list have a rejected first attempt on
 record.
@@ -44,7 +44,6 @@ they are not urgent, and `Voicelines` is the extreme case.
 | 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | — |
 | 4.1 | Nova is still a capsule | Characters | P1 | M | Meshy pass |
 | 5.1 | The menu's second look | Menu | P2 | M | — |
-| 5.2 | The roster should be tiles, not rows | Menu | P2 | S | — |
 | 5.3 | Jackson's menu idea — layout built, previews and a phone look left | Menu | P2 | M | — |
 | 5.4 | A real progression system | Progression | P2 | L | what a level changes |
 | 5.5 | Four fighters have no named unlock | Progression | P2 | XS | a content call |
@@ -101,6 +100,24 @@ What is left is the half that is a design decision rather than a bug.
         half of it. Still to do: shoot it on the handset and judge whether the
         display tier (which moved with it where the two met) still reads as a
         separate tier there.
+      - **Counted 7 Sep, every screen: 39 of 39 utility labels are under 11 pt.**
+        Not most of them — all of them, because the floor needs **30.2 stage px**
+        and the tier's own ceiling is 30. So "at the floor" was generous; the
+        top of the tier misses by 1% and the bottom by a third. Screens that now
+        hold the system's own 26 floor: **roster, shop, modes** (conformed 7 Sep,
+        and it cost nothing but one measurement — seven rarity chips could not
+        hold "LEGENDARY" at 26 until the copy beside them gave up 80 px).
+        Screens that do not: **season** (10 labels) and **home** (7), plus five
+        in the shell and popups.
+      - **Season is the case that proves this is a redesign, not a multiply.**
+        Its page does not scroll: header + Trophy Road + Nobles Pass + gaps have
+        to total 816 stage px, and every one of those heights was solved against
+        Anton's 1.64x line box and Barlow's 1.2x. A pass cell's name at 26
+        instead of 20 adds ~10 px, twice per tier column, and there is nothing
+        left to take it from — the last pass already cut the block padding and
+        the head type to make it fit at all. Getting that grid to 30 px means
+        **fewer tiers visible at once**, which is a design decision about what
+        the Pass is for, not a number to bump.
       - *Kept for the record — the analysis this was done against:* the menu's
         utility tier was the whole remaining problem, at roughly
         *half* the readable floor. Clearing 11 pt means about 30 stage px, which
@@ -289,16 +306,13 @@ What is left is the half that is a design decision rather than a bug.
         1.3's fix quietly fill it in? They are the same pass.
       - **Gold is the only colour with a job** (earned / active / yours). Audit
         that it has not leaked onto anything decorative.
-      - **`MenuUI.plate_colors` still hands every surface the same three-stop
-        vertical gradient**, which is a leftover from the flat-plate system the
-        overhaul replaced. Either it earns its place or it goes.
+      - ~~`MenuUI.plate_colors` still hands every surface a three-stop
+        gradient~~ — **answered 7 Sep: it goes.** It had already been flattened
+        to three copies of one fill by the overhaul, and it had no caller.
+        Removed along with `stat_row`/`stat_line`, `body_font_700`,
+        `disabled_button`, `art_button` and `chip`, which had none either.
       - The stage fighter is the only moving thing on Home. Whether the flank
         columns want any motion at all is a real question, not an obvious yes.
-
-- [ ] **5.2 — The roster should be tiles, not rows.** `P2` `S`
-      `roster_screen.gd` is a plain picker of rows. Ryder wants character tiles.
-      Cheap now that Home is the detail screen and the roster only has to select
-      and return.
 
 - [ ] **5.3 — Redesign the menu around Jackson's idea.** `P2` `M`
       *The idea is written down (ROADMAP **D1**, 6 Sep 2026) and the layout is
@@ -312,11 +326,10 @@ What is left is the half that is a design decision rather than a bug.
         colour; a kit's `stage` key takes a real one whenever there is one.
       - The ability-preview buttons under the two cards on home (the previews
         themselves are content).
-      - Season was rebuilt to its own mockup on 7 Sep (reward glyphs, a drawn
-        trophy track, the Free/Premium grid — see done.md). **Shop's lists are
-        the last screen still wearing the overhaul's layout at a larger size**,
-        and its Dawg Treat block is the obvious candidate for the same
-        treatment: a treat is a picture of itself too.
+      - *Done 7 Sep: Season, the roster and Shop were all relaid out (see
+        done.md). Every pushed screen now has its own layout rather than the
+        overhaul's at a larger size.* What is left of this item is the phone
+        look below and the ability art above.
       - Shoot it on the phone (`Tools/device_shot.sh`) — everything above was
         judged on the desktop stage at 1920x1080 and 2017 px of chrome width
         was not seen.
@@ -343,15 +356,19 @@ What is left is the half that is a design decision rather than a bug.
 
 - [ ] **5.6 — JSON the menu carries that nothing reads.** `P3` `M`
       Either wire it or delete it; carrying it costs export bytes and reads as
-      a feature that exists.
+      a feature that exists. *Half done 7 Sep — what is left is the two items
+      that are waiting on someone else's decision, not on this cleanup.*
       - **The `loadout` dict has zero readers.** `MenuData._merge` still emits
         gadget/gear/Star Power/Hypercharge, but `BrawlerDetailScreen._build_loadout`
         went with the roster's detail card when Home became the detail view. Six
         kits name a full set in `brawlers.json`; none of it reaches a screen. Tied
         to 5.4 — a loadout that displays and does nothing is worse than no
         loadout.
-      - `game.json`'s **`quests`, `leaderboard`, `gameLog` and `upcoming`** are
-        read by nothing.
+      - ~~`game.json`'s `quests`, `leaderboard`, `gameLog` and `upcoming` are
+        read by nothing~~ — **deleted 7 Sep**, along with `news`, `friends`,
+        `club` and `inbox`, whose screens went in the overhaul. A third of the
+        file, and with it `SaveGame.read_mail`, `club_chat` and `unread_mail()`,
+        which had no callers left either.
       - **`MenuData.card_art` has zero callers** (see 4.2).
       - `passRewards` was deliberately left at the 15 tiers the pass screen
         parses rather than the web build's 40. That one is fine.
