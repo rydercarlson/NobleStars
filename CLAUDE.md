@@ -249,6 +249,14 @@ Run it: **`Tools/godot.sh --path godot`** (add `--headless --import` after addin
 
 **Signing: `No Account for Team` has had TWO causes here, and the second one hid behind the first.** The one to check now is the **team id in the preset**: `application/app_store_team_id` named `KJDG3J6ZYY`, which is a.carlson14@gmail.com's free personal team, while the account actually develops under the paid team `S7AT3UP8R4` ("ANDREW DWIGHT CARLSON"). Godot wrote the wrong id into `DEVELOPMENT_TEAM`, so the archive step really did have no account for the team it was naming. Corrected in the preset on 2026-09-05, and `Tools/export_ios.sh` now runs end to end — `** EXPORT SUCCEEDED **`, no errors, an `.ipa` on disk. Tell the two apart by reading the profile rather than the error: `security cms -D -i <app>/embedded.mobileprovision` prints `TeamIdentifier` and `TeamName`, and that is the team the preset has to name.
 
+**A successful export still PRINTS `KJDG3J6ZYY`, and it is not the bug above.** `xcodebuild`'s log names the signing certificate — `Signing Identity: "Apple Development: a.carlson14@gmail.com (KJDG3J6ZYY)"` — and that parenthetical is the CERTIFICATE's identifier, not the team the build is signed for. Read against the paragraph above it looks exactly like the preset regressing to the free personal team, which is a false alarm that has already cost one session a detour. The profile is what settles it, and on the 2026-09-06 export it said `TeamName ANDREW DWIGHT CARLSON`, `TeamIdentifier S7AT3UP8R4`, `TimeToLive 365`, expiring 2027-09-05 — the paid team, the year-long profile. Check it out of the `.ipa` rather than hunting for an `.app`, which the project-only export does not leave in `build/ios/`:
+
+```sh
+cd $(mktemp -d) && unzip -q -o <repo>/build/ios/noblestars3d.ipa 'Payload/*/embedded.mobileprovision'
+security cms -D -i Payload/*/embedded.mobileprovision > prov.plist
+/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier' -c 'Print :TimeToLive' prov.plist
+```
+
 The older cause, which is the one the rest of this section is about: **a signing-identity CONFLICT, not a missing account.** Godot writes `CODE_SIGN_IDENTITY = "Apple Distribution"` into the Release configuration while also setting `CODE_SIGN_STYLE = Automatic`. Xcode will not reconcile those, and the conflict poisons provisioning for the whole target — including Debug — which surfaces from the command line as `No Account for Team "<id>"` and `No profiles for '<bundle>' were found`. Both point at the account, and the account is fine. An evening went into that misdirection; what identified it was the Signing & Capabilities pane in the Xcode GUI, which says plainly `noblestars3d has conflicting provisioning settings`. **When signing fails, open the project and read that pane before touching accounts.**
 
 The fix is in the preset, so re-exports stay correct. Development signing on **both** configurations is right for the side-load workflow this has used until now:
