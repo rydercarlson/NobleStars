@@ -122,13 +122,17 @@ func _build_stage() -> void:
 
 	brawler_view = MenuStage.new()
 	brawler_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	stage.add_child(brawler_view)
 	# Shifted right by half the nav rail, so the fighter is centred in the space
 	# the rail leaves rather than in the middle of the stage. He is the subject
 	# of this screen; being 84 px off the middle of what you can actually see
 	# reads as a mistake even when you cannot name it.
+	#
+	# AFTER add_child, not before: MenuStage._ready() applies PRESET_FULL_RECT
+	# to itself, which zeroes any offset set on the way in. Setting these first
+	# looked right and did nothing.
 	brawler_view.offset_left = STAGE_SHIFT
 	brawler_view.offset_right = STAGE_SHIFT
-	stage.add_child(brawler_view)
 
 	# The picture above fills the stage; everything below is inset into the safe
 	# area by _fit_stage. Screens anchor FULL_RECT to this rather than to the

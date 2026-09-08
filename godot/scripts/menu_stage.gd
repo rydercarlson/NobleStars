@@ -315,6 +315,45 @@ func _calibrate_feet() -> void:
 	if _anim:
 		_anim.seek(0.0, true)
 	_foot_rest_y = _lowest_foot_y()
+	_centre_on_feet()
+
+## Stand him on the middle of the ring.
+##
+## A Meshy export is not centred on its own origin — where the figure sits
+## depends on where he happened to be in the scene that was baked, and it is
+## different per character, so Ayaan stood a head's width left of a ring that
+## Kovacs stood dead in. The match hides this (the camera is 105 m up and
+## follows the body), and the menu cannot: the ring, the pool and the contact
+## shadow are all drawn at a fixed point and he is measured against them.
+##
+## Centred on the HIPS, with the feet as a fallback. Two anchors were tried:
+##
+## The mesh's own bounds are wrong — a figure holding a staff out to one side
+## (Sanjit) or a racket down at arm's length (Tony) has a bounding box centre
+## that is nowhere near where he stands.
+##
+## The average of the foot bones is wrong for anyone whose idle is not a
+## two-footed stance: Anders idles mid-kick with one leg up, and averaging a
+## planted foot with a raised one put him a hand's width right of his own ring.
+##
+## The hips are the body's axis in every pose. In a kick they sit over the
+## planted foot, which is exactly where the floor marking belongs.
+func _centre_on_feet() -> void:
+	var centre: Vector3 = _stance_centre()
+	_model.position.x -= centre.x * _model.scale.x
+	_model.position.z -= centre.z * _model.scale.z
+
+func _stance_centre() -> Vector3:
+	_skel.force_update_all_bone_transforms()
+	var to_model := _model.global_transform.affine_inverse() * _skel.global_transform
+	for pattern in ["hips", "pelvis"]:
+		for b in _skel.get_bone_count():
+			if _skel.get_bone_name(b).to_lower().contains(pattern):
+				return (to_model * _skel.get_bone_global_pose(b)).origin
+	var sum := Vector3.ZERO
+	for b in _foot_bones:
+		sum += (to_model * _skel.get_bone_global_pose(b)).origin
+	return sum / float(maxi(1, _foot_bones.size()))
 
 func _lowest_foot_y() -> float:
 	_skel.force_update_all_bone_transforms()

@@ -781,6 +781,27 @@ Newest work is roughly at the top of each section.
         minimum width of zero, so a name column that does not expand gets only
         what "POWER 1" needs and KOVACS comes out "KOVAC".
 
+- [x] **Stood every fighter in the middle of his own ring** (8 Sep 2026,
+      Jackson: "for some characters they aren't in the middle"). Two separate
+      bugs wearing one symptom.
+      - **The nav shift never applied.** The 8 Sep rail moved the fighter right
+        by half its width to keep him centred in the space that is left, by
+        setting offsets on `brawler_view` — before `add_child`. `MenuStage._ready`
+        applies `PRESET_FULL_RECT` to itself, which zeroes them. It looked
+        right in the diff and did nothing, and the fighter stayed on the stage
+        centre while his ring moved. Measured: all four fighters checked were
+        68-91 px left of their ring.
+      - **A Meshy export is not centred on its own origin.** Where the figure
+        sits depends on where he was in the baked scene, and it differs per
+        character. He is anchored on the HIPS bone now. The mesh's own bounds
+        are wrong for anyone holding something out to one side, and the average
+        of the foot bones is wrong for anyone whose idle is not a two-footed
+        stance — Anders idles mid-kick, and averaging a planted foot with a
+        raised one put him a hand's width right. The hips are the body's axis
+        in every pose.
+      - Verified by shooting all nine onto one contact sheet with the ring
+        centre drawn on each, rather than by looking at one and assuming.
+
 - [x] **Moved the nav to a column down the left, the way Brawl Stars has
       it** (8 Sep 2026). Jackson's note, and the reasoning in his own list:
       most of the people who will play this arrive from Brawl Stars, so the
