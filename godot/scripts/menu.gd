@@ -739,6 +739,14 @@ func _wire_debug_screenshot() -> void:
 		return
 	# Deliberately inside LoadingScreen.MIN_SHOW, or the match is already up.
 	var delay: float = 0.55 if start == "loading" else 2.0
+	# NS3_MENU_ATTACK=<seconds before the shot> taps the fighter, so the swing
+	# and the shot it fires can be photographed. Without it the only way to see
+	# a menu projectile is to be holding the mouse.
+	var attack: String = OS.get_environment("NS3_MENU_ATTACK")
+	if attack != "" and attack.is_valid_float():
+		var lead: float = clampf(attack.to_float(), 0.0, delay)
+		get_tree().create_timer(maxf(0.05, delay - lead)).timeout.connect(
+				func() -> void: brawler_view.play_attack())
 	get_tree().create_timer(delay).timeout.connect(func() -> void:
 		var out: String = Session.shot_path(shot)
 		if not DisplayServer.window_can_draw():   # occluded windows are not drawn; see main.gd:_shot_check

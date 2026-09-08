@@ -1,7 +1,7 @@
 # Noble Stars — TODO
 
 Open work on the Godot 3D game (`godot/`). **Finished work moved to
-[`done.md`](done.md)** — 71 entries recording what was measured, what was tried
+[`done.md`](done.md)** — 72 entries recording what was measured, what was tried
 and rejected, and why things are the shape they are. Read it before reopening
 anything here; several items on this list have a rejected first attempt on
 record.
@@ -333,13 +333,27 @@ What is left is the half that is a design decision rather than a bug.
         colour; a kit's `stage` key takes a real one whenever there is one.
       - The ability-preview buttons under the two cards on home (the previews
         themselves are content).
-      - *Done 7 Sep: Season, the roster and Shop were all relaid out (see
-        done.md). Every pushed screen now has its own layout rather than the
-        overhaul's at a larger size.* What is left of this item is the phone
-        look below and the ability art above.
+      - *Done 7-8 Sep: Season, the roster, Shop, Events and Settings were all
+        relaid out, and the menu was split into a lobby, a fighter's page and a
+        Trophy Road page on Jackson's notes (see done.md). Every pushed screen
+        has its own layout rather than the overhaul's at a larger size.* What
+        is left of this item is the phone look below and the ability art above.
       - Shoot it on the phone (`Tools/device_shot.sh`) — everything above was
         judged on the desktop stage at 1920x1080 and 2017 px of chrome width
         was not seen.
+
+- [ ] **5.8 — Model and texture defects Jackson listed on 8 Sep.** `P2` `M`
+      All of these need a Meshy re-export or a texture edit; none of them is a
+      script change, which is why the 8 Sep notes pass left them.
+      - **Tony**: idle arms and the tennis ball intersect his body; the UA logo
+        on his back sits in the wrong place; the shirt reads "RMAT" where it
+        should read "NBVT"; the racket strings are wrong.
+      - **The UA logo has to come off entirely** — Tony and Leon both wear one.
+        It is a real trademark on a shipped character.
+      - **Hammy**: elbows bend backwards; the attack is a baseball pitcher's
+        wind-up, too fast to read, and Jackson wants it redone rather than
+        retimed.
+      - Tied to `todo 4.3` and ROADMAP **D9** (who owns real attack clips).
 
 - [ ] **5.4 — A real progression system.** `P2` `L`
       `[blocked: deciding what a level changes]`

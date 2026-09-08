@@ -326,9 +326,137 @@ func _lowest_foot_y() -> float:
 
 # MARK: playback
 
-## Tap plays the fighter's real attack swing, at the match's own clip speed.
+## Tap plays the fighter's real attack swing, at the match's own clip speed —
+## and fires the shot that goes with it. The swing alone read as a fighter
+## miming: the thing that makes an attack legible is what leaves the weapon.
 func play_attack() -> void:
 	_play_clip("attack", "attack_speed", "attack_seek")
+	_fire_shot()
+
+# MARK: the shot
+#
+# Visual only: no body, no collision, no damage. It exists so the tap looks like
+# the attack it plays, and it is built from the same `weapon` dictionary the
+# match fires — pellet count, spread, radius, colour, range and speed — so a
+# balance change shows up here without this file knowing what changed.
+
+const SHOT_MAX_PELLETS := 9
+const SHOT_HEIGHT := 1.12
+const SHOT_FORWARD := 0.34
+## How far a menu shot travels, whatever its weapon's real range is.
+##
+## THE FIGHTER FACES THE CAMERA HERE. Models face -Z and `_frame_camera` puts
+## the camera on -Z so you get a front view, which means "forward" is straight
+## down the lens: a shot given its true 4-5.5 m range arrives about 30 cm from
+## the near plane and fills the screen with a yellow wall. Capped, it leaves the
+## weapon, crosses a metre and a half of stage, and is gone — which is the whole
+## job. It is a picture of an attack, not a simulation of one.
+const SHOT_TRAVEL := 2.4
+## How far off his facing a menu shot leaves, in radians (~52 degrees).
+##
+## He is looking down the lens, so a shot along his true forward comes STRAIGHT
+## AT THE CAMERA: the spread is invisible end-on, every pellet stacks into one
+## mass over his chest, and each one grows as it closes. Fired across the stage
+## instead, the spread reads as a spread, the pellets stay the size they left
+## at, and they clear the frame instead of clearing his face.
+const SHOT_YAW := 0.91
+
+func _fire_shot() -> void:
+	var weapon: Dictionary = _kit.get("weapon", {})
+	# speed 0 is how kits.gd spells "this one does not leave the hand" — the
+	# melee, dash and stomp styles all carry it, so this is the whole gate.
+	if float(weapon.get("speed", 0.0)) <= 0.0 or _pivot == null:
+		return
+	var delay: float = maxf(0.0, float(weapon.get("delay", 0.12)))
+	if delay <= 0.0:
+		_spawn_pellets(weapon)
+		return
+	get_tree().create_timer(delay).timeout.connect(func() -> void:
+		if is_instance_valid(self) and _pivot != null:
+			_spawn_pellets(weapon))
+
+func _spawn_pellets(weapon: Dictionary) -> void:
+	var pellets: int = clampi(int(weapon.get("pellets", 1)), 1, SHOT_MAX_PELLETS)
+	var spread: float = deg_to_rad(float(weapon.get("spread_deg", 0.0)))
+	var distance: float = minf(float(weapon.get("range", 4.0)), SHOT_TRAVEL)
+	var speed: float = maxf(0.5, float(weapon.get("speed", 6.0)))
+	var lob: bool = int(weapon.get("style", -1)) == Kits.Style.LOB
+	for i in pellets:
+		var offset: float = 0.0
+		var rise: float = 0.0
+		if pellets > 1 and spread > 0.0:
+			offset = spread * (float(i) / float(pellets - 1) - 0.5)
+			# A little vertical fan as well as the horizontal one. A flat row of
+			# same-sized spheres at one height merges into a single pill; a
+			# shallow cone reads as a spray of separate things.
+			rise = sin(TAU * float(i) / float(pellets)) * spread * 0.30
+		# A floor on the flight time. Nova's pellets leave at 14 m/s, so over the
+		# capped travel they are on screen for 0.17s — true to the match and too
+		# quick to register as anything but a flicker. The menu's job is to show
+		# you the shot.
+		_spawn_pellet(weapon, offset, rise, distance, maxf(0.34, distance / speed), lob)
+
+func _spawn_pellet(weapon: Dictionary, angle: float, rise: float, distance: float,
+		duration: float, lob: bool) -> void:
+	# SCALED FOR THIS CAMERA, not the match's. The arena camera sits 105 m back
+	# and looks down, where a 0.4 m ball is a dot; this one is 8.6 m from a
+	# standing figure, where the same ball is wider than his head. Menu shots
+	# are a picture of the weapon, so they are sized to read against him.
+	var radius: float = clampf(float(weapon.get("radius", 0.16)) * 0.42, 0.05, 0.16)
+	var node: Node3D = _pellet_body(weapon, radius)
+	_pivot.add_child(node)
+	var start := Vector3(sin(SHOT_YAW) * 0.26, SHOT_HEIGHT, -SHOT_FORWARD)
+	# Models face -Z, so a shot leaves along -Z and the spread rotates about Y.
+	var yaw: float = SHOT_YAW + angle
+	var heading := Vector3(sin(yaw), rise, -cos(yaw)).normalized()
+	node.position = start
+	var travel: float = distance
+	# The lambda is bound to a name first: an inline multi-line lambda followed
+	# by three more call arguments parses, but it reads as a puzzle.
+	var fly := func(t: float) -> void:
+		if not is_instance_valid(node):
+			return
+		var p: Vector3 = start + heading * (travel * t)
+		if lob:
+			# A shell that arcs, because Tony's does and a flat line does not
+			# read as one. Peak at a quarter of the throw's length.
+			p.y += sin(t * PI) * travel * 0.25
+		node.position = p
+	var tw := node.create_tween()
+	tw.tween_method(fly, 0.0, 1.0, duration)
+	# Shrunk out rather than faded: `transparency` is a GeometryInstance3D
+	# property and a kit with its own thrown model arrives as a plain Node3D
+	# pivot, which does not have one. Scale works on both.
+	tw.parallel().tween_property(node, "scale", Vector3.ZERO, duration * 0.45) \
+		.set_delay(duration * 0.55)
+	tw.finished.connect(func() -> void:
+		if is_instance_valid(node):
+			node.queue_free())
+
+## The pellet itself. A kit with its own thrown object uses it — Anders throws
+## the pink sack in a match and threw a plain ball here — and everything else
+## gets the match's emissive sphere at the same radius and colour.
+func _pellet_body(weapon: Dictionary, radius: float) -> Node3D:
+	var model_path: String = str(weapon.get("model", ""))
+	if model_path != "" and ResourceLoader.exists(model_path):
+		var scene: PackedScene = load(model_path)
+		var fitted: Node3D = Fighter.fit_ball(scene.instantiate(), radius)
+		Fighter.flatten_metallic(fitted)
+		return fitted
+	var m := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = radius
+	mesh.height = radius * 2.0
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = weapon.get("projectile_color",
+			Color(1.0, 0.45, 0.15) if weapon.get("destroys_walls", false) \
+			else Color(1.0, 0.85, 0.3))
+	mat.emission_enabled = true
+	mat.emission = mat.albedo_color * 0.6
+	mesh.material = mat
+	m.mesh = mesh
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return m
 
 func play_super() -> void:
 	_play_clip("super", "super_speed", "super_seek")

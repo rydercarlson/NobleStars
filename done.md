@@ -781,6 +781,55 @@ Newest work is roughly at the top of each section.
         minimum width of zero, so a name column that does not expand gets only
         what "POWER 1" needs and KOVACS comes out "KOVAC".
 
+- [x] **Split the lobby from brawler select, and worked Jackson's notes
+      through the menu** (7-8 Sep 2026, `todo 5.3`). A page of notes off the
+      back of playing it. The through-line is one idea: **information belongs
+      on the screen where you are making the decision it informs.**
+      - **Home is the lobby.** Five stat bars, two ability write-ups and a
+        record card lived on it permanently. That was sold as saving a screen;
+        what it did was make the lobby never quiet, and it made the record read
+        as *your* record rather than as that fighter's, because nothing beside
+        it said whose it was. All of it is `BrawlerScreen` now.
+      - **Roster is a rail you scroll sideways**, one big face per card. The
+        picture opens that fighter's page; SELECT under it picks them and
+        returns — choosing and studying are different gestures, and there was
+        nowhere to look a fighter up.
+      - **The Trophy Road left the Season**, onto its own page off the trophy
+        count. Both screens are `RewardScreen` now, which owns the reward tile
+        and `claim()`. The Pass took the whole page, which is what bought art
+        at 118 px: a skin or a pin is a picture of the fighter it is for rather
+        than a 26 px coat hanger.
+      - **The Shop is two shelves and no power levels.** A deal FOR a fighter
+        carries that fighter's face; prices wear the coin or gem itself. A
+        bought Dawg Treat used to open behind a freshly-pushed ShopScreen, so
+        it only appeared once you backed out — a purchase that looked like it
+        did nothing. Opening one is worth watching now.
+      - **Settings is a page with volume on it.** A sheet row holds one
+        control, so music could only be a switch, and a switch cannot say
+        *quieter*.
+      - **Tapping the fighter fires his actual shot**, built from the same
+        weapon dictionary the match fires. Three things are deliberately not
+        the match's — a 2.4 m cap, 52 degrees off his facing, and a 0.42 radius
+        scale — because he is looking down the lens here, where a true shot
+        arrives at the near plane as a yellow wall with its spread invisible
+        end-on. `NS3_MENU_ATTACK` photographs it.
+      - Smaller, all from the same notes: a contact shadow under the fighter,
+        who was casting into a viewport with no floor left to receive it; a
+        released spin that carries on and coasts rather than turning round and
+        accelerating back; rank as a bar; power level out of the record and in
+        with the stats; a confirmation with the price on both things that spend
+        money; the three bars opening a menu of destinations; icons on the nav
+        with the active bar tight under the word; and one coin, one gem and one
+        trophy everywhere instead of a painted pair in the top bar and flat
+        svgs of the same names underneath.
+      - **Not done, and why.** Tony's idle pose, his shirt, the UA logo and his
+        racket strings, and Hammy's elbows and pitcher's attack, are model and
+        texture work — they need a Meshy re-export, not a script (`todo 4.3`).
+        Homogenising the rest of the icons is the painted-pack-versus-flat-svg
+        question, which is a call about the art rather than a bug. "More Nobles
+        colours" was a question and is left as one. The Claude English is a
+        pass of its own and Jackson said it is not urgent.
+
 - [x] **Counted the type against Apple's floor on every screen, and
       conformed the three that could be** (7 Sep 2026, part of `todo 1.3`).
       The 6 Sep pass moved the utility tier to 26–30 stage px and recorded that
