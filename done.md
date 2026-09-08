@@ -781,6 +781,31 @@ Newest work is roughly at the top of each section.
         minimum width of zero, so a name column that does not expand gets only
         what "POWER 1" needs and KOVACS comes out "KOVAC".
 
+- [x] **Moved the nav to a column down the left, the way Brawl Stars has
+      it** (8 Sep 2026). Jackson's note, and the reasoning in his own list:
+      most of the people who will play this arrive from Brawl Stars, so the
+      subconscious things — reach left for Shop — are worth more than the
+      originality. It also moves the nav off the axis a landscape phone is
+      short in: 150 px of height was the scarce one and 168 px of width is not.
+      The four tabs are evenly spaced and centred as a group; the tab you are
+      on takes a panel fill and a gold bar down its LEFT edge, since a bar
+      under the word says "one of a row" and this is a column.
+      - The fighter, his ring, his shadow and his hint all move right by half
+        the rail (`MenuShell.STAGE_SHIFT`), so he is centred in the space that
+        is left rather than in the middle of a stage he no longer has all of.
+        The hint went to two lines at the same time: once he moved right, a
+        single 430 px line ran under the mode plate.
+      - **And it turned up a harness bug that has been lying about screenshots.**
+        The first sweep after the change came back with Season half-faded and
+        Events showing the lobby, with the screen stack provably correct at
+        capture time. The capture only forced a draw when
+        `DisplayServer.window_can_draw()` was false, and a window merely
+        COVERED by another app reports that it can draw while the engine skips
+        frames anyway — so `get_image()` handed back a frame from before the
+        screen was pushed. Both captures force a draw unconditionally now
+        (`menu.gd` and `main.gd:_shot_check`). Any screenshot taken with the
+        play-folder game open in front was suspect until this.
+
 - [x] **Split the lobby from brawler select, and worked Jackson's notes
       through the menu** (7-8 Sep 2026, `todo 5.3`). A page of notes off the
       back of playing it. The through-line is one idea: **information belongs

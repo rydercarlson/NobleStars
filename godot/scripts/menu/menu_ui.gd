@@ -476,31 +476,55 @@ static func square_button(icon_name: String, size: float = SQUARE) -> Button:
 ## A destination tab for the bottom nav: picture over a word, and a gold bar
 ## under the active one. The bar is the whole "you are here" — no fill, no
 ## box, so the four tabs read as one row rather than four buttons.
-const NAV_H := 150.0
-const NAV_TAB_W := 190.0
-const NAV_TAB_H := 100.0
+## The nav is a COLUMN DOWN THE LEFT (8 Sep, Jackson's notes), not a bar along
+## the bottom. Brawl Stars puts its destinations there and most of the people
+## who will play this arrive from Brawl Stars, so the muscle memory is worth
+## more than the originality: the thumb that reaches for Shop reaches left.
+## It also buys the thing a bottom bar cost — a phone in landscape is short and
+## wide, so 150 px of height was the scarce axis and 168 px of width is not.
+const NAV_W := 168.0
+## Where the rail starts: clear of the top bar, which is the back arrow on a
+## pushed screen and your name on the lobby.
+const NAV_TOP := 168.0
+const NAV_BOTTOM := 44.0
+const NAV_TAB_H := 116.0
+## What a screen keeps clear at the bottom now that nothing lives there.
+const NAV_H := 28.0
 
-## A picture over a word, with a gold bar right under the word when it is the
-## place you are. It was a word alone with the bar pinned to the bottom of a
-## 100px button, which put four blank pixels-worth of nothing between the two
-## and made the bar read as a rule under the whole row rather than as a mark on
-## one tab. Icons because a row of four words is slower to aim at than a row of
-## four pictures, and because that is the shape a thumb learns.
+## One destination in the left rail: a picture over a word, on a tile that
+## lights when you are there, with a gold bar down its LEFT edge.
+##
+## The mark moved with the rail. A bar under the word says "this one of a row";
+## a bar down the left edge says "this one of a column", and it lands on the
+## screen edge where the eye already is.
 static func nav_tab(text: String, icon_name: String = "") -> Button:
 	var b := Button.new()
 	b.flat = true
-	b.custom_minimum_size = Vector2(NAV_TAB_W * 0.62, NAV_TAB_H)
+	b.custom_minimum_size = Vector2(NAV_W, NAV_TAB_H)
 	var clear: StyleBoxFlat = flat_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 0)
-	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+	var lit: StyleBoxFlat = flat_box(Color(1, 1, 1, 0.05), Color(0, 0, 0, 0), 0)
+	for state in ["normal", "focus", "disabled"]:
 		b.add_theme_stylebox_override(state, clear)
+	b.add_theme_stylebox_override("hover", lit)
+	b.add_theme_stylebox_override("pressed", clear)
 
-	var column := vbox(4)
-	column.alignment = BoxContainer.ALIGNMENT_END
+	var fill := Panel.new()
+	fill.add_theme_stylebox_override("panel", flat_box(PANEL_HI, RULE_HI, 0))
+	fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	fill.offset_left = 6
+	fill.offset_right = -10
+	fill.offset_top = 4
+	fill.offset_bottom = -4
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fill.visible = false
+	b.add_child(fill)
+
+	var column := vbox(6)
+	column.alignment = BoxContainer.ALIGNMENT_CENTER
 	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.offset_bottom = -10
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(column)
-	var glyph: TextureRect = pack_icon(icon_name, 44)
+	var glyph: TextureRect = pack_icon(icon_name, 52)
 	glyph.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	column.add_child(glyph)
 	var word: Label = label(text, 26, TEXT_DIM)
@@ -510,18 +534,17 @@ static func nav_tab(text: String, icon_name: String = "") -> Button:
 	var bar := ColorRect.new()
 	bar.color = GOLD
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.anchor_top = 1.0
 	bar.anchor_bottom = 1.0
-	bar.anchor_right = 1.0
-	bar.offset_left = 10
-	bar.offset_right = -10
-	bar.offset_top = -4
-	bar.offset_bottom = 0
+	bar.offset_left = 0
+	bar.offset_right = 5
+	bar.offset_top = 4
+	bar.offset_bottom = -4
 	bar.visible = false
 	b.add_child(bar)
 	b.set_meta("nav_bar", bar)
 	b.set_meta("nav_word", word)
 	b.set_meta("nav_glyph", glyph)
+	b.set_meta("nav_fill", fill)
 	press_feedback(b)
 	return b
 
@@ -529,9 +552,11 @@ static func set_nav_active(b: Button, active: bool) -> void:
 	var bar: ColorRect = b.get_meta("nav_bar")
 	var word: Label = b.get_meta("nav_word")
 	var glyph: TextureRect = b.get_meta("nav_glyph")
+	var fill: Panel = b.get_meta("nav_fill")
 	word.add_theme_color_override("font_color", TEXT if active else TEXT_DIM)
 	glyph.modulate = Color.WHITE if active else Color(1, 1, 1, 0.55)
 	bar.visible = active
+	fill.visible = active
 
 ## A rounded card with a one-pixel edge: the ability write-ups, the record.
 static func card_box(fill: Color = PANEL, border: Color = RULE_HI, margin: int = 22) -> StyleBoxFlat:

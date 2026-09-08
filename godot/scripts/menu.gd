@@ -40,7 +40,7 @@ var _currency_labels: Array = []   # [{label, kind}]
 ## the tab you are on stays gold, and switching is one tap, not back-then-tap.
 const NAV_TABS := [["ROSTER", "roster", "shield"], ["SEASON", "season", "pass"],
 		["SHOP", "shop", "shop"], ["WIFI", "wifi", "wifi"]]
-var nav_bar: HBoxContainer
+var nav_bar: VBoxContainer
 var _nav_buttons: Dictionary = {}   # target -> Button
 
 func _ready() -> void:
@@ -122,6 +122,12 @@ func _build_stage() -> void:
 
 	brawler_view = MenuStage.new()
 	brawler_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Shifted right by half the nav rail, so the fighter is centred in the space
+	# the rail leaves rather than in the middle of the stage. He is the subject
+	# of this screen; being 84 px off the middle of what you can actually see
+	# reads as a mistake even when you cannot name it.
+	brawler_view.offset_left = STAGE_SHIFT
+	brawler_view.offset_right = STAGE_SHIFT
 	stage.add_child(brawler_view)
 
 	# The picture above fills the stage; everything below is inset into the safe
@@ -169,6 +175,8 @@ func _build_stage() -> void:
 	_fit_stage()
 	select_brawler(SaveGame.selected_kit.to_lower(), false)
 
+## Half the nav rail: what the fighter, his ring and his hint move right by.
+const STAGE_SHIFT := MenuUI.NAV_W * 0.5
 const STAGE_BACKDROP := "res://assets/menu/background/stage.jpg"
 const RING_SIZE := Vector2(900, 300)
 
@@ -291,20 +299,24 @@ func _place_at_feet(c: Control, size_px: Vector2) -> void:
 	c.anchor_right = 0.5
 	c.anchor_top = HomeScreen.FEET_FRAC
 	c.anchor_bottom = HomeScreen.FEET_FRAC
-	c.offset_left = -size_px.x / 2.0
-	c.offset_right = size_px.x / 2.0
+	# STAGE_SHIFT, so the ring, pool and shadow move with the fighter.
+	c.offset_left = STAGE_SHIFT - size_px.x / 2.0
+	c.offset_right = STAGE_SHIFT + size_px.x / 2.0
 	c.offset_top = -size_px.y * 0.56
 	c.offset_bottom = c.offset_top + size_px.y
 
 func _build_nav() -> void:
-	nav_bar = MenuUI.hbox(36)
-	nav_bar.alignment = BoxContainer.ALIGNMENT_BEGIN
-	nav_bar.anchor_top = 1.0
+	# A column down the left edge: evenly spaced, and centred as a GROUP rather
+	# than spread across the whole height. Stretched to fill, four tabs sat 200
+	# px apart and read as four unrelated buttons that happened to share an
+	# edge; at 14 px they read as one control.
+	nav_bar = MenuUI.vbox(14)
+	nav_bar.alignment = BoxContainer.ALIGNMENT_CENTER
 	nav_bar.anchor_bottom = 1.0
-	nav_bar.offset_left = HomeScreen.MARGIN_X - 8
-	nav_bar.offset_right = HomeScreen.MARGIN_X + 900
-	nav_bar.offset_top = -HomeScreen.BOTTOM_INSET - MenuUI.NAV_TAB_H
-	nav_bar.offset_bottom = -HomeScreen.BOTTOM_INSET
+	nav_bar.offset_left = 0
+	nav_bar.offset_right = MenuUI.NAV_W
+	nav_bar.offset_top = MenuUI.NAV_TOP
+	nav_bar.offset_bottom = -MenuUI.NAV_BOTTOM
 	chrome.add_child(nav_bar)
 	for entry: Array in NAV_TABS:
 		var target: String = str(entry[1])
@@ -452,6 +464,7 @@ func show_screen(name: String) -> void:
 			room.menu = self
 			room.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 			# Leave the bottom nav its strip; the room draws its own header.
+			room.offset_left = MenuUI.NAV_W
 			room.offset_bottom = -MenuUI.NAV_H
 			var host := MenuScreen.new()
 			host.menu = self
@@ -749,8 +762,12 @@ func _wire_debug_screenshot() -> void:
 				func() -> void: brawler_view.play_attack())
 	get_tree().create_timer(delay).timeout.connect(func() -> void:
 		var out: String = Session.shot_path(shot)
-		if not DisplayServer.window_can_draw():   # occluded windows are not drawn; see main.gd:_shot_check
-			RenderingServer.force_draw(false)
+		# ALWAYS force a draw, not only when the window says it cannot. Another
+		# app's window in front leaves window_can_draw() true while the engine
+		# still skips frames, and the capture then returns whatever was on
+		# screen BEFORE the screen was pushed — which is what made a Season
+		# shot come out half-faded and a Modes shot come out as the lobby.
+		RenderingServer.force_draw(false)
 		get_viewport().get_texture().get_image().save_png(out)
 		print("NS3_MENU_SHOT wrote ", ProjectSettings.globalize_path(out))
 		get_tree().quit())

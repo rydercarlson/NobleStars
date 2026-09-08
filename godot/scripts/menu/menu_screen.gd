@@ -8,8 +8,11 @@ extends Control
 ## the tree, so it is safe to use from there.
 
 ## The same left edge as home's identity block, so the back square, a title
-## and a screen's content all hang off one line.
+## and a screen's content all hang off one line. Content is inset past the nav
+## rail as well (`MenuUI.NAV_W`); the top bar is not, because the rail starts
+## below it and the back arrow belongs in the corner.
 const PAD := 68
+const CONTENT_LEFT := MenuUI.NAV_W + 24.0
 
 var menu: MenuShell
 var screen_name: String = ""
@@ -103,7 +106,7 @@ func scroll_content(separation: int = 22) -> VBoxContainer:
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	scroll.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", PAD)
+	margin.add_theme_constant_override("margin_left", int(CONTENT_LEFT))
 	margin.add_theme_constant_override("margin_right", PAD)
 	margin.add_theme_constant_override("margin_top", 6)
 	margin.add_theme_constant_override("margin_bottom", int(MenuUI.NAV_H))
@@ -119,7 +122,7 @@ func scroll_content(separation: int = 22) -> VBoxContainer:
 ## Non-scrolling content area that fills the rest of the screen.
 func fill_content(separation: int = 22) -> VBoxContainer:
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", PAD)
+	margin.add_theme_constant_override("margin_left", int(CONTENT_LEFT))
 	margin.add_theme_constant_override("margin_right", PAD)
 	margin.add_theme_constant_override("margin_top", 6)
 	margin.add_theme_constant_override("margin_bottom", int(MenuUI.NAV_H))

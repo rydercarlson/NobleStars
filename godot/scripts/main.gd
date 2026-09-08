@@ -3496,8 +3496,12 @@ func _shot_check() -> void:
 		# another app, another Space, the display asleep) and get_image() then
 		# hands back whatever frame was drawn last — a harness run under a
 		# browser window came back as N identical shots. Draw it ourselves.
-		if not DisplayServer.window_can_draw():
-			RenderingServer.force_draw(false)
+		#
+		# UNCONDITIONALLY, not behind a window_can_draw() check: a window merely
+		# COVERED by another app still reports that it can draw, while the
+		# engine skips frames anyway. The check was there and the menu harness
+		# still handed back pre-push frames because of it.
+		RenderingServer.force_draw(false)
 		var img := get_viewport().get_texture().get_image()
 		# Whole seconds keep their old names (prefix_8.png); a fractional time
 		# keeps its decimals (prefix_7.06.png), so a burst can catch a 0.12 s

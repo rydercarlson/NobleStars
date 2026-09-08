@@ -220,17 +220,19 @@ func _build_mode_button() -> Button:
 
 ## The one thing near the fighter: what touching him does, right under his feet.
 func _build_hint() -> void:
-	_hint = MenuUI.label("TAP TO ATTACK  ·  DRAG TO SPIN", 26, MenuUI.TEXT_DIM)
+	# Two lines, not one. Under the fighter is a narrow slot: the mode plate and
+	# PLAY start 1,214 px across, and once the fighter moved right to sit in the
+	# space the nav rail leaves, a single 430 px line ran under the plate.
+	_hint = MenuUI.label("TAP TO ATTACK\nDRAG TO SPIN", 26, MenuUI.TEXT_DIM)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.anchor_left = 0.5
 	_hint.anchor_right = 0.5
 	_hint.anchor_top = FEET_FRAC
 	_hint.anchor_bottom = FEET_FRAC
-	# Narrow: at 1920 a 640-wide hint ran under the mode plate in the corner.
-	_hint.offset_left = -240
-	_hint.offset_right = 240
-	_hint.offset_top = 44
-	_hint.offset_bottom = 82
+	_hint.offset_left = MenuShell.STAGE_SHIFT - 160
+	_hint.offset_right = MenuShell.STAGE_SHIFT + 160
+	_hint.offset_top = 34
+	_hint.offset_bottom = 110
 	_hint.modulate.a = 0.0
 	add_child(_hint)
 
