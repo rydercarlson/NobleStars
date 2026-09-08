@@ -130,24 +130,44 @@ func _identity() -> Control:
 	role.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	line.add_child(role)
 	text.add_child(MenuUI.gap(4, true))
-	text.add_child(MenuUI.wrap(MenuUI.body(_description(), 26, MenuUI.TEXT_SOFT)))
+	text.add_child(MenuUI.wrap(MenuUI.body(str(brawler.get("description", "")), 26,
+			MenuUI.TEXT_SOFT)))
+	text.add_child(MenuUI.gap(8, true))
+	text.add_child(_facts())
 	return card
+
+## Rarity, and how you got them or how you would. Both are in brawlers.json and
+## neither was drawn anywhere in the menu, so an unowned fighter's page could
+## not tell you what to do about it. This is also the honest half of the notes'
+## "descriptions read like a second role tag": several of them describe the
+## attack, which now has its own card beside them saying the same thing — but
+## rewriting nine fighters' copy is Jackson's pen, not a layout change
+## (`todo 5.9`).
+func _facts() -> Control:
+	var id: String = str(brawler.get("id", ""))
+	var row := MenuUI.hbox(28)
+	var rarity: Dictionary = MenuData.rarity_of(brawler)
+	row.add_child(_fact("RARITY", str(rarity.get("label", "Rare")).to_upper(),
+			MenuUI.hex(rarity.get("color", MenuUI.TEXT), MenuUI.TEXT)))
+	if SaveGame.is_unlocked(id):
+		row.add_child(_fact("STATUS", "IN YOUR ROSTER", MenuUI.GREEN_HI))
+	else:
+		row.add_child(_fact("UNLOCK", str(brawler.get("unlock_hint", "Locked")).to_upper(),
+				MenuUI.TEXT_SOFT))
+	row.add_child(MenuUI.spacer())
+	return row
+
+func _fact(key: String, value: String, accent: Color) -> Control:
+	var column := MenuUI.vbox(0)
+	column.add_child(MenuUI.label(key, 22, MenuUI.TEXT_FAINT))
+	column.add_child(MenuUI.display(value, 28, accent))
+	return column
 
 func _index() -> int:
 	for i in MenuData.brawlers.size():
 		if str(MenuData.brawlers[i].id) == str(brawler.get("id", "")):
 			return i + 1
 	return 1
-
-## The write-up, and a fallback that says something rather than repeating the
-## role. Several fighters' JSON blurbs are one clause long and read as a second
-## role tag; where that happens the kit's own attack copy carries the meaning.
-func _description() -> String:
-	var text: String = str(brawler.get("description", "")).strip_edges()
-	var attack_text: String = str((brawler.get("attack", {}) as Dictionary).get("text", ""))
-	if text.length() < 60 and attack_text != "":
-		return text + ("  " if text != "" else "") + attack_text
-	return text
 
 # MARK: record
 

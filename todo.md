@@ -355,6 +355,22 @@ What is left is the half that is a design decision rather than a bug.
         retimed.
       - Tied to `todo 4.3` and ROADMAP **D9** (who owns real attack clips).
 
+- [ ] **5.9 — Fighter descriptions read like a second role tag.** `P2` `S`
+      Jackson's 8 Sep note, and he is right about the cause: six of the nine
+      describe the ATTACK — "Lobs explosive shells clean over walls", "The
+      hardest single hit in the game off a wide paddle arc" — and on the
+      fighter's page that copy now sits a few centimetres from an ATTACK card
+      saying the same thing with the damage attached. So the description reads
+      as a redundant label rather than as who they are.
+      - What the page does today: prints the description as written and adds
+        the two facts that WERE nowhere — rarity, and either "in your roster"
+        or how to unlock them.
+      - What is left is the copy itself: one or two sentences per fighter about
+        who they are and how they are played, distinct from what their weapon
+        does. That is Jackson's pen (and ROADMAP **D2** puts character design
+        with Ryder), not a layout change, which is why the 8 Sep pass stopped
+        at the layout.
+
 - [ ] **5.4 — A real progression system.** `P2` `L`
       `[blocked: deciding what a level changes]`
       `SaveGame` already banks trophies, coins, gems, Power Points and pass
