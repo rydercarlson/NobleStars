@@ -444,7 +444,7 @@ func show_screen(name: String) -> void:
 		"road", "trophy-road":
 			push_screen(TrophyRoadScreen.new())
 		"settings":
-			MenuPopups.settings(self)
+			push_screen(SettingsScreen.new())
 		"profile":
 			MenuPopups.profile(self)
 		"wifi", "friends":

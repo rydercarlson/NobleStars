@@ -565,7 +565,10 @@ static func block(icon_name: String, title: String, rule_text: String = "",
 	head.custom_minimum_size = Vector2(0, 36)
 	column.add_child(head)
 	if icon_name != "":
-		var glyph: TextureRect = icon(icon_name, 30)
+		# pack_icon: coin, gem and trophy have painted art and that is what the
+		# currency readout draws, so a block head must not pick the flat svg of
+		# the same name. Everything else falls through to the svg.
+		var glyph: TextureRect = pack_icon(icon_name, 30)
 		glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		head.add_child(glyph)
 	var name_label: Label = label(title, 26, TEXT)

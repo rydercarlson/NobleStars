@@ -15,7 +15,8 @@ static func main_menu(shell: MenuShell) -> MenuPopup:
 	column.add_child(_destination(shell, popup, "bulldog", "EVENTS",
 			"Pick the mode you play", func() -> void: shell.show_screen("modes")))
 	column.add_child(_destination(shell, popup, "gear", "SETTINGS",
-			"Sound, hints and this device's save", func() -> void: settings(shell)))
+			"Sound, hints and this device's save",
+			func() -> void: shell.show_screen("settings")))
 	return popup
 
 ## One row of that menu: a glyph, a name over a line of what it is, a chevron.
@@ -53,66 +54,39 @@ static func _destination(shell: MenuShell, popup: MenuPopup, icon_name: String,
 	row.add_child(chevron)
 	return b
 
-## Music / SFX / hints toggles, name change, support and reset.
-static func settings(shell: MenuShell) -> MenuPopup:
-	var popup: MenuPopup = shell.popup("Settings")
-	popup.setting_row("Music", "Menu music", _toggle("music",
-			func(on: bool) -> void: shell.audio.set_music(on)))
-	popup.setting_row("Sound FX", "Button and brawler sounds",
-			_toggle("sfx", func(_on: bool) -> void: shell.sfx("click")))
-	popup.setting_row("Hints", "Show tips on the home screen",
-			_toggle("hints", func(_on: bool) -> void: shell.home.refresh()))
-	# Shown on desktop too, where it can do nothing: the save goes to the phone
-	# with the build, and this is the only place it can be set. Turning it ON is
-	# what confirms it, so the tap fires from the callback rather than from
-	# press_feedback, which the toggle also has.
-	popup.setting_row("Haptics", "Vibration on a phone",
-			_toggle("haptics", func(on: bool) -> void:
-				if on:
-					Haptics.fire("ui_reward")))
-
-	var change: Button = MenuUI.small_button("CHANGE", "blue")
-	change.pressed.connect(func() -> void:
-		popup.close_screen()
-		profile(shell))
-	popup.setting_row("Player name", "Shown on your profile and in the club", change)
-
-	var help: Button = MenuUI.small_button("HELP", "grey")
-	help.pressed.connect(func() -> void:
-		shell.toast("Support: dm the dev", "inbox"))
-	popup.setting_row("Support", "Nobles Brawl · Noble Stars menu v1", help)
-
-	var unlock_all: Button = MenuUI.small_button(
-			"UNLOCKED" if SaveGame.all_brawlers_unlocked() else "UNLOCK ALL", "blue")
-	unlock_all.disabled = SaveGame.all_brawlers_unlocked()
-	if unlock_all.disabled:
-		unlock_all.modulate = Color(0.7, 0.7, 0.7)
-	unlock_all.pressed.connect(func() -> void:
-		SaveGame.unlock_all_brawlers()
-		unlock_all.text = "UNLOCKED"
-		unlock_all.disabled = true
-		unlock_all.modulate = Color(0.7, 0.7, 0.7)
-		shell.sfx("reward")
-		shell.brawler_changed.emit()
-		shell.toast("Developer mode: all brawlers unlocked", "brawlers"))
-	popup.setting_row("Developer mode", "Unlock every brawler on this save", unlock_all)
-
-	var reset: Button = MenuUI.small_button("RESET", "red")
-	reset.pressed.connect(func() -> void:
-		var ok: bool = await shell.confirm("Reset progress?",
-				"This deletes your local save and restarts the menu.", "RESET", "red")
-		if not ok:
-			return
-		SaveGame.reset()
-		shell.get_tree().reload_current_scene())
-	popup.setting_row("Reset progress",
-			"Wipes coins, gems, unlocks and settings on this device", reset)
-	return popup
-
 ## The pill toggle from the CSS, bound to one of the save's settings flags. It
 ## needs no MenuShell of its own: each caller's `on_change` closes over the one
 ## it already has.
-static func _toggle(key: String, on_change: Callable) -> Button:
+## Your record, on your own page. Matches used to sit under your name on the
+## lobby, where it was the one number there you could do nothing with; this is
+## the screen it belongs on, next to the rest of what you have done.
+static func _profile_stats() -> Control:
+	var owned: int = 0
+	var best_name: String = "—"
+	var best: int = -1
+	for b in MenuData.brawlers:
+		var id: String = str(b.get("id", ""))
+		if not SaveGame.is_unlocked(id):
+			continue
+		owned += 1
+		var t: int = SaveGame.brawler_trophies(id)
+		if t > best:
+			best = t
+			best_name = str(b.get("name", "")).to_upper()
+	var grid: GridContainer = MenuUI.grid(4, 18)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for row: Array in [
+			["TROPHIES", MenuUI.fmt(SaveGame.total_trophies()), MenuUI.GOLD],
+			["MATCHES", MenuUI.fmt(SaveGame.matches), MenuUI.TEXT],
+			["FIGHTERS", "%d / %d" % [owned, MenuData.brawlers.size()], MenuUI.TEXT],
+			["BEST", best_name, MenuUI.TEXT]]:
+		var cell := MenuUI.vbox(0)
+		cell.add_child(MenuUI.display(str(row[1]), 38, row[2]))
+		cell.add_child(MenuUI.label(str(row[0]), 22, MenuUI.TEXT_FAINT))
+		grid.add_child(cell)
+	return grid
+
+static func setting_toggle(key: String, on_change: Callable) -> Button:
 	var button := Button.new()
 	button.custom_minimum_size = Vector2(124, 58)
 	button.toggle_mode = true
@@ -186,10 +160,10 @@ static func profile(shell: MenuShell) -> MenuPopup:
 	lines.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(lines)
 	lines.add_child(MenuUI.display(SaveGame.player_name, 52))
-	var club: Dictionary = MenuData.game.get("club", {})
-	lines.add_child(MenuUI.body("#NOBLES%03d · Level %d · Club: %s"
-			% [SaveGame.level, SaveGame.level, str(club.get("name", "—"))],
-			22, MenuUI.TEXT_DIM))
+	lines.add_child(MenuUI.label("#NOBLES%03d  ·  LEVEL %d" % [SaveGame.level,
+			SaveGame.level], 26, MenuUI.TEXT_DIM))
+	lines.add_child(MenuUI.gap(4, true))
+	lines.add_child(_profile_stats())
 
 	popup.body_box.add_child(MenuUI.display("CHANGE NAME", 26, MenuUI.TEXT, 4))
 	var name_row := MenuUI.hbox(12)

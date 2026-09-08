@@ -34,7 +34,7 @@ func _ready() -> void:
 		_players.append(p)
 	_music = AudioStreamPlayer.new()
 	_music.bus = "Master"
-	_music.volume_db = -14.0
+	_music.volume_db = music_db(-14.0)
 	add_child(_music)
 
 func play(sound: String = "click") -> void:
@@ -46,7 +46,7 @@ func play(sound: String = "click") -> void:
 	var p: AudioStreamPlayer = _players[_next]
 	_next = (_next + 1) % _players.size()
 	p.stream = stream
-	p.volume_db = -6.0
+	p.volume_db = sfx_db(-6.0)
 	p.pitch_scale = 1.0   # a voice reused after play_at would keep its pitch
 	p.play()
 
@@ -64,13 +64,28 @@ func play_at(sound: String, volume_db: float, pitch := 1.0) -> void:
 	var p: AudioStreamPlayer = _players[_next]
 	_next = (_next + 1) % _players.size()
 	p.stream = stream
-	p.volume_db = volume_db
+	p.volume_db = sfx_db(volume_db)
 	p.pitch_scale = clampf(pitch, 0.1, 4.0)
 	p.play()
 
 ## The lobby track if one shipped, else the synthesized chord pad. Keeping the
 ## fallback means the menu still has music in a build without the audio file.
 const MUSIC_TRACK := "res://assets/menu/audio/lobby_vibes.mp3"
+
+## A slider position as decibels on top of a sound's own mix level. Linear
+## volume, not linear dB: halfway on the slider has to sound like half, and
+## -30 dB at 0.5 does not. `linear_to_db(0)` is -inf, so silence is floored.
+static func music_db(base: float) -> float:
+	return base + maxf(-40.0, linear_to_db(maxf(0.0001, SaveGame.music_volume)))
+
+static func sfx_db(base: float) -> float:
+	return base + maxf(-40.0, linear_to_db(maxf(0.0001, SaveGame.sfx_volume)))
+
+## Re-level whatever is already playing — the music loop does not restart when
+## you move the slider.
+func apply_volumes() -> void:
+	if _music != null and _music.playing:
+		_music.volume_db = music_db(-14.0)
 
 func set_music(on: bool) -> void:
 	if on:
@@ -81,10 +96,10 @@ func set_music(on: bool) -> void:
 			if track != null:
 				if track is AudioStreamMP3:
 					track.loop = true
-				_music.volume_db = -11.0
+				_music.volume_db = music_db(-11.0)
 				_music.stream = track
 			else:
-				_music.volume_db = -14.0
+				_music.volume_db = music_db(-14.0)
 				_music.stream = _stream("music")
 			_music.play()
 	else:

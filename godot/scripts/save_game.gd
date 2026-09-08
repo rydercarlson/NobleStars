@@ -40,6 +40,11 @@ static var selected_mode: String = "showdown_solo"
 static var player_name: String = "GUEST"
 static var music_on: bool = true
 static var sfx_on: bool = true
+## 0.0-1.0, independent of the mutes. A mute is "not now"; a volume is "this
+## loud when it plays", and one control cannot mean both — which is why the
+## settings sheet's two switches could not answer "quieter, but still there".
+static var music_volume: float = 0.7
+static var sfx_volume: float = 0.85
 static var hints_on: bool = true
 ## Phone vibration (see haptics.gd). A no-op on desktop, but the toggle is still
 ## shown there — the save travels to the phone and this is where it is set.
@@ -90,6 +95,8 @@ static func ensure_loaded() -> void:
 	pass_premium = bool(data.get("pass_premium", false))
 	music_on = bool(data.get("music_on", true))
 	sfx_on = bool(data.get("sfx_on", true))
+	music_volume = clampf(float(data.get("music_volume", 0.7)), 0.0, 1.0)
+	sfx_volume = clampf(float(data.get("sfx_volume", 0.85)), 0.0, 1.0)
 	hints_on = bool(data.get("hints_on", true))
 	haptics_on = bool(data.get("haptics_on", true))
 	first_run = bool(data.get("first_run", true))
@@ -176,6 +183,8 @@ static func save() -> void:
 		"player_name": player_name,
 		"music_on": music_on,
 		"sfx_on": sfx_on,
+		"music_volume": music_volume,
+		"sfx_volume": sfx_volume,
 		"hints_on": hints_on,
 		"haptics_on": haptics_on,
 		"first_run": first_run,
@@ -203,6 +212,8 @@ static func reset() -> void:
 	player_name = "GUEST"
 	music_on = true
 	sfx_on = true
+	music_volume = 0.7
+	sfx_volume = 0.85
 	hints_on = true
 	haptics_on = true
 	first_run = true
