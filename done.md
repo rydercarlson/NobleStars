@@ -16,6 +16,55 @@ Newest work is roughly at the top of each section.
 
 ---
 
+## Documentation (8 Sep 2026)
+
+- [x] **Split CLAUDE.md into a spine plus `docs/`, cutting it from 135 KB to
+      16 KB** (8 Sep 2026). It had grown to ~33k tokens and was loaded whole into
+      every session's context regardless of what the session was doing — a menu
+      tweak paid for the wifi snapshot byte layout, and a net fix paid for the
+      Season screen's 816-pixel height budget. **Nothing was deleted.** Every
+      line was either kept in `CLAUDE.md` or moved verbatim to a page under
+      `docs/`: `menu.md`, `cup.md`, `net.md`, `feel.md`, `arena.md`,
+      `testing.md`, `ios.md`, `models.md`, `phone_fit.md`.
+      - **Verified mechanically, not by eye.** Every non-blank line of the
+        committed `CLAUDE.md` was grepped for, verbatim, across the new corpus;
+        the only 16 that did not match are the ones deliberately rewritten
+        (cross-references that now point at another file, and the four
+        paragraphs listed below). That check is worth re-running after any
+        future split: `git show <ref>:CLAUDE.md` against
+        `cat CLAUDE.md docs/*.md`.
+      - **What stayed in `CLAUDE.md` is what holds everywhere**: the ownership
+        split, the four-file doc contract, the script map, how to run Godot,
+        the `--headless --import` trap, current state, **ONE TILE IS ONE
+        FIGHTER**, the hitbox ring, the short form of phone fit, the
+        ships-no-asset-files rule, and the GDScript/Godot gotchas. The test
+        applied was "would a session working in an unrelated area still need
+        this?" — if not, it moved.
+      - **The index is imperative, not a table of contents.** Splitting a doc
+        trades context cost for the risk that nobody reads the page, so the
+        index says *read this before touching that file* and names the code
+        each page governs. `ROADMAP.md` and `todo.md` pointers that said
+        "CLAUDE.md's **Menu** section" were rewritten to name the page, since a
+        pointer into a section that no longer exists is exactly the stale
+        entry this project already has a rule about.
+      - **REJECTED: compressing in place.** Rewriting every section tighter in
+        one file was the obvious alternative and gets to maybe 15 KB, half the
+        win, and only by deleting facts — most of what makes this file long is
+        the measured detail and the rejected approaches, which the project's
+        own rules say to keep. Splitting costs nothing informational and gets
+        four times the reduction.
+      - **REJECTED: moving the debug hooks out of reach.** They went to
+        `docs/testing.md` rather than being trimmed, and the index calls that
+        page out for "any test run at all", because they are the testing
+        strategy — there are no unit tests.
+      - **Found one stale claim while moving it.** Current state described
+        ROSTER/SEASON/SHOP/WIFI as "icon tabs"; `MenuUI.nav_tab` renders the
+        word and ignores its `_icon_name` argument, and the menu page has said
+        they are words since the 6 Sep layout pass. Corrected in the move,
+        verified against `menu_ui.gd:483` rather than against the prose.
+
+---
+
 ## Reviewing someone else's pass (7 Sep 2026)
 
 - [x] **Pressed every button on the four screens Jackson had just rebuilt, and

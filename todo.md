@@ -134,7 +134,7 @@ What is left is the half that is a design decision rather than a bug.
         lands on the bottom of the display tier — so this cannot be done as a
         blind multiply. **It is the deliberate hole in the type scale that has to
         be redesigned, not the sizes.** That is a design call on Jackson's own
-        system (CLAUDE.md's **Menu** section explains why the hole exists), and
+        system (`docs/menu.md` explains why the hole exists), and
         it is the one part of the P0 block that is not a bug fix.
       - Fixing 1.2 did *not* help enough to matter: filling the display moved the
         stage scale from 0.631 to 0.667, worth 5.7%.
@@ -150,7 +150,7 @@ What is left is the half that is a design decision rather than a bug.
       **It was deliberately not fixed with 1.1 and 1.2**, because it is not the
       same mechanical change: `LoadingScreen.compose()` is shared with
       `tools/make_boot_splash.gd`, which renders it at 1280x720 as the engine's
-      boot splash, and CLAUDE.md records that the splash-to-live handoff being
+      boot splash, and `docs/feel.md` records that the splash-to-live handoff being
       seamless is a tuned property. Insetting the live one moves it relative to
       the splash. Decide what the handoff should do first — the splash is
       already `scaleAspectFit`, so it is letterboxed to 2096 px of a 2556 px
@@ -173,7 +173,7 @@ What is left is the half that is a design decision rather than a bug.
       smaller than it looked, and it should be judged against
       `Arena.TILE_COLLISION_SHRINK`: collision is inset 25% inside the drawn
       box, so a taller wall also makes that overlap more visible.
-      CLAUDE.md already settles the risk — wall height is **purely visual**,
+      `docs/arena.md` already settles the risk — wall height is **purely visual**,
       because `Lob` has no collision, `begin_leap` sweeps terrain itself, and
       both the LOS ray and every projectile sit at y = 1 inside a 1.5 m box —
       so this is one constant and a screenshot. Shoot it with
@@ -278,8 +278,8 @@ What is left is the half that is a design decision rather than a bug.
       `hammy()`, `ayaan()`).
       - She needs a Meshy export through `python3 Tools/fix_meshy_glb.py`,
         then `Assets/3D/` → `godot/assets/` → `kits.gd` `model`/`clips`; give
-        the Idle a stance with `--idle-from`/`--idle-aim` (CLAUDE.md, character
-        model pipeline) rather than shipping the rest pose.
+        the Idle a stance with `--idle-from`/`--idle-aim` (`docs/models.md`)
+        rather than shipping the rest pose.
       - **This is the same blocker as her portrait.** `tools/render_portraits.gd`
         re-shot the modelled kits so the roster reads as one set; she is the
         whole remaining hole and the tool cannot help, because there is no GLB
@@ -309,8 +309,8 @@ What is left is the half that is a design decision rather than a bug.
       backdrop. That backdrop is deleted, the screens animate, and the current
       design's whole thesis is the opposite: **radius zero everywhere, hairline
       rules only, no bevel or shadow or gradient**, because adding one means
-      adding it everywhere and then it is the old system again. Read CLAUDE.md's
-      **Menu** section before touching a token.
+      adding it everywhere and then it is the old system again. Read `docs/menu.md`
+      before touching a token.
       What is actually worth looking at now, on the design's own terms:
       - **Does the type scale's deliberate hole survive on a phone**, or does
         1.3's fix quietly fill it in? They are the same pass.
@@ -531,11 +531,23 @@ What is left is the half that is a design decision rather than a bug.
 
 - [ ] **11.1 — Nothing forces the use of `Tools/godot.sh`.** `P3` `XS`
       The lock wrapper only helps a caller who reaches for it, and every `NS3_*`
-      line in this file and in CLAUDE.md still shows the bare binary. Either
+      line in this file and in `docs/testing.md` still shows the bare binary. Either
       sweep those to the wrapper or add a hook that refuses the raw path.
       Remember the allowlist limitation: prefix rules match from the start of the
       command, so `NS3_KIT=nova Tools/godot.sh …` does not match — the env var
       comes first.
+
+- [ ] **11.3 — Nothing routes a session to the right `docs/` page.** `P3` `S`
+      `CLAUDE.md` was split on 8 Sep so a session no longer loads all 135 KB of
+      subsystem detail to make one menu change, and its index says which page
+      governs which files. But an index only helps a reader who consults it, and
+      the failure mode is silent: a session edits `cup_mode.gd` without ever
+      opening `docs/cup.md` and re-breaks a rule that is written down. A
+      PreToolUse hook matching the edited path (`godot/scripts/menu/*` →
+      `docs/menu.md`, `cup_mode.gd`/`ball.gd` → `docs/cup.md`, and so on) could
+      surface the page the way the existing PostToolUse hook already reimports.
+      Cheap to try; the risk is noise, so it should print the path and not the
+      file.
 
 - [ ] **11.2 — No GDScript language server, and Jackson makes that matter.**
       `P2` `M`

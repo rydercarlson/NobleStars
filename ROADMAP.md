@@ -30,8 +30,10 @@ for; a screenshot is forty seconds.
 
 Item detail lives in [`todo.md`](todo.md) — references below like `todo 1.1` point
 at it. Finished work and the reasoning behind it is in [`done.md`](done.md).
-Read [`CLAUDE.md`](CLAUDE.md) before starting anything; most of what looks like a
-free choice in this codebase has a rejected first attempt on record.
+Read [`CLAUDE.md`](CLAUDE.md) before starting anything, then the `docs/` page for
+the area you are touching — its index says which one, and the pages carry the
+per-subsystem constraints. Most of what looks like a free choice in this
+codebase has a rejected first attempt on record.
 
 ---
 
@@ -111,7 +113,7 @@ stage px, which is **9.5-10.9 pt** — under the floor everywhere, rather than a
 half of it. Clearing the floor needs about
 30 stage px, which lands on the bottom of the display tier at 44 — so this is
 **a redesign of the deliberate hole in the scale, not a multiply**, and it is
-exactly the change CLAUDE.md's **Menu** section warns will flatten the design if
+exactly the change `docs/menu.md` warns will flatten the design if
 done blind. The match HUD's half of the same item was fixed alongside 1.1, since
 its labels sit at 12-39 pt with no such doctrine attached.
 
@@ -138,9 +140,9 @@ open). Three things that will otherwise cost him a day each, all of them in
 CLAUDE.md: `--headless --import` is **not** a compile check and will import a
 file that cannot parse, silently; never `class_name` anything Godot ships
 natively; and run one Godot at a time per project, which is what
-`Tools/godot.sh` enforces. Then read CLAUDE.md's **Menu** section start to
+`Tools/godot.sh` enforces. Then read `docs/menu.md` start to
 finish before changing a single token — the current design's every rule looks
-arbitrary in isolation and is not — and its **Phone fit** section, which is
+arbitrary in isolation and is not — and `docs/phone_fit.md`, which is
 where 1.3's numbers come from and which explains why the stage and the chrome
 are two different rectangles.
 
@@ -264,8 +266,7 @@ Showdown's match loop untouched when Cup landed.
 **The client-death bug is fixed** (6 Sep 2026), and it was worth more than its
 size exactly as this said: the same root cause had the whole haptic layer off in
 wifi play, so anyone testing multiplayer was testing a version of the game with a
-feature silently missing. The general rule it produced is in CLAUDE.md's wifi
-section — a client learns some things as numbers and others as events, and each
+feature silently missing. The general rule it produced is in `docs/net.md` — a client learns some things as numbers and others as events, and each
 piece of feedback has to hang off whichever one it is.
 
 ### Already built — in the working tree, uncommitted

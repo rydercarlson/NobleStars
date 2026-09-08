@@ -70,6 +70,6 @@ simulators, so test on real hardware.
 ## Development
 
 This game is being built with [Claude Code](https://claude.com/claude-code). See
-`CLAUDE.md` for the agent-facing build notes — it carries the gotchas, the debug
-env hooks that are the testing strategy, and the reasoning behind the decisions
-above.
+`CLAUDE.md` for the agent-facing build notes — the spine of what holds everywhere,
+plus an index into `docs/`, which carries the per-subsystem gotchas, the debug env
+hooks that are the testing strategy, and the reasoning behind the decisions above.
