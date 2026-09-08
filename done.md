@@ -65,6 +65,55 @@ Newest work is roughly at the top of each section.
 
 ---
 
+## Wiring the Trello board in (7 Sep 2026)
+
+- [x] **Connected the Dawg Park board, and the board immediately paid for
+      itself** (7 Sep 2026). `Tools/trello.py` reads the board and writes
+      comments and completions back. What is worth recording is the design,
+      because the obvious one was wrong, and the setup, because it failed in a
+      way that pointed at the wrong field for an hour.
+      - **The plan was a `todo.md` → Trello mirror. Reading the board killed
+        it.** The board is not an empty scaffold, it is 55 hand-written cards
+        filed by menu surface — *"Tony: Shirt says RMAT not NBVT"*, *"freaky
+        transparent black rectangle"*, *"Fix all the Claude English"*. Pushing
+        thirty generated items into that buries the only content on it nobody
+        else could produce. **The board is the inbox and `todo.md` is the
+        record**, so the sync runs the other way: triage cards inward, comment
+        outward, move a card to Done when the work actually ships. A two-way
+        mirror is also wrong for a second reason — a `todo.md` entry is nested
+        prose with file paths and rejected approaches, and round-tripping that
+        through a card description is lossy in the destructive direction.
+      - **Four phone-only bugs came off it that the harness could not see**,
+        which is the argument for the board existing at all. `QHZH7PwV` and
+        `MEkOe1nn` are one bug diagnosed in the code: `menu_popup.gd:14` anchors
+        the dim FULL_RECT to the popup, which lives under `chrome`, which
+        `_fit_stage` insets by the safe area — so on an iPhone the dim is short
+        by 177 px a side and 63 at the bottom while `_update_stage_dim` has
+        already hidden everything behind it. **`docs/phone_fit.md`'s rule that
+        the chrome split "costs nothing" is true of layout and false of anything
+        full-bleed**, which is the gap. Logged as `todo 1.6`-`1.8` and `3.5`.
+      - **One card was already fixed the same day, independently.** `4yGLv4rb`
+        — *"Dawg treats should open on purchase, not when you go back to the
+        main menu"* — describes the popup-ordering bug found by pressing the
+        buttons that morning, right down to the symptom that it appears when you
+        press back (the popup is hidden, not destroyed, and `pop_screen`
+        un-hides it). Closed with the commit named. Good evidence that the fix
+        was both real and wanted, and that nobody had triaged the board.
+      - **`NTvB4vrU` was deliberately left open.** The roster tiles shipped, but
+        the card also asks for horizontal scrolling, a select button, and
+        tap-to-open-stats. Closing it because part of it landed would lose the
+        remainder. **A card is closed by evidence, never by tidying.**
+      - **The setup failure is worth writing down because every error pointed at
+        the wrong thing.** Trello answered `invalid key` for an hour while the
+        key was correct: what had been stored as the token was the **OAuth
+        Secret**, which sits directly under the API key on the same tab and is
+        also 64 hex characters. `key` alone returns `invalid token`, a garbage
+        key returns `invalid key`, and key + Secret returns `invalid key` —
+        so the message names the field that is right. A real token is ~76 chars
+        and starts `ATTA`. Also: **the API key cannot be reset**, contrary to
+        advice given during the session and stated plainly on Trello's own page,
+        so a key that looks wrong is not wrong.
+
 ## Reviewing someone else's pass (7 Sep 2026)
 
 - [x] **Pressed every button on the four screens Jackson had just rebuilt, and

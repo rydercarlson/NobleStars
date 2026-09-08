@@ -40,6 +40,10 @@ they are not urgent, and `Voicelines` is the extreme case.
 |---|---|---|---|---|---|
 | 1.3 | Menu text is half the readable size | Phone fit | P0 | M | a type-scale redesign |
 | 1.5 | Loading title sits under the Dynamic Island | Phone fit | P1 | S | what the splash handoff should do |
+| 1.6 | Popup dim and screen backgrounds stop at the safe area | Phone fit | P1 | S | — |
+| 1.7 | Nav bar overlaps screen content on a phone | Phone fit | P1 | S | reproducing it |
+| 1.8 | Season's rails do not scroll on mobile | Menu | P1 | S | reproducing it |
+| 3.5 | Aiming is too sensitive, worst on throwers | Feel | P1 | S | — |
 | 2.4 | Walls are shorter than the fighters | Feel | P2 | XS | — |
 | 3.2 | Judge the haptics on a real phone | Feel | P1 | XS | — |
 | 4.1 | Nova is still a capsule | Characters | P1 | M | Meshy pass |
@@ -119,6 +123,11 @@ What is left is the half that is a design decision rather than a bug.
         a screen file, which is why a per-screen pass missed them. Raising the
         two is free; it is listed here rather than done because it is one line
         each in Jackson's design system and belongs with the rest of 1.3.
+      - **Confirmed from a handset by someone who is not measuring it**, which
+        is the evidence that matters: *"all the ui is very small for a phone -
+        make everything bigger, simpler, and less cluttered"* (Dawg Park
+        `RziD1Uwk`). The measurement and the complaint agree, so the only open
+        part of this item is the redesign below, not whether it is real.
       - **Season is the case that proves this is a redesign, not a multiply.**
         Its page does not scroll: header + Trophy Road + Nobles Pass + gaps have
         to total 816 stage px, and every one of those heights was solved against
@@ -156,7 +165,54 @@ What is left is the half that is a design decision rather than a bug.
       already `scaleAspectFit`, so it is letterboxed to 2096 px of a 2556 px
       screen and the two do not line up edge to edge today either.
 
----
+- [ ] **1.6 — A popup's dim, and a pushed screen's background, stop at the safe
+      area on a phone.** `P1` `S` *Reported twice on the Dawg Park board from an
+      actual handset — "freaky transparent black rectangle that doesnt cover my
+      whole screen appears behind the popup and everything else disappears"
+      (`QHZH7PwV`) and "non-main menus are not fully covering the background on
+      my phone" (`MEkOe1nn`). **Diagnosed in the code, not reproduced on a
+      device yet.***
+      - `menu_popup.gd:14` anchors the dim `PRESET_FULL_RECT` — but to the
+        POPUP, which sits in `screens_root`, which is a child of **`chrome`**
+        (`menu.gd:148`), which `_fit_stage` insets by the safe rect. So on an
+        iPhone 15 the dim is short by 177 device px on each side and 63 at the
+        bottom, and `_update_stage_dim` has already hidden `home` and
+        `brawler_view` behind it — hence a floating grey rectangle with nothing
+        around it. Same cause for any pushed screen that paints its own ground.
+      - **This is a real gap in the phone-fit rule, not a slip.**
+        `docs/phone_fit.md` says the chrome split "costs nothing" because "every
+        screen anchors FULL_RECT to its parent, so no screen file knows the safe
+        area exists". That is true of *layout* and false of anything meant to be
+        **full-bleed**: a dim, a scrim, a screen background. Those have to
+        anchor to the STAGE, not to chrome. Write the distinction down wherever
+        this gets fixed, because the next full-bleed element will hit it again.
+      - It was invisible in development for the same reason 1.2 was: a desktop
+        window has no safe area, so the inset is zero and the dim looks perfect.
+        `Tools/device_shot.sh --out shots NS3_MENU_SHOT=p.png
+        NS3_MENU_SCREEN=settings` is the check.
+
+- [ ] **1.7 — The nav bar overlaps screen content on a phone.** `P1` `S`
+      *"on phone in most menus the menu selector is overlapping with other stuff
+      in the menu" (`jjOQ3dvF`). **Reported, not yet reproduced** — say so until
+      someone shoots it.* Screens are supposed to keep `MenuUI.NAV_H` (150)
+      clear at the bottom via `MenuScreen.fill_content`/`scroll_content`, and it
+      holds on the 1920x1080 desktop stage. What is not checked is whether it
+      still holds when the stage GAINS WIDTH on a handset (2017 px on an iPhone
+      15) and a screen's content reflows taller. Shoot every screen with
+      `Tools/device_shot.sh` before theorising; this may also be a duplicate of
+      1.6, since a screen that does not paint its own ground shows the nav
+      through it.
+
+- [ ] **1.8 — Season's rails do not scroll on mobile.** `P1` `S`
+      *"Unable to scroll through pass and can sometimes scroll trophy road on
+      mobile" (`uQdJk6vZ`). Reported, not reproduced.* Both rails are horizontal
+      `ScrollContainer`s and the Pass is the one that fails, which suggests a
+      touch-drag being eaten rather than a layout problem — the Pass grid's
+      cells are `Button`s in the claimable state (`season_screen.gd:_reward_card`
+      returns a `Button`), and a button under a thumb can swallow the drag that
+      would have scrolled the rail. Trophy Road's cards are `PanelContainer`s
+      except when claimable, which fits "can *sometimes* scroll trophy road".
+      If that is it, the fix is a drag threshold, not a container change.
 
 # 2. The one scale decision
 
@@ -262,6 +318,26 @@ What is left is the half that is a design decision rather than a bug.
         does pack two burn clocks — confirm whether `on_fire_until` is one of
         them, or Hammy's new bar is blank in wifi play for the same reason.
 
+- [ ] **3.5 — Aiming is too sensitive, worst on the throwers.** `P1` `S`
+      *"aiming is too sensitive especially for throwers (thrower range control
+      is too sensitive)" (Dawg Park `Z4IDBGfg`) — from play on a phone, which is
+      the only place it can be judged. Ryder's lane.*
+      The parenthetical is the specific half and the more useful one: for a
+      lobbed weapon the stick's deflection sets **range**, not just direction,
+      so the same thumb travel that is a fine angular adjustment for a rifle is
+      a large change in where a Tony lob lands. The two are being driven off one
+      raw `value` today.
+      - Worth checking whether this is really the *stick* or the **glass**: a
+        drag has no ramp, so `value` goes from 0 to full over a few millimetres
+        of thumb near the deadzone. A response curve on the aim stick would fix
+        both complaints at once and is one function.
+      - **Do not "fix" it by shortening thrower range** — `SHOT_FEEL.md` derives
+        those from the tile unit and `CHARACTER_BUILDING.md` caps them on the
+        up-screen visible distance. This is a control-mapping problem.
+      - `todo 7.2` (Sanjit's range feels too long) is a *different* item; do not
+        merge them. That one is a balance number, this one is the mapping from
+        thumb to lane.
+
 ---
 
 # 4. Characters and art
@@ -352,6 +428,13 @@ What is left is the half that is a design decision rather than a bug.
       **do nothing**. Decide what a level actually changes before wiring
       anything — a stat bump touches `kits.gd`, which `CHARACTER_BUILDING.md`
       derives damage from, so it is a balance change too.
+      - **Noticed from outside**: *"xp doesnt do anything"* (Dawg Park
+        `3zh8QSOi`). Worth knowing that the hole is visible to a player, not
+        only to the person who left it — which is the argument for either
+        wiring it or hiding it, rather than leaving it named and inert.
+      - `todo 5.8` sits on the same decision: Shop sells a gadget and a skin
+        that `SaveGame.grant()` has no case for, and it cannot be fixed until
+        this says what a gadget *is*.
 
 - [ ] **5.5 — Leon, Anders, Hammy and Ayaan have no named unlock.** `P2` `XS`
       `[blocked: a content call]`

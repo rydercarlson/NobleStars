@@ -29,6 +29,36 @@ did not read is a rule you will re-break.** Open the page before editing its are
 Sibling docs at the root: `todo.md`, `done.md`, `ROADMAP.md`, `SHOT_FEEL.md` (weapon feel
 and the tile rescale), `CHARACTER_BUILDING.md` (how a kit is statted).
 
+## The Trello board is the INBOX; `todo.md` is the RECORD
+
+The **Dawg Park** board (`Tools/trello.py`) is where Ryder, Jackson and anyone else drops
+what they noticed, usually from a phone, in their own words — 55 cards on first contact,
+filed by menu surface rather than by priority. It is **upstream** of `todo.md`, not a copy
+of it. Two rules follow, and the second is the one that is easy to get wrong:
+
+- **Never generate cards from `todo.md`.** The obvious build is a mirror, and it is wrong
+  here: pushing thirty synthetic items into a board holding fifty-five hand-written ones
+  buries the only content on it that nobody else could have produced. This was designed as
+  a two-way mirror, then re-designed the moment the board was actually read.
+- **Triage inward, report outward.** A card becomes a `todo.md` entry with a priority, an
+  effort and the reasoning; the card gets a comment saying where it went and what was
+  found. When the work ships, `Tools/trello.py done <shortLink> "<what happened>"` moves it
+  and says so. A card is closed by evidence, never by tidying: `4yGLv4rb` was closed
+  because the bug it described was fixed and verified, and `NTvB4vrU` was left OPEN with a
+  comment because only part of it shipped.
+- **The board finds things the harness cannot.** Four of the first five bugs triaged off it
+  were phone-only and had gone unnoticed for the life of the project, because a desktop
+  window has no safe area and nobody had pressed the buttons. Cite the card's shortLink in
+  the `todo.md` entry so the two stay findable from each other.
+
+Credentials: `TRELLO_KEY` / `TRELLO_TOKEN` in `~/.config/noblestars/trello.env` (mode 600,
+outside the repo) and as GitHub Actions secrets. **The key is public and cannot be reset**
+— Trello says so on its own API Key tab — and the **OAuth Secret sits directly beneath it
+and is also 64 hex characters**, which is close enough to a token's shape to survive every
+eyeball check. It was pasted in as the token and Trello answered `invalid key`, pointing at
+the wrong field entirely; that cost an hour. A real token is ~76 characters and starts
+`ATTA`. `Tools/trello.py whoami` settles it in one command.
+
 ## Update the docs before you finish — this is not optional
 
 Four files carry this project's memory, and they are only worth anything if the session that changed something is the session that writes it down. **A task is not done until they are current.** Check all four at the end of every session, and say in your final message which you touched and which needed nothing.
