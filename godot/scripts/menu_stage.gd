@@ -47,8 +47,12 @@ const FOG_END := 15.0
 ## brightness it filled the frame and took every dim label on the flanks with
 ## it. Same shader, same structure, turned down.
 const GROUND_DIM := 0.30
-const SPIN_PER_PIXEL := 0.012
-const RETURN_DELAY := 2.2
+## Half what it was. A drag that crossed the stage used to spin the fighter
+## nearly two full turns, which on a desktop mouse is one flick.
+const SPIN_PER_PIXEL := 0.006
+## How fast a released spin coasts down, in radians per second per second. It
+## used to be 6.0 and the fighter braked; this glides.
+const SPIN_DRAG := 2.2
 
 var _container: SubViewportContainer
 var _viewport: SubViewport
@@ -412,12 +416,14 @@ func _process(delta: float) -> void:
 	else:
 		_idle_time += delta
 		_spin += _spin_velocity * delta
-		_spin_velocity = move_toward(_spin_velocity, 0.0, 6.0 * delta)
-		if _idle_time > RETURN_DELAY:
-			_spin = lerpf(_spin, 0.0, minf(1.0, 2.0 * delta))
-	# The gentle breathing sway only takes over once the model is back home.
+		_spin_velocity = move_toward(_spin_velocity, 0.0, SPIN_DRAG * delta)
+	# A released spin CARRIES ON in the direction it was going and coasts down
+	# to the idle sway. It used to also lerp back to facing you after a couple
+	# of seconds, which read as the fighter changing his mind and accelerating
+	# the other way — the one motion on this screen nobody asked for. Where he
+	# ends up is where you left him.
 	_sway += delta * 0.6
-	var rest: float = sin(_sway) * 0.22 * clampf(1.0 - absf(_spin) * 2.0, 0.0, 1.0)
+	var rest: float = sin(_sway) * 0.22 * clampf(1.0 - absf(_spin_velocity) * 2.0, 0.0, 1.0)
 	_pivot.rotation.y = _spin + rest
 	if _skel and _model:
 		_ground_feet()

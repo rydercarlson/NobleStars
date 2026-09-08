@@ -2,6 +2,57 @@ class_name MenuPopups
 ## Settings and Profile — web-menu/src/screens/settings.js. Both are popups
 ## rather than screens, so the auditorium stays visible behind them.
 
+## What the three bars in the top-right corner open. It used to open Settings
+## directly, which is why a control shaped like a menu felt broken: a hamburger
+## that is a single destination is a button wearing a menu's clothes. These are
+## the places the bottom nav does not go.
+static func main_menu(shell: MenuShell) -> MenuPopup:
+	var popup: MenuPopup = shell.popup("Menu", 620)
+	var column := MenuUI.vbox(10)
+	popup.body_box.add_child(column)
+	column.add_child(_destination(shell, popup, "avatar", "PROFILE",
+			"Your name, trophies and matches", func() -> void: profile(shell)))
+	column.add_child(_destination(shell, popup, "bulldog", "EVENTS",
+			"Pick the mode you play", func() -> void: shell.show_screen("modes")))
+	column.add_child(_destination(shell, popup, "gear", "SETTINGS",
+			"Sound, hints and this device's save", func() -> void: settings(shell)))
+	return popup
+
+## One row of that menu: a glyph, a name over a line of what it is, a chevron.
+static func _destination(shell: MenuShell, popup: MenuPopup, icon_name: String,
+		name_text: String, sub: String, action: Callable) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(0, 104)
+	for state in ["normal", "focus", "disabled"]:
+		b.add_theme_stylebox_override(state, MenuUI.flat_box(MenuUI.INK, MenuUI.RULE, 0))
+	b.add_theme_stylebox_override("hover", MenuUI.flat_box(MenuUI.PANEL_HI, MenuUI.GOLD, 0))
+	b.add_theme_stylebox_override("pressed", MenuUI.flat_box(MenuUI.INK, MenuUI.GOLD, 0))
+	MenuUI.press_feedback(b)
+	b.pressed.connect(func() -> void:
+		shell.sfx("click")
+		popup.close_screen()
+		action.call())
+	var row := MenuUI.hbox(18)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 20
+	row.offset_right = -20
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+	var glyph: TextureRect = MenuUI.pack_icon(icon_name, 44)
+	glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(glyph)
+	var text := MenuUI.vbox(0)
+	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(text)
+	text.add_child(MenuUI.display(name_text, 38))
+	text.add_child(MenuUI.label(sub, 22, MenuUI.TEXT_DIM))
+	var chevron: Label = MenuUI.display("›", 44, MenuUI.TEXT_SOFT)
+	chevron.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(chevron)
+	return b
+
 ## Music / SFX / hints toggles, name change, support and reset.
 static func settings(shell: MenuShell) -> MenuPopup:
 	var popup: MenuPopup = shell.popup("Settings")

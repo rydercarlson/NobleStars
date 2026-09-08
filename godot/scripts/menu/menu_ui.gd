@@ -480,40 +480,57 @@ const NAV_H := 150.0
 const NAV_TAB_W := 190.0
 const NAV_TAB_H := 100.0
 
-static func nav_tab(text: String, _icon_name: String = "") -> Button:
-	# Built like `link`: the button carries the word itself, so it sizes to it.
+## A picture over a word, with a gold bar right under the word when it is the
+## place you are. It was a word alone with the bar pinned to the bottom of a
+## 100px button, which put four blank pixels-worth of nothing between the two
+## and made the bar read as a rule under the whole row rather than as a mark on
+## one tab. Icons because a row of four words is slower to aim at than a row of
+## four pictures, and because that is the shape a thumb learns.
+static func nav_tab(text: String, icon_name: String = "") -> Button:
 	var b := Button.new()
-	b.text = text.to_upper()
 	b.flat = true
-	b.custom_minimum_size = Vector2(0, NAV_TAB_H)
-	b.add_theme_font_override("font", _spaced(label_font(), 5))
-	b.add_theme_font_size_override("font_size", 30)
-	for state in ["font_color", "font_hover_color", "font_pressed_color",
-			"font_focus_color", "font_disabled_color"]:
-		b.add_theme_color_override(state, TEXT_DIM)
-	var clear: StyleBoxFlat = flat_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 8, 0)
+	b.custom_minimum_size = Vector2(NAV_TAB_W * 0.62, NAV_TAB_H)
+	var clear: StyleBoxFlat = flat_box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 0)
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 		b.add_theme_stylebox_override(state, clear)
+
+	var column := vbox(4)
+	column.alignment = BoxContainer.ALIGNMENT_END
+	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	column.offset_bottom = -10
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(column)
+	var glyph: TextureRect = pack_icon(icon_name, 44)
+	glyph.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(glyph)
+	var word: Label = label(text, 26, TEXT_DIM)
+	word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(word)
+
 	var bar := ColorRect.new()
 	bar.color = GOLD
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.anchor_top = 1.0
 	bar.anchor_bottom = 1.0
 	bar.anchor_right = 1.0
-	bar.offset_left = 8
-	bar.offset_right = -8
+	bar.offset_left = 10
+	bar.offset_right = -10
 	bar.offset_top = -4
 	bar.offset_bottom = 0
 	bar.visible = false
 	b.add_child(bar)
 	b.set_meta("nav_bar", bar)
+	b.set_meta("nav_word", word)
+	b.set_meta("nav_glyph", glyph)
 	press_feedback(b)
 	return b
 
 static func set_nav_active(b: Button, active: bool) -> void:
 	var bar: ColorRect = b.get_meta("nav_bar")
-	for state in ["font_color", "font_hover_color", "font_focus_color"]:
-		b.add_theme_color_override(state, TEXT if active else TEXT_DIM)
+	var word: Label = b.get_meta("nav_word")
+	var glyph: TextureRect = b.get_meta("nav_glyph")
+	word.add_theme_color_override("font_color", TEXT if active else TEXT_DIM)
+	glyph.modulate = Color.WHITE if active else Color(1, 1, 1, 0.55)
 	bar.visible = active
 
 ## A rounded card with a one-pixel edge: the ability write-ups, the record.
@@ -645,13 +662,20 @@ static func stat_bar_row(icon_name: String, key: String, value: String, unit: St
 	middle.add_child(track)
 	set_bar(track, ratio, false)
 	row.add_child(spacer())
+	# The figure and its unit are one reading, so they sit in a box of their own
+	# with 6px between them rather than the row's 18 — and the unit is TEXT_DIM,
+	# not TEXT_FAINT, which at this size was grey on grey.
+	var pair := hbox(6)
+	pair.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(pair)
 	var figure: Label = display(value, 40, TEXT)
 	figure.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(figure)
+	pair.add_child(figure)
 	if unit != "":
-		var u: Label = label(unit, 20, TEXT_FAINT)
-		u.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		row.add_child(u)
+		var u: Label = label(unit, 22, TEXT_DIM)
+		u.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		pair.add_child(u)
 	return row
 
 ## A row inside the record card: gold glyph, name, figure.

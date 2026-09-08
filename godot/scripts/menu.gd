@@ -39,7 +39,7 @@ var _currency_labels: Array = []   # [{label, kind}]
 ## It lives here rather than on the home screen so a pushed screen keeps it —
 ## the tab you are on stays gold, and switching is one tap, not back-then-tap.
 const NAV_TABS := [["ROSTER", "roster", "shield"], ["SEASON", "season", "pass"],
-		["SHOP", "shop", "shop"], ["WIFI", "wifi", "online"]]
+		["SHOP", "shop", "shop"], ["WIFI", "wifi", "wifi"]]
 var nav_bar: HBoxContainer
 var _nav_buttons: Dictionary = {}   # target -> Button
 
@@ -252,6 +252,36 @@ func _build_floor_ring() -> void:
 	_place_at_feet(ring, RING_SIZE)
 	stage.add_child(ring)
 	_ring = ring
+	_build_foot_shadow()
+
+## A soft dark ellipse under the fighter. He casts a real shadow in the 3D
+## viewport — the sun is set up for it and every mesh has casting on — but
+## there is nothing in there to receive it: the floor was taken out when the
+## stage became a painting, so the shadow fell through the world and he read
+## as pasted onto the picture rather than standing on it. This is drawn under
+## him in 2D, between the ring and the viewport, which is the cheap half of a
+## contact shadow and the half that does the work.
+func _build_foot_shadow() -> void:
+	var shadow := TextureRect.new()
+	var tex := GradientTexture2D.new()
+	var g := Gradient.new()
+	g.set_color(0, Color(0, 0, 0, 0.55))
+	g.set_color(1, Color(0, 0, 0, 0.0))
+	# A middle stop keeps the core dark instead of fading from the centre out,
+	# which reads as a smudge rather than as contact with the ground.
+	g.add_point(0.45, Color(0, 0, 0, 0.34))
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 256
+	tex.height = 256
+	shadow.texture = tex
+	shadow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	shadow.stretch_mode = TextureRect.STRETCH_SCALE
+	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_place_at_feet(shadow, Vector2(360, 112))
+	stage.add_child(shadow)
 
 ## Centred under the feet by PROPORTION of the stage (HomeScreen.FEET_FRAC),
 ## not by a pixel row: MenuStage frames the fighter to the stage height, so on
@@ -403,12 +433,16 @@ func show_screen(name: String) -> void:
 			pop_all()
 		"roster", "fighters", "brawlers":
 			push_screen(RosterScreen.new())
+		"brawler", "detail":
+			open_brawler(selected_brawler())
 		"modes", "events":
 			push_screen(ModesScreen.new())
 		"shop":
 			push_screen(ShopScreen.new())
-		"season", "pass", "road", "trophy-road":
+		"season", "pass":
 			push_screen(SeasonScreen.new())
+		"road", "trophy-road":
+			push_screen(TrophyRoadScreen.new())
 		"settings":
 			MenuPopups.settings(self)
 		"profile":
@@ -425,6 +459,16 @@ func show_screen(name: String) -> void:
 			push_screen(host)
 			host.add_child(room)
 			room.refresh()   # the old shell refreshed a screen when it showed it
+
+## One fighter's page. Takes the fighter rather than reading the selection,
+## because the roster opens it for a fighter you have not chosen — looking at
+## someone and picking them are two different gestures now.
+func open_brawler(b: Dictionary) -> void:
+	if b.is_empty():
+		return
+	var screen := BrawlerScreen.new()
+	screen.brawler = b
+	push_screen(screen)
 
 func _update_stage_dim() -> void:
 	# A pushed screen covers the stage completely, so the 3D view is not merely

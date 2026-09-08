@@ -103,6 +103,10 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 		"gear": str(entry.get("gear", "")),
 		"hypercharge": str(entry.get("hypercharge", "")),
 	}
+	# Damage travels with each ability, because a card that names an ability and
+	# does not say what it hits for is the one question every player asks of it.
+	# `hits` is the projectile count: a shotgun's 333 is per pellet, and 333
+	# printed alone under-reads its Super by a factor of nine.
 	var atk: Dictionary = entry.get("attack", {})
 	out["attack"] = {
 		"name": str(atk.get("name", out.role if out.role != "" else "Attack")),
@@ -110,12 +114,17 @@ static func _merge(entry: Dictionary, kit: Dictionary, id: String) -> Dictionary
 		# The kits.gd Style name in lower case ("slalom"), which is how the home
 		# screen picks the glyph on the ability's medallion (svg/style_*.svg).
 		"style": _style_name(weapon),
+		"damage": int(weapon.get("damage", 0)),
+		"hits": maxi(1, int(weapon.get("pellets", 1))),
 	}
 	var sup: Dictionary = entry.get("super", {})
+	var super_kit: Dictionary = kit.get("super", {})
 	out["super"] = {
 		"name": str(sup.get("name", "Super")),
 		"text": str(sup.get("text", kit.get("super_desc", ""))),
-		"style": _style_name(kit.get("super", {})),
+		"style": _style_name(super_kit),
+		"damage": int(super_kit.get("damage", 0)),
+		"hits": maxi(1, int(super_kit.get("pellets", 1))),
 	}
 	if out.unlock_hint == "" and not starting_brawlers().has(id):
 		out.unlock_hint = "Found in Brawler Drops"
@@ -225,6 +234,22 @@ static func engine_mode(id: String) -> String:
 	if id.begins_with("showdown"):
 		return "showdown"
 	return "cup" if id == "nobles_cup" else id
+
+## A fighter's rank from their trophies, and the band it sits in. Rank r starts
+## at 4(r-1)^2 trophies, so the bands widen the way Brawl Stars' do — and a bar
+## needs the band, not just the number, or "RANK 6" says nothing about whether
+## you are one match or forty from seven.
+const RANK_MAX := 35
+
+static func rank_of(trophies: int) -> int:
+	return clampi(int(floor(sqrt(float(maxi(0, trophies)) / 4.0))) + 1, 1, RANK_MAX)
+
+## [start, next] trophy counts for a rank. `next` is -1 at the ceiling.
+static func rank_span(rank: int) -> Array:
+	var lo: int = 4 * (rank - 1) * (rank - 1)
+	if rank >= RANK_MAX:
+		return [lo, -1]
+	return [lo, 4 * rank * rank]
 
 static func speed_label(v: float) -> String:
 	if v <= Kits.SPEED_VERY_SLOW + 0.01:
