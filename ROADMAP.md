@@ -61,8 +61,10 @@ Ten things. Beta is when all ten are true — not when a date arrives.
    answer changes the size by an order of magnitude.
 6. **Wifi multiplayer playable.** Showdown over LAN works today. See **D4** for
    whether Nobles Cup has to be hostable too.
-7. **Menus that are not sucky.** Jackson's call what that means; his redesign
-   idea is the input the roadmap is waiting on (**D1**).
+7. **Menus that are not sucky.** Jackson's call what that means. **D1** is
+   answered and most of it is built (Phase 2). What is left is judged rather
+   than listed: the ability art, a pass over the copy, and seeing it on a
+   handset.
 8. **A real progression system.** Trophies, coins, gems and Power Points are
    already banked and spent. Power levels, Star Powers and gadgets are named and
    **do nothing**.
@@ -211,18 +213,22 @@ should not block each other.*
 | ~~**Jackson**~~ | ~~Write the redesign idea down~~ — done 6 Sep | — | **D1** answered |
 | **Jackson** | Build it — the lobby/detail split, roster, Season, Trophy Road, Shop, Events and Settings are in; ability art and a phone look remain | M | `todo 5.1`, `todo 5.3` |
 | **Jackson** | The party surface — the menu half | L | **D10** |
-| ~~**Jackson**~~ | ~~Roster as tiles, not rows~~ — **done** 7 Sep, portrait tiles on kit-colour grounds | S | — |
+| ~~**Jackson**~~ | ~~Roster as tiles, not rows~~ — **done**; rebuilt again 7 Sep as a sideways **rail** of faces, with the picture opening a fighter's page and SELECT picking them | S | — |
 | **Jackson** | Map select and map thumbnails | M | pipeline 2 |
 | **Jackson** | Wire or delete the dead JSON | M | `todo 5.6` |
 | **Jackson** | Draw the art the JSON already describes | M | `todo 5.7`, pipeline 3 |
-| ~~Jackson~~ | ~~The app icon~~ — **done**, flat gold-on-ink in the menu's own language | S | — |
+| ~~Jackson~~ | ~~The app icon~~ — **done**, then replaced: Ryder dropped in a new one 7 Sep (`a462dcc`), marked "temporary?" in his own commit | S | — |
 | **Ryder** | Decide what a power level changes | M | **D3** |
 | **Jackson** | Wire progression once **D3** lands | L | `todo 5.4` |
 
-**Nothing in this phase starts before the idea is written down.** "Not sucky
-menus" is not a specification, and the current design is internally consistent
-enough that a partial redesign will read worse than either the old one or the
-new one. Write the idea into this file first (**D1**).
+**That gate is lifted.** This paragraph used to read "nothing in this phase
+starts before the idea is written down", which was right and is now history:
+**D1** was answered 6 Sep and the phase ran a long way on it. What shipped since
+is in `done.md` — the lobby split from a fighter's page, the roster rail, the
+Trophy Road on its own page, the Shop as shelves, Settings as a page with volume
+on it, and on 8 Sep the nav moved to a **column down the left**, which is a
+deliberate borrow: most of the people who will play this arrive from Brawl
+Stars, so the muscle memory is worth more than the originality.
 
 **Progression is split down the middle and that is deliberate.** What a level
 *changes* is a balance decision — it touches `kits.gd`, which
